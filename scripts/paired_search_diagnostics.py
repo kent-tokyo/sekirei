@@ -129,26 +129,57 @@ def idle_snapshot_state(snapshot) -> str:
     return "busy" if processes else "idle"
 
 
+def capacity_snapshot(output: Path, minimum_free_mib: int) -> dict:
+    """Sample this output filesystem; this is neither a reservation nor isolation."""
+    snapshot = {"path": str(output.resolve()), "minimum_free_bytes": minimum_free_mib * 1024**2}
+    try:
+        free = shutil.disk_usage(output).free
+        if type(free) is not int or free < 0:
+            raise ValueError("invalid free disk byte count")
+        return {**snapshot, "available": True, "free_bytes": free,
+                "floor_pass": free >= snapshot["minimum_free_bytes"]}
+    except (OSError, ValueError, TypeError, AttributeError) as error:
+        return {**snapshot, "available": False, "free_bytes": None,
+                "floor_pass": False, "error": str(error)}
+
+
 def wait_for_idle(manifest: dict, save_manifest, initial_activity: dict,
-                  started: float, request: dict) -> bool:
+                  started: float, request: dict, output: Path | None = None) -> bool:
     """Bounded preflight admission, not continuous host isolation."""
     admission = manifest["idle_admission"]
     deadline = started + request["wait_seconds"]
     activity = initial_activity
     consecutive = 0
+    qualified_consecutive = 0
+    minimum_free_mib = request.get("minimum_free_mib", 0)
+    if minimum_free_mib and output is None:
+        raise ValueError("capacity admission requires an output filesystem")
+    timeout_status = "blocked_host_resources" if minimum_free_mib else "blocked_host_busy"
+    timeout_error = ("idle/capacity admission timed out; no processes stopped" if minimum_free_mib
+                     else "idle admission timed out; no processes stopped")
     while True:
         elapsed = time.monotonic() - started
         saved_activity, state = record_idle_snapshot(activity)
         consecutive = consecutive + 1 if state == "idle" else 0
-        admission["samples"].append({"sample_index": len(admission["samples"]),
-                                     "observed_at_utc": datetime.now(timezone.utc).isoformat(),
-                                     "elapsed_seconds": elapsed, "state": state,
-                                     "consecutive_idle_samples": consecutive,
-                                     "host_activity": saved_activity})
+        sample = {"sample_index": len(admission["samples"]),
+                  "observed_at_utc": datetime.now(timezone.utc).isoformat(),
+                  "elapsed_seconds": elapsed, "state": state,
+                  "consecutive_idle_samples": consecutive, "host_activity": saved_activity}
+        qualified = state == "idle"
+        if minimum_free_mib:
+            capacity = capacity_snapshot(output, minimum_free_mib)
+            qualified = qualified and capacity["floor_pass"]
+            qualified_consecutive = qualified_consecutive + 1 if qualified else 0
+            sample.update(capacity=capacity, qualified=qualified,
+                          consecutive_qualified_samples=qualified_consecutive)
+            admission["consecutive_qualified_samples"] = qualified_consecutive
+        else:
+            qualified_consecutive = consecutive
+        admission["samples"].append(sample)
         admission.update(elapsed_seconds=elapsed, consecutive_idle_samples=consecutive)
         if time.monotonic() > deadline:
             admission["status"] = "timeout"
-        elif consecutive >= request["stable_samples"]:
+        elif qualified_consecutive >= request["stable_samples"]:
             admission["status"] = "admitted"
             manifest["host_activity_before"] = saved_activity
             save_manifest()
@@ -156,8 +187,7 @@ def wait_for_idle(manifest: dict, save_manifest, initial_activity: dict,
         elif time.monotonic() >= deadline:
             admission["status"] = "timeout"
         if admission["status"] == "timeout":
-            manifest.update(status="blocked_host_busy", timing_qualified=False,
-                            error="idle admission timed out; no processes stopped")
+            manifest.update(status=timeout_status, timing_qualified=False, error=timeout_error)
             save_manifest()
             return False
         save_manifest()
@@ -165,15 +195,13 @@ def wait_for_idle(manifest: dict, save_manifest, initial_activity: dict,
         if remaining < request["poll_seconds"]:
             time.sleep(max(0, remaining))
             admission.update(status="timeout", elapsed_seconds=time.monotonic() - started)
-            manifest.update(status="blocked_host_busy", timing_qualified=False,
-                            error="idle admission timed out; no processes stopped")
+            manifest.update(status=timeout_status, timing_qualified=False, error=timeout_error)
             save_manifest()
             return False
         time.sleep(request["poll_seconds"])
         if time.monotonic() > deadline:
             admission.update(status="timeout", elapsed_seconds=time.monotonic() - started)
-            manifest.update(status="blocked_host_busy", timing_qualified=False,
-                            error="idle admission timed out; no processes stopped")
+            manifest.update(status=timeout_status, timing_qualified=False, error=timeout_error)
             save_manifest()
             return False
         activity = host_activity(strict=True)
@@ -196,7 +224,7 @@ def verify_admission_inputs(manifest: dict, output: Path) -> None:
     expected = [(Path(engine["path"]), engine["sha256"])
                 for engine in manifest["engines"].values()]
     expected += [(output / "positions.input", manifest["positions_sha256"])]
-    expected += [(Path(__file__).with_name(name), digest)
+    expected += [(Path(__file__).parent / name, digest)
                  for name, digest in manifest["measurement_source_sha256"].items()]
     for path, digest in expected:
         if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
@@ -379,6 +407,8 @@ def main() -> int:
                         help="interval between idle snapshots (1..60 seconds)")
     parser.add_argument("--idle-stable-samples", type=int, default=3,
                         help="consecutive idle snapshots required (2..60)")
+    parser.add_argument("--idle-min-free-mib", type=int, default=0,
+                        help="opt-in output-filesystem free MiB floor; requires idle wait (0 disables)")
     parser.add_argument("--source-ref", help="document actual built source state; never inferred from binary timestamp")
     args = parser.parse_args()
     if option_value(args.option, "MoveOverhead") is None:
@@ -396,6 +426,10 @@ def main() -> int:
             raise ValueError("idle poll must be finite and between 1 and 60 seconds")
         if not 2 <= args.idle_stable_samples <= 60:
             raise ValueError("idle stable samples must be between 2 and 60")
+        if args.idle_min_free_mib < 0:
+            raise ValueError("idle minimum free MiB must be nonnegative")
+        if args.idle_min_free_mib and not args.idle_wait_seconds:
+            raise ValueError("idle minimum free MiB requires enabled idle wait")
         if args.idle_wait_seconds:
             if not math.isfinite(args.timeout) or args.timeout <= 0:
                 raise ValueError("idle admission requires a finite positive timeout")
@@ -450,12 +484,15 @@ def main() -> int:
                        for side_options in (args.a_option, args.b_option))
     host_idle = activity["available"] and not activity["busy_processes"]
     timing_qualified = args.nodes is None and host_idle and not args.diagnostics and not any(latency_requested.values()) and not any(prestart_diag_requested.values())
+    measurement_sources = ["paired_search_diagnostics.py", "nps_threads.py"]
+    if args.idle_wait_seconds:
+        measurement_sources += ["sekirei_tools/__init__.py", "sekirei_tools/artifacts.py"]
     manifest = {
         "schema": "sekirei.paired-search-manifest.v1", "status": "running",
         "started_at_utc": datetime.now(timezone.utc).isoformat(), "engines": frozen,
         "source_ref": args.source_ref, "source_ref_verified": False,
-        "measurement_source_sha256": {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
-                                      for name in ("paired_search_diagnostics.py", "nps_threads.py")},
+        "measurement_source_sha256": {name: hashlib.sha256((Path(__file__).parent / name).read_bytes()).hexdigest()
+                                      for name in measurement_sources},
         "positions_sha256": hashlib.sha256(source_data).hexdigest(),
         "effective_positions_sha256": effective_positions_sha256(positions),
         "effective_position_count": len(positions), "threads": threads, "repeats": args.repeats,
@@ -480,6 +517,8 @@ def main() -> int:
     if args.idle_wait_seconds:
         request = {"wait_seconds": args.idle_wait_seconds, "poll_seconds": args.idle_poll_seconds,
                    "stable_samples": args.idle_stable_samples}
+        if args.idle_min_free_mib:
+            request["minimum_free_mib"] = args.idle_min_free_mib
         configuration["idle_admission_request"] = request
         manifest["idle_admission"] = {"schema": "sekirei.idle-search-admission.v1",
                                       "request": request, "status": "waiting", "samples": [],
@@ -487,16 +526,34 @@ def main() -> int:
         manifest.update(status="waiting_idle_admission", timing_qualified=False, completed_searches=0)
     manifest["configuration_sha256"] = hashlib.sha256(json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     def save_manifest():
-        (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        if args.idle_wait_seconds:
+            # Keep freeze()/host snapshot consumers independent of this package.
+            import sekirei_tools
+            from sekirei_tools import artifacts
+            for module, relative in ((sekirei_tools, "sekirei_tools/__init__.py"),
+                                     (artifacts, "sekirei_tools/artifacts.py")):
+                location = getattr(module, "__file__", None)
+                if not location or Path(location).resolve() != (Path(__file__).parent / relative).resolve():
+                    raise ValueError("idle admission helper differs from fingerprinted source")
+            artifacts.atomic_write_json(args.output / "manifest.json", manifest)
+        else:
+            (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     save_manifest()
     if args.idle_wait_seconds:
         idle_started = time.monotonic()
         try:
             activity = host_activity(strict=True)
-            if not wait_for_idle(manifest, save_manifest, activity, idle_started, request):
+            if not wait_for_idle(manifest, save_manifest, activity, idle_started, request, args.output):
                 print(json.dumps({"error": manifest["error"], "idle_admission": manifest["idle_admission"]}))
                 return 2
             verify_admission_inputs(manifest, args.output)
+            if args.idle_min_free_mib:
+                manifest["capacity_before_dispatch"] = capacity_snapshot(args.output, args.idle_min_free_mib)
+                if not manifest["capacity_before_dispatch"]["floor_pass"]:
+                    manifest.update(status="blocked_capacity_before_dispatch", timing_qualified=False,
+                                    error="output filesystem capacity unavailable or below requested floor")
+                    save_manifest()
+                    return 2
             activity = manifest["host_activity_before"]
             host_idle = True
             manifest.update(status="running", timing_qualified=True)
@@ -515,6 +572,14 @@ def main() -> int:
     try:
         with (args.output / "rows.jsonl").open("x") as output:
             for repeat, count, position, slot, side in schedule(threads, len(positions), args.repeats):
+                if args.idle_min_free_mib:
+                    capacity = capacity_snapshot(args.output, args.idle_min_free_mib)
+                    manifest.setdefault("capacity_before_search", []).append(
+                        {"sequence": len(rows), "side": side, "capacity": capacity})
+                    manifest["completed_searches"] = len(rows)
+                    save_manifest()
+                    if not capacity["floor_pass"]:
+                        raise ValueError("output filesystem capacity unavailable or below requested floor before search")
                 options = ["SearchMode=LazySMP", "SpecTopN=0"] + args.option + (args.a_option if side == "A" else args.b_option)
                 require_hint = args.require_transfer and int(option_value(options, "LazyFlags") or 0) & 2048 != 0
                 lane = argparse.Namespace(engine=frozen[side]["path"], yaneuraou=False, evalfile=None, fv_scale=24,
@@ -541,6 +606,8 @@ def main() -> int:
                 output.flush()
         summary = summarize(rows, fixed_depth=args.depth is not None, require_identity=not args.policy_diagnostic)
         (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+        if args.idle_wait_seconds:
+            verify_admission_inputs(manifest, args.output)
         manifest["status"] = "complete"
         if args.idle_wait_seconds:
             manifest["completed_searches"] = len(rows)
@@ -548,6 +615,10 @@ def main() -> int:
             manifest["host_activity_after"], state = record_idle_snapshot(host_activity(strict=True))
             if state != "idle":
                 manifest["timing_qualified"] = False
+            if args.idle_min_free_mib:
+                manifest["capacity_after"] = capacity_snapshot(args.output, args.idle_min_free_mib)
+                if not manifest["capacity_after"]["floor_pass"]:
+                    manifest["timing_qualified"] = False
         else:
             manifest["host_activity_after"] = host_activity()
             if not manifest["host_activity_after"]["available"] or manifest["host_activity_after"]["busy_processes"]:

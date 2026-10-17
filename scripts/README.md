@@ -111,11 +111,25 @@ fixed-depth/node budgets or counter-enabled lanes cannot use this admission.
 The wait deadline uses a monotonic clock; an OS inspection can add its command
 timeout, so it is not a hard real-time bound.
 
+Add `--idle-min-free-mib 1024 --idle-stable-samples 5` to require both an
+idle CPU snapshot and at least 1 GiB free on the output filesystem for five
+consecutive samples. The capacity option defaults to zero and requires a
+positive idle wait. Low or unavailable capacity resets the joint count while
+the original CPU state/count remain separate. A timeout closes the output as
+`blocked_host_resources` with zero searches. Capacity is checked again after
+input verification, before each ABBA search and at postflight. A refusal before
+the first dispatch returns `blocked_capacity_before_dispatch`; loss before a
+later search leaves an incomplete run with its completed-search count. A low
+postflight sample disqualifies timing even when all searches completed. These
+are sampled checks, not disk reservation or monitoring inside a search.
+
 The manifest retains the request, sample history and final admission decision.
-Frozen engines/corpus and measurement-source hashes are rechecked before
-searching. The usual postflight load guard remains required. Samples do not
-prove continuous host isolation. Use a new output directory under a prospective
-protocol; this feature does not reopen or qualify previously closed studies,
+Enabled idle runs atomically replace the manifest using the fingerprinted
+artifact helper; a failure before replacement preserves the earlier document.
+Frozen engines/corpus and measurement-source hashes are rechecked before and
+after searching. The usual postflight load guard remains required. Samples do
+not prove continuous host isolation. Use a new output directory under a
+prospective protocol; this feature does not reopen or qualify previously closed studies,
 and does not replace independent match-input/exclusion requirements.
 
 Historical reports in `benchmark_reports/` apply only to their recorded host,
