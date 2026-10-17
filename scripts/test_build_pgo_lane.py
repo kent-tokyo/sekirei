@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""Unit tests for the fail-closed compiler PGO lane."""
+
+import argparse
+import sys
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from build_pgo_lane import cargo_build, encoded_rustflags, parse_threads, require_clean_source  # noqa: E402
+
+
+class PgoLaneTests(unittest.TestCase):
+    def test_threads_require_positive_unique_integers(self):
+        self.assertEqual(parse_threads("4,8"), [4, 8])
+        for value in ("", "4,4", "0,8", "four,8"):
+            with self.subTest(value=value), self.assertRaises(argparse.ArgumentTypeError):
+                parse_threads(value)
+
+    def test_encoded_flags_preserve_native_cpu_and_do_not_depend_on_config_precedence(self):
+        flags = encoded_rustflags("-C", "profile-generate=/tmp/raw")
+        self.assertEqual(
+            flags.split("\x1f"),
+            ["-C", "target-cpu=native", "-C", "profile-generate=/tmp/raw"],
+        )
+
+    def test_dirty_source_is_rejected_before_any_build(self):
+        with patch("build_pgo_lane.git_output", return_value=" M scripts/x.py"):
+            with self.assertRaisesRegex(ValueError, "clean source"):
+                require_clean_source()
+
+    def test_native_build_uses_cargo_target_dir_without_a_host_subdirectory(self):
+        target_dir = Path("/tmp/pgo-target")
+        expected = target_dir / "release" / "sekirei"
+        with patch("build_pgo_lane.checked"), patch.object(Path, "is_file", return_value=True):
+            self.assertEqual(cargo_build(target_dir, None), expected)
+
+
+if __name__ == "__main__":
+    unittest.main()

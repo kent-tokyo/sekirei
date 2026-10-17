@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import verify_release_publication as vrp  # noqa: E402
 from validate_release_manifest import validate  # noqa: E402
 
-PLANNED = Path(__file__).parents[1] / "release-manifest-v0.3.59.json"
+PLANNED = Path(__file__).parents[1] / "docs/releases/manifests/release-manifest-v0.3.59.json"
 ASSET = b"wasm package bytes"
 
 

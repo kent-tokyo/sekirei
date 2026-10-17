@@ -40,18 +40,38 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 | `check_public_surface.py` | Prevents internal roadmap material from entering Git and checks license references. |
 | `check_documentation_references.py` | Verifies local links in both READMEs. |
 | `validate_release_manifest.py` | Validates release-manifest schema and referenced artifacts. |
+| `check_release_manifest_layout.py` | Requires only the current manifest in the repository root and verified historical manifests under `docs/releases/manifests/`. |
 | `verify_release_publication.py` | After publication, checks every crate on crates.io (present, not yanked) and the WebAssembly asset's SHA-256 and size; `--write` records `publish.status=verified` and the workflow run in the manifest. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. The v2 HalfKP contract additionally requires hashed training-shard and whole-game hold-out manifests, raw 1/4-thread current-engine gate evidence, and an exact engine commit. |
 | `validate_nnue_candidate_card.py` | Validates an unpublished self-NNUE candidate card and, with `--artifact`, its size, SHA-256, HalfKP header, descriptor, and FV scale. It cannot authorize distribution or a default evaluator. |
+| `validate_nnue_cpu_pilot.py` | Validates a frozen, short AWS CPU-pilot plan only after a colour-reversed material gate, complete candidate/data/resume evidence, and an observed CPU-dominant bottleneck. It does not provision cloud resources. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
 | `run_ab_match.py` | Fixed-protocol local A/B, paired SPRT, or node-limited YaneuraOu measurement. It hashes inputs and fails closed on incomplete or inconsistent JSONL, kifu, snapshots, or result sidecars. Material-only, one thread and `SpecTopN=0` are the defaults. |
 | `launch_floodgate_once.py` | Starts one rendered bounded Floodgate LaunchAgent without combining `RunAtLoad=true` and `kickstart`; refuses registered labels and records the single-run acceptance receipt. |
-| `nps_threads.py` | Thread-scaling diagnostic for NPS, completed depth, best-move stability and optional Lazy SMP/TT/root-hint counters. Counter-enabled runs are separate from speed runs. It completes new-game readiness before setting the position because some engines reset their board on `isready`. |
+| `nps_threads.py` | Thread-scaling diagnostic for NPS, completed depth, best-move stability and optional Lazy SMP/TT/root-hint counters. `--summary-json` binds TT reuse, sampled overlap, discarded root work and worker-node balance for 4T/8T diagnosis. Counter-enabled runs are separate from speed runs; no output qualifies a speed or Elo claim. It completes new-game readiness before setting the position because some engines reset their board on `isready`. |
 | `paired_search_diagnostics.py` | Fresh-process A/B/B/A comparison for one search factor. Separates deterministic signatures, counter-free timing and opt-in parallel diagnostics; it does not estimate Elo. |
+| `build_pgo_lane.py` | Creates native, instrumented, and profile-use binaries from one clean source state using a fresh material-only compiler-profile corpus. It records the source, toolchain, corpus, profile and binary hashes. It does not qualify speed, strength, or default adoption; freeze the emitted binaries into a separate host-qualified benchmark or match gate. |
 | `generate_search_diagnostic.py` | Creates new seeded, score-blind quiet/tactical diagnostic positions from Sekirei legal playouts and rule probes, with complete replay and executable-hash provenance. Reads no training corpus or external evaluator. Diagnostic-only; do not reuse as an independent gate. |
 | `validate_paired_pv.py` | Freezes the Rust legal-move tool and replays every recorded PV, checking its bestmove prefix and each legal transition. Fails on incomplete runs or illegal PVs. This is a same-rules contract check, not an independent oracle or a proof of mate scores. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
 | `check_rust_coverage.sh` | Runs the default workspace, opening-book tests, isolated tunable-search contracts, a bounded trainer smoke, and native WASM API contracts under `cargo-llvm-cov`; emits LCOV/JSON and fails below the documented 98% engine/library line-coverage contract. |
+
+### Before an EC2 CPU pilot
+
+Keep a pilot plan outside the repository with every referenced artifact next to
+it, then validate it before provisioning anything:
+
+```bash
+python3 scripts/validate_nnue_cpu_pilot.py /path/to/frozen-pilot.json
+```
+
+The plan is intentionally rejected unless the candidate has passed a
+colour-reversed material gate, the data/whole-game hold-out/checkpoint-resume
+evidence hashes match, and a local measurement resolves correctness, teacher,
+and model-design concerns before identifying one CPU-dominant phase. It also
+requires a bounded AWS CPU workload, duration, required throughput/RSS/resume
+metrics, and hard stop conditions. Passing this check defines a pilot; it does
+not provision infrastructure or approve the candidate for release.
 
 ## Measurement and rules diagnostics
 
@@ -388,6 +408,7 @@ until their archived evidence no longer depends on their exact behavior.
 python3 scripts/check_documentation_references.py
 python3 scripts/check_public_surface.py
 python3 scripts/check_release_metadata.py
+python3 scripts/check_release_manifest_layout.py
 ```
 
 Prefer one parameterized tool over near-duplicate wrappers. Retire one-off

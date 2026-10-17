@@ -51,6 +51,9 @@ from nps_threads import (  # noqa: E402
     summarize_lazy_root_work,
     summarize_lazy_tt,
     summarize_selected_tt_reuse,
+    summarize_lazy_worker_balance,
+    summarize_thread_measurements,
+    parallel_profile,
 )
 
 
@@ -1457,6 +1460,118 @@ class CooperativePrestartCapTests(unittest.TestCase):
                     self.assertEqual(row["provenance"]["timing_qualified"], node_limit is None and not diagnostic)
                     if node_limit is not None:
                         self.assertEqual(row["node_limit_overshoot"], 30)
+
+class ParallelProfileTests(unittest.TestCase):
+    @staticmethod
+    def rows():
+        workers = [
+            {"worker": 0, "nodes": 70},
+            {"worker": 1, "nodes": 30},
+        ]
+        lazy_smp = {
+            "worker_stats": workers,
+            "stop_lag_ms": 4,
+            "discarded_root_nodes": 25,
+            "divergent_discarded_nodes": 10,
+            "selected_tt_local_hits": 30,
+            "selected_tt_foreign_hits": 10,
+            "selected_tt_unknown_hits": 2,
+        }
+        lazy_tt = {
+            "probes": 100,
+            "hits": 50,
+            "attempted": 20,
+            "committed": 18,
+            "same_hash": 4,
+            "equal_depth": 1,
+            "shallower_rejected": 1,
+            "collision_overwrites": 1,
+        }
+        overlap = {
+            "sample_rate": 64,
+            "visits": 100,
+            "unique": 80,
+            "within_worker_revisits": 5,
+            "cross_worker_visits": 15,
+            "shared_fingerprints": 10,
+            "dropped": 2,
+            "tt_sampled_stores": 10,
+            "tt_sampled_hits": 12,
+            "tt_local_hits": 8,
+            "tt_foreign_hits": 4,
+            "tt_unknown_hits": 0,
+            "tt_dropped_stores": 1,
+        }
+        return [
+            {
+                "position": 0,
+                "bestmove": "7g7f",
+                "nps": 1000,
+                "wall_nps": 900.0,
+                "depth": 12,
+                "nodes": 100,
+                "lazy_smp": lazy_smp,
+                "lazy_smp_tt": lazy_tt,
+                "lazy_smp_overlap": overlap,
+            },
+            {
+                "position": 0,
+                "bestmove": "7g7f",
+                "nps": 1100,
+                "wall_nps": 1000.0,
+                "depth": 13,
+                "nodes": 120,
+                "lazy_smp": lazy_smp,
+                "lazy_smp_tt": lazy_tt,
+                "lazy_smp_overlap": overlap,
+            },
+        ]
+
+    def test_worker_balance_and_thread_summary_keep_diagnostics_distinct(self):
+        rows = self.rows()
+        balance = summarize_lazy_worker_balance(rows)
+        self.assertEqual(balance["searches"], 2)
+        self.assertAlmostEqual(balance["median_max_worker_node_share"], 0.7)
+        self.assertAlmostEqual(balance["median_min_worker_node_share"], 0.3)
+        self.assertEqual(balance["median_stop_lag_ms"], 4)
+
+        summary = summarize_thread_measurements(rows)
+        self.assertEqual(summary["median_engine_nps"], 1050)
+        self.assertEqual(summary["median_completed_depth"], 12.5)
+        self.assertAlmostEqual(summary["selected_worker_tt_reuse"]["selected_foreign_tt_hit_rate"], 0.25)
+        self.assertAlmostEqual(summary["root_result_disposition"]["discarded_root_node_rate"], 50 / 220)
+        self.assertAlmostEqual(summary["sampled_overlap"]["foreign_tt_hit_rate"], 1 / 3)
+
+    def test_parallel_profile_is_explicitly_not_a_timing_or_strength_verdict(self):
+        args = argparse.Namespace(
+            yaneuraou=False,
+            evalfile=None,
+            fv_scale=24,
+            hash=64,
+            option=[],
+            lazy_diagnostics=True,
+            require_lazy_diagnostics=True,
+            depth=None,
+            nodes=None,
+            movetime=300,
+            provenance={
+                "engine": "/tmp/sekirei",
+                "engine_sha256": "a" * 64,
+                "positions": "/tmp/positions.sfen",
+                "positions_file_sha256": "b" * 64,
+                "effective_positions_sha256": "c" * 64,
+                "effective_position_count": 2,
+                "evaluator": {"kind": "material-only", "path": None, "sha256": None},
+                "started_at_utc": "2026-10-16T00:00:00+00:00",
+                "host": {"system": "test"},
+            },
+        )
+        report = parallel_profile({4: self.rows(), 8: self.rows()}, args)
+        self.assertEqual(report["schema"], "sekirei.parallel-search-profile.v1")
+        self.assertFalse(report["timing_qualified"])
+        self.assertEqual(report["timing_scope"], "counter_overhead_included")
+        self.assertIn("does not estimate Elo", report["interpretation"])
+        self.assertEqual(report["threads"]["8"]["searches"], 2)
 
 
 if __name__ == "__main__":

@@ -36,7 +36,9 @@ RELEASE_MANIFEST = latest_release_manifest(Path(__file__).parents[1])
 # Attachment tools require a publication-verified source. Their behavioral
 # tests must therefore not infer that the newest development candidate is
 # already published.
-VERIFIED_RELEASE_MANIFEST = Path(__file__).parents[1] / "release-manifest-v0.3.34.json"
+VERIFIED_RELEASE_MANIFEST = (
+    Path(__file__).parents[1] / "docs/releases/manifests/release-manifest-v0.3.34.json"
+)
 
 class ReleaseManifestTests(unittest.TestCase):
     def test_latest_release_manifest_uses_numeric_version_order(self):
