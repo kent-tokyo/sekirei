@@ -4,6 +4,7 @@
 import argparse
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -15,6 +16,7 @@ from build_pgo_lane import (  # noqa: E402
     encoded_rustflags,
     failure_record,
     parse_threads,
+    profile_output_pattern,
     require_clean_source,
 )
 
@@ -53,6 +55,13 @@ class PgoLaneTests(unittest.TestCase):
         expected = target_dir / "release" / "sekirei"
         with patch("build_pgo_lane.checked"), patch.object(Path, "is_file", return_value=True):
             self.assertEqual(cargo_build(target_dir, None), expected)
+
+    def test_profile_pattern_is_absolute_for_binary_relative_usi_child(self):
+        with TemporaryDirectory() as tmp:
+            self.assertEqual(
+                profile_output_pattern(Path(tmp) / "raw-profdata"),
+                str((Path(tmp) / "raw-profdata" / "train-%m.profraw").resolve()),
+            )
 
     def test_failed_command_preserves_captured_diagnostics(self):
         error = subprocess.CalledProcessError(

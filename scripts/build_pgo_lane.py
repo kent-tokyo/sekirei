@@ -142,6 +142,11 @@ def copy_bound(source: Path, destination: Path) -> dict[str, object]:
     }
 
 
+def profile_output_pattern(raw_dir: Path) -> str:
+    """Return an absolute LLVM profile pattern for USI child processes."""
+    return str(raw_dir.resolve() / "train-%m.profraw")
+
+
 def run_profile_training(
     binary: Path,
     positions: Path,
@@ -152,7 +157,9 @@ def run_profile_training(
     raw_dir: Path,
 ) -> None:
     env = dict(os.environ)
-    env["LLVM_PROFILE_FILE"] = str(raw_dir / "train-%m.profraw")
+    # ``nps_threads.py`` starts the engine from the binary's directory.  A
+    # relative profile path would therefore escape the lane's receipt tree.
+    env["LLVM_PROFILE_FILE"] = profile_output_pattern(raw_dir)
     command = [
         sys.executable,
         str(ROOT / "scripts" / "nps_threads.py"),
