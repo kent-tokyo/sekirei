@@ -181,6 +181,46 @@ mod tests {
     }
 
     #[test]
+    fn mate_band_failures_research_with_only_the_failed_side_opened() {
+        use crate::{piece::PieceKind, square::Square};
+
+        let bound_move = Move::drop(Square::from_shogi(4, 5), PieceKind::Fu);
+        let exact_move = Move::drop(Square::from_shogi(5, 5), PieceKind::Fu);
+        for (lo, hi, failed_score, exact_score, expected_window) in [
+            (
+                MATE_SCORE - 1100,
+                MATE_SCORE - 1000,
+                MATE_SCORE - 1,
+                MATE_SCORE - 1,
+                (MATE_SCORE - 1100, POS_INF),
+            ),
+            (
+                -MATE_SCORE + 1000,
+                -MATE_SCORE + 1100,
+                -MATE_SCORE + 1000,
+                -MATE_SCORE + 1,
+                (NEG_INF, -MATE_SCORE + 1100),
+            ),
+        ] {
+            let mut windows = Vec::new();
+            let result = search_window(lo, hi, 50, |attempt, a, b| {
+                windows.push((a, b));
+                match attempt {
+                    0 => (
+                        (failed_score >= hi).then_some(bound_move),
+                        failed_score,
+                        false,
+                    ),
+                    1 => (Some(exact_move), exact_score, false),
+                    _ => panic!("the searched mate score must finish the retry"),
+                }
+            });
+            assert_eq!(windows, vec![(lo, hi), expected_window]);
+            assert_eq!(result, (Some(exact_move), exact_score, SearchBound::Exact));
+        }
+    }
+
+    #[test]
     fn ordinary_root_window_success_and_fail_directions_keep_their_windows() {
         for (scores, expected) in [
             (vec![0], vec![(-50, 50)]),
