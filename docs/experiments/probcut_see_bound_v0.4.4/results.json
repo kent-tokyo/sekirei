@@ -1,6 +1,6 @@
 {
   "schema": "sekirei.probcut-see-bound-public.v1",
-  "status": "correctness_verified_speed_unmeasured",
+  "status": "correctness_verified_8t_speed_regression",
   "date": "2026-10-18",
   "base_commit": "9204a3577b0e0a0a68930e09dcfea694212964d1",
   "candidate_patch_sha256": "b334f76b8cd0f771418b423db871d81693cbbbb21bc5642584155d124756fe77",
@@ -243,11 +243,42 @@
   },
   "local_verification_receipt_sha256": "ba54528cdfaa69ea07fb62908f50fbeec6d6c40afc809b3a69e44b301f2bd59b",
   "speed": {
-    "measured": false,
-    "summary": null,
+    "eligible_positions": 30,
+    "excluded_positions": [
+      3,
+      16
+    ],
+    "accepted_calls": 128,
+    "actual_calls": 164,
+    "host_rejected_quartets": 9,
+    "bootstrap_95pct": [
+      0.957030266590702,
+      0.977004230369439
+    ],
+    "gate_passed": false,
+    "input_bindings": 767,
+    "fixed_inputs_unchanged": true,
+    "measured": true,
+    "status": "complete_independent_qa_passed",
+    "threads": 8,
+    "rayon_num_threads": 8,
+    "hash_mib": 64,
+    "movetime_ms": 1000,
+    "order": [
+      "baseline",
+      "candidate",
+      "candidate",
+      "baseline"
+    ],
+    "accepted_positions": 32,
+    "exclusion_rule": "any arm elapsed below700ms excludes whole position",
+    "geomean_candidate_over_baseline": 0.96638977893249,
+    "candidate_rejected_for_speed": true,
     "default_adoption": false,
-    "native_off_on_identity": "pending",
-    "fresh_own_evaluator_8t_abba": "pending"
+    "partial_statistics_computed": false,
+    "incomplete_captures_pooled": false,
+    "all_actual_pvs_legal": true,
+    "scope": "fixed own-r3 native OFF/ON8T workload; no strength or general-hardware claim"
   },
   "limits": [
     "Correctness development fixtures only; no NPS or playing-strength evidence.",
@@ -257,5 +288,90 @@
   ],
   "model_or_training_changed": false,
   "external_model_used": false,
-  "raw_or_weights_published": false
+  "raw_or_weights_published": false,
+  "native_study": {
+    "source_commit": "1cc0fe4d71b2c3e3b4a1480f5287a2a39013ef0d",
+    "compiler_inputs": 149,
+    "pgo": false,
+    "tune": false,
+    "instrumentation": false,
+    "binaries": {
+      "baseline": {
+        "sha256": "aaa50f955922d97d6f6b28e02d14304ae87b2c7d6fe6b6962289e1da5ff0d027",
+        "size_bytes": 4179648,
+        "features": []
+      },
+      "candidate": {
+        "sha256": "0ff1a2afcc106fb26347c10e9aa28e22d66715871077af164ecdd893bea5b9a1",
+        "size_bytes": 4179648,
+        "features": [
+          "probcut_see_bound"
+        ]
+      }
+    },
+    "baseline_rebuilt_after_disk_interrupt": false,
+    "build_recovery_audited": true,
+    "study_pure_tests": 31,
+    "recovery_pure_tests": 8,
+    "own_evaluator": {
+      "sha256": "075ff76cc023abd7bae07ee5cd0c2ccf6e6b4ec80942d1bfb86a2bb83ee78627",
+      "format": "HalfKP(Friend)256x2-32-32",
+      "fv_scale": 24,
+      "usage": "historical own read-only runtime; not model/training qualification"
+    },
+    "corpus": {
+      "path": "own-speed32.sfen",
+      "sha256": "e93e9476a0c26d80b3ebb00fc99cb20562a12f3426b7284ffa102fe02c5ba09d",
+      "seed": 20261018101,
+      "positions": 32,
+      "side_counts": {
+        "b": 16,
+        "w": 16
+      },
+      "excluded_inputs": 9,
+      "excluded_canonical_states": 265,
+      "selection": "first16 eligible canonical states per side; no score/timing"
+    },
+    "identity": {
+      "threads": 1,
+      "depth": 12,
+      "positions": 32,
+      "actual_calls": 128,
+      "all_signature_fields_exact": [
+        "bestmove",
+        "score",
+        "PV",
+        "nodes",
+        "depth",
+        "bound"
+      ],
+      "all_pvs_legal": true,
+      "independent_qa": "passed",
+      "input_bindings": 245
+    },
+    "prospective_host_retry_amendment": {
+      "from": 3,
+      "to": 8,
+      "before_any_candidate_speed_data": true,
+      "host_thresholds_and_statistics_unchanged": true,
+      "first_eligible_whole_abba_only": true,
+      "old_finny_samples_used": false
+    }
+  },
+  "local_native_receipts_sha256": {
+    "plan.json": "9c756eb34f0bfa3936d7b1c0ddfb99b002e6586c352e007e06972b40f1310bf7",
+    "prepared.json": "f4ded5cde51f7de5614521ff06303210687ab2bb394b436d25cf4fa56a5d52e6",
+    "amendment-host-attempts8.json": "d4bc0fd7aebf3babbd165d3c99c38256b6ee343e1d9bf0187bef4957d894b81f",
+    "corpus-provenance.json": "037b0a6c9c6f2f7ddebc0362a10d1f6bc60bdfbd826ede64026ea4a801b42190",
+    "build/manifest.json": "b4e1089b30aaa4637b222bb6d0ffd887e43ff8a46f695f2a17466d5241c66090",
+    "native-build-independent-audit.json": "c088a6ab8bdd426f6e40b7addbcb6b72f8a8b7e12ee129135daa4259169633ce",
+    "native-build-failed-before-disk-recovery.json": "c16a0af0e273034a8f2683d74cf63bbb5f356b82261fb113d99af7801fe95926",
+    "recovery-prepared.json": "72665f1d96a8dbd7791981256e8959d06234c7b58145d9c7b402e0b97430c195",
+    "build/recovery-report.json": "575a11b4c594062f97557eedfcb20b0ea7c7b3ecc2ca9429523e96d733c14aac",
+    "identity-1t-1/report.json": "44d568945abcbe3d7004f19618c5fafd239c4f37041f8cc26f13b112954c41dc",
+    "identity-1t-1-independent-qa.json": "c63b9dee73e0629c4a8ae507388d52cf978cbf0f3316b6452b77ca3b6444592d",
+    "speed-8t-1/report.json": "ed3eada616d7dd07eaf472087e868ff51ebcac1de4225f888166a82bd07dec80",
+    "speed-8t-1-independent-qa.json": "21d9f00fd6e5959dd1fa08d662c8c8f063c0c04c924e6faa7a0cd84ec89c3b91"
+  },
+  "external_comparison": "separate final native reference study pending; no external weights used for this own-only candidate decision"
 }
