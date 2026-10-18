@@ -249,6 +249,21 @@ records the six-way audit/training comparisons and local coverage result.
 
 ## NNUE candidates and gates
 
+`run_observed_process.py --state-dir /path/to/run/observer -- COMMAND ...`
+launches exactly one child with no automatic retry. It fsyncs attempt-specific
+stdout/stderr files, append-only start/exit events, and an atomic status file
+with periodic free-space/CPU/RSS observations. A separate observer can record
+`SIGKILL` even when the child cannot log; that signal alone does not prove an
+OOM cause. An observer killed together with the child cannot record its own
+exit, so launch it under the OS supervisor and retain the OS job's last exit
+status as a second layer. A later observer records a previous unclosed attempt
+as unknown and refuses to duplicate a child PID that may still be alive.
+An interrupted `starting` state is also blocked because the spawn may have
+succeeded before its PID was persisted. The tool observes the direct child
+leader; it does not certify that descendants which detach into other process
+groups have exited. The structured runner must own and inspect those workers.
+It does not resume a qualification, select outcomes, or modify gate evidence.
+
 `nnue_gate_host.py` provides shared-host **strength** trial admission. On the
 preregistered 10-core policy, three consecutive observations at no more than
 300% foreign CPU (three cores) and at least 512 MiB free admit the next
