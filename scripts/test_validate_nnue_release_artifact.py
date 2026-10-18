@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -69,19 +70,36 @@ def v2_card(root: Path) -> dict:
     )
     conditions = []
     for threads in (1, 4):
-        conditions.append(
-            {
-                "threads": threads,
-                "verdict": "PASS" if threads == 1 else "NON_REGRESSION",
-                "games": 40,
-                "evidence": write_reference(
-                    root, f"evidence/{threads}t-result.json", json.dumps({"threads": threads}).encode()
-                ),
-                "raw_evidence": write_reference(
-                    root, f"evidence/{threads}t-games.tar.zst", f"raw-{threads}".encode()
-                ),
-            }
-        )
+        verdict = "PASS" if threads == 1 else "NON_REGRESSION"
+        raw = write_reference(root, f"evidence/{threads}t-games.tar.zst", f"raw-{threads}".encode())
+        report = {
+            "schema": "sekirei.nnue-engine-gate-evidence.v1",
+            "engine_commit": "2" * 40,
+            "engine_sha256": "4" * 64,
+            "candidate_sha256": artifact["sha256"],
+            "opening_corpus_sha256": "3" * 64,
+            "raw_evidence_sha256": raw["sha256"],
+            "threads": threads, "byoyomi_ms": 1000, "fv_scale": 24,
+            "games": 40, "wins": 28, "draws": 0, "losses": 12,
+            "verdict": verdict, "status": "complete",
+            "artifact_write_failures": [], "invalid_games": [],
+            "baseline_evaluator": "material", "candidate_load_acknowledged": True,
+            "baseline_weights_loaded": False,
+            "sprt": {
+                "method": "paired-trinomial", "elo0": 0 if threads == 1 else -10,
+                "elo1": 20 if threads == 1 else 0, "alpha": 0.05, "beta": 0.05,
+                "require_complete_pairs": True, "analyzed_pairs": 20,
+                "llr": 3.0, "lower_bound": -math.log(19), "upper_bound": math.log(19),
+            },
+        }
+        condition = {
+            "threads": threads, "verdict": verdict, "byoyomi_ms": 1000, "games": 40,
+            "evidence": write_reference(root, f"evidence/{threads}t-result.json", json.dumps(report).encode()),
+            "raw_evidence": raw,
+        }
+        if threads == 4:
+            condition["non_regression_margin_elo"] = 10
+        conditions.append(condition)
     return {
         "schema": "sekirei.nnue-model-card.v2",
         "model_id": "fixture-halfkp",
@@ -98,6 +116,7 @@ def v2_card(root: Path) -> dict:
         },
         "current_engine_gate": {
             "engine_commit": "2" * 40,
+            "engine_sha256": "4" * 64,
             "candidate_sha256": artifact["sha256"],
             "opening_corpus_sha256": "3" * 64,
             "conditions": conditions,
@@ -164,6 +183,101 @@ class ReleaseArtifactTests(unittest.TestCase):
             errors = ARTIFACT.validate(document, root)
             self.assertIn("training.whole_game_split", errors)
             self.assertIn("evidence_gaps", errors)
+
+    def test_v2_rejects_hash_correct_evidence_with_wrong_identity_or_result(self) -> None:
+        cases = {
+            "schema": "unrelated.summary.v1", "engine_commit": "9" * 40,
+            "engine_sha256": "9" * 64,
+            "candidate_sha256": "9" * 64, "opening_corpus_sha256": "9" * 64,
+            "raw_evidence_sha256": "9" * 64, "threads": 4, "games": 42,
+            "byoyomi_ms": 500, "fv_scale": 16, "verdict": "INCONCLUSIVE",
+            "status": "partial", "invalid_games": ["timeout"],
+            "artifact_write_failures": ["missing record"], "baseline_evaluator": "nnue",
+            "candidate_load_acknowledged": False, "baseline_weights_loaded": True,
+        }
+        for key, value in cases.items():
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                card = v2_card(root)
+                condition = card["current_engine_gate"]["conditions"][0]
+                reference = condition["evidence"]
+                report = json.loads((root / reference["path"]).read_text())
+                report[key] = value
+                condition["evidence"] = write_reference(root, reference["path"], json.dumps(report).encode())
+                self.assertTrue(ARTIFACT.validate(card, root, "2" * 40), key)
+
+    def test_v2_rejects_inconsistent_counts_or_unaccepted_sprt(self) -> None:
+        cases = [
+            ("wins", 29), ("wins", True), ("threads", True),
+            ("sprt.llr", 2.638), ("sprt.llr", float("nan")),
+            ("sprt.upper_bound", 2.5), ("sprt.alpha", 0.10),
+            ("sprt.elo0", -10), ("sprt.method", "unpaired"),
+            ("sprt.require_complete_pairs", False), ("sprt.analyzed_pairs", 19),
+        ]
+        for key, value in cases:
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                card = v2_card(root)
+                condition = card["current_engine_gate"]["conditions"][0]
+                reference = condition["evidence"]
+                report = json.loads((root / reference["path"]).read_text())
+                if key.startswith("sprt."):
+                    report["sprt"][key.split(".")[1]] = value
+                else:
+                    report[key] = value
+                condition["evidence"] = write_reference(root, reference["path"], json.dumps(report).encode())
+                self.assertTrue(ARTIFACT.validate(card, root, "2" * 40), key)
+
+    def test_v2_requires_explicit_four_thread_non_regression_margin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            card = v2_card(root)
+            del card["current_engine_gate"]["conditions"][1]["non_regression_margin_elo"]
+            self.assertTrue(ARTIFACT.validate(card, root, "2" * 40))
+
+    def test_v2_accepts_four_thread_superiority_with_matching_sprt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            card = v2_card(root)
+            condition = card["current_engine_gate"]["conditions"][1]
+            condition["verdict"] = "PASS"
+            del condition["non_regression_margin_elo"]
+            reference = condition["evidence"]
+            report = json.loads((root / reference["path"]).read_text())
+            report["verdict"] = "PASS"
+            report["sprt"].update(elo0=0, elo1=20)
+            condition["evidence"] = write_reference(root, reference["path"], json.dumps(report).encode())
+            self.assertEqual(ARTIFACT.validate(card, root, "2" * 40), [])
+
+    def test_v2_rejects_malformed_duplicate_and_oversized_gate_json(self) -> None:
+        payloads = [b"{", b"[]", b'{"schema":"a","schema":"b"}', b" " * (1024 * 1024 + 1)]
+        for payload in payloads:
+            with self.subTest(size=len(payload)), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                card = v2_card(root)
+                condition = card["current_engine_gate"]["conditions"][0]
+                relative = condition["evidence"]["path"]
+                condition["evidence"] = write_reference(root, relative, payload)
+                self.assertTrue(ARTIFACT.validate(card, root, "2" * 40))
+
+    def test_v2_rejects_invalid_condition_time_or_incomplete_pair_count(self) -> None:
+        for key, value in [("byoyomi_ms", 0), ("byoyomi_ms", True), ("games", 39), ("threads", True)]:
+            with self.subTest(key=key, value=value), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                card = v2_card(root)
+                card["current_engine_gate"]["conditions"][0][key] = value
+                self.assertTrue(ARTIFACT.validate(card, root, "2" * 40))
+
+    def test_v2_gate_evidence_requires_utf8(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            card = v2_card(root)
+            condition = card["current_engine_gate"]["conditions"][0]
+            relative = condition["evidence"]["path"]
+            text = (root / relative).read_text()
+            condition["evidence"] = write_reference(root, relative, text.encode("utf-16"))
+            self.assertIn("current_engine_gate.conditions[0].evidence.json",
+                          ARTIFACT.validate(card, root, "2" * 40))
 
     def test_v2_rejects_reference_outside_bundle_root(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

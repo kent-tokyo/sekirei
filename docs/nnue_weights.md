@@ -144,6 +144,37 @@ commit. This validator only checks whether the evidence bundle is complete and
 internally consistent; it does not create evidence or turn an unpublished
 candidate into a strength claim.
 
+Each gate condition declares `threads`, `byoyomi_ms`, `games`, `verdict`,
+and hashed `evidence` / `raw_evidence` references. `current_engine_gate` also
+pins `engine_sha256`. The evidence reference must be a UTF-8 JSON object
+(up to 1 MiB), schema `sekirei.nnue-engine-gate-evidence.v1`, containing:
+
+- Matching `engine_commit`, `engine_sha256`, `candidate_sha256`,
+  `opening_corpus_sha256`, `raw_evidence_sha256`, `threads`, `byoyomi_ms`,
+  `fv_scale`, `games` and `verdict`.
+- `wins`, `draws`, `losses` summing to the even, positive game count;
+  `status="complete"`, `artifact_write_failures=[]`, `invalid_games=[]`.
+- `baseline_evaluator="material"`, `candidate_load_acknowledged=true`,
+  `baseline_weights_loaded=false`, as supported by the retained raw logs.
+- `sprt`: `method="paired-trinomial"`, `elo0`, `elo1`, `alpha=0.05`,
+  `beta=0.05`, `require_complete_pairs=true`, `analyzed_pairs=games/2`,
+  `llr`, `lower_bound` and `upper_bound`. Bounds must match +/-log(19),
+  and LLR must reach the upper bound. Numerical fields must be finite.
+
+A `PASS` requires nonnegative `elo0` and `elo1>elo0`. A four-thread
+`NON_REGRESSION` additionally requires the condition's explicitly declared
+`non_regression_margin_elo>0`, with `elo0=-margin` and `elo1=0` in the
+accepted test. Set that margin before play; this contract supplies no default
+margin and does not authorize retrospective changes.
+
+These identity and result checks reject a hash-correct summary for another
+model/build or an unaccepted test. They do not independently replay SPRT,
+prove the claimed source-to-binary correspondence, attest hold-out scope
+completeness, or verify that logs support every declared field. The owner must
+assemble this small metadata envelope from the original records; preserve
+those records unchanged for review. A 12-position depth check remains a
+bounded regression check, not a replacement for a current-engine gate.
+
 Validate the assembled release bundle against the exact source commit:
 
 ```bash
