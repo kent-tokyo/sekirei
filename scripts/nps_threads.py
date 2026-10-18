@@ -114,20 +114,23 @@ class Usi:
         reader.join()
         return result
 
-    def quit(self) -> None:
+    def quit(self) -> dict:
+        killed = False
         try:
             self.send("quit")
         except Exception:
             pass
         try:
-            self.proc.wait(timeout=5)
+            exitcode = self.proc.wait(timeout=5)
         except Exception:
             # `kill` alone leaves a zombie until the Python runner exits.
             # Always wait after the fallback termination as well.
+            killed = True
             try:
                 self.proc.kill()
             finally:
-                self.proc.wait()
+                exitcode = self.proc.wait()
+        return {"exitcode": exitcode, "killed": killed, "reaped": True}
 
 
 def parse_info(lines: list[str]) -> tuple[int, int, int]:
@@ -1591,7 +1594,12 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     flush=True,
                 )
     finally:
-        engine.quit()
+        shutdown = engine.quit()
+    if getattr(args, "require_normal_shutdown", False):
+        if not isinstance(shutdown, dict) or type(shutdown.get("exitcode")) is not int or shutdown["exitcode"] != 0 or shutdown.get("killed") is not False or shutdown.get("reaped") is not True:
+            raise ValueError("engine did not exit normally after quit; compiler profiles may be incomplete")
+        for row in rows:
+            row["process_shutdown"] = shutdown
     # Keep measured rows private until the bound inputs survive the entire
     # invocation, including shutdown. This attests filesystem identity only.
     if yaneuraou_binding is not None:
@@ -1620,6 +1628,8 @@ def main() -> int:
         "--positions", default=str(ROOT / "data/gate/openings_standard.sfen")
     )
     parser.add_argument("--count", type=int, default=20, help="positions to use")
+    parser.add_argument("--require-normal-shutdown", action="store_true",
+                        help="require exit status 0 after quit without kill; record profile-flush lifecycle evidence")
     parser.add_argument(
         "--repeats", type=int, default=1, help="search each position this many times"
     )
