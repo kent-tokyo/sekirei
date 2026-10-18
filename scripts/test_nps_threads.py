@@ -272,6 +272,32 @@ class ThreadOptionsTest(unittest.TestCase):
         process.kill.assert_called_once_with()
         self.assertEqual(process.wait.call_count, 2)
 
+    def test_quit_returns_normal_and_killed_lifecycle_evidence(self):
+        for waits, killed, exitcode in (([0], False, 0), ([subprocess.TimeoutExpired("engine", 5), -9], True, -9), ([3], False, 3)):
+            with self.subTest(killed=killed, exitcode=exitcode), patch("nps_threads.subprocess.Popen") as popen:
+                popen.return_value.wait.side_effect = waits
+                result = Usi("engine", {}).quit()
+                self.assertEqual(result, {"exitcode": exitcode, "killed": killed, "reaped": True})
+
+    def test_required_normal_shutdown_rejects_kill_nonzero_or_missing_proof(self):
+        for shutdown in (None, {"exitcode": 0, "killed": True, "reaped": True}, {"exitcode": 3, "killed": False, "reaped": True}, {"exitcode": 0, "killed": False, "reaped": False}, {"exitcode": False, "killed": False, "reaped": True}):
+            args = self.measurement_args(yaneuraou=False, evalfile=None)
+            args.require_normal_shutdown = True
+            with self.subTest(shutdown=shutdown), patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"), self.assertRaisesRegex(ValueError, "exit normally"):
+                usi.return_value.wait_for.side_effect = self.fake_response
+                usi.return_value.quit.return_value = shutdown
+                measure(args, 8, ["startpos"])
+
+    def test_required_normal_shutdown_attaches_proof_after_process_exit(self):
+        args = self.measurement_args(yaneuraou=False, evalfile=None)
+        args.require_normal_shutdown = True
+        proof = {"exitcode": 0, "killed": False, "reaped": True}
+        with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+            usi.return_value.wait_for.side_effect = self.fake_response
+            usi.return_value.quit.return_value = proof
+            self.assertEqual(measure(args, 8, ["startpos"])[0]["process_shutdown"], proof)
+            usi.return_value.quit.assert_called_once_with()
+
     def test_wait_for_collects_response_and_detects_early_exit(self):
         with patch("nps_threads.subprocess.Popen") as popen:
             popen.return_value.stdout = io.StringIO("info depth 1\nbestmove 7g7f\n")
