@@ -1,0 +1,203 @@
+{
+  "schema": "sekirei.finny-inplace-native-public-summary.v1",
+  "status": "speed_unqualified_host_blocked",
+  "date": "2026-10-18",
+  "source_commit": "221043cde704f31606de552ab0e2a8be018e7e5b",
+  "engine_base_main_commit": "9204a3577b0e0a0a68930e09dcfea694212964d1",
+  "scope": "opt-in native Finny implementation and semantic identity; no qualified NPS or strength claim",
+  "default_feature_enabled": false,
+  "default_parameter_value": 0,
+  "feature": "nnue_finny_inplace",
+  "runtime_tune_required": false,
+  "pgo": false,
+  "native_binaries": {
+    "baseline": {
+      "sha256": "28b507d80254cc1daa4c93344de164b4934a79869183779df5567f805d434a51",
+      "size_bytes": 4179648,
+      "features": [],
+      "instrumentation_symbols": 0,
+      "instrumentation_sections": 0
+    },
+    "candidate": {
+      "sha256": "40be86263f749c02d91211cdb6165fa1f9b192714f15fe1114d05d3dd561acd7",
+      "size_bytes": 4196160,
+      "features": [
+        "nnue_finny_inplace"
+      ],
+      "instrumentation_symbols": 0,
+      "instrumentation_sections": 0
+    }
+  },
+  "native_build": {
+    "same_clean_source": true,
+    "tracked_rust_cargo_config_inputs": 149,
+    "separate_targets": true,
+    "receipts_sha_bound": true,
+    "ambient_profile_target_build_rust_overrides_cleared": true,
+    "rustc_vv": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6\n"
+  },
+  "evaluator": {
+    "usage": "read-only historical own r3 runtime only; no model training or selection",
+    "public_card": "weights/candidates/sekirei-halfkp-r3.json",
+    "model_sha256": "075ff76cc023abd7bae07ee5cd0c2ccf6e6b4ec80942d1bfb86a2bb83ee78627",
+    "fv_scale": 24,
+    "actual_load_and_format_acknowledgement_required": true,
+    "external_evaluator_used": false
+  },
+  "corpus": {
+    "file": "own-speed32.sfen",
+    "sha256": "4ca4413ce1aa1406d9ab0c2e3827134a2e7f7413743f2c0d03e6c6fe7341263d",
+    "seed": 20261018091,
+    "material_only": true,
+    "positions": 32,
+    "turn_counts": {
+      "b": 16,
+      "w": 16
+    },
+    "excluded_input_files": 8,
+    "excluded_canonical_states": 233,
+    "score_or_time_selection": false,
+    "owner_attested_nnue_holdout": false
+  },
+  "source_checks": {
+    "halfkp_default": {
+      "passed": 17,
+      "ignored": 3
+    },
+    "halfkp_feature_on": {
+      "passed": 18,
+      "ignored": 3
+    },
+    "feature_public_refresh": {
+      "states": 142,
+      "perspectives": 284,
+      "changed_warm_entries": 266,
+      "full_rebuild_exact": true
+    },
+    "tune_only_isolated_refreshes_exact": 568,
+    "fmt_passed": true,
+    "core_and_usi_feature_clippy_passed": true,
+    "controller_pure_tests": 23
+  },
+  "fixed_depth_identity": {
+    "threads": 1,
+    "depth": 12,
+    "calls": 128,
+    "positions": 32,
+    "absolutely_identical": [
+      "bestmove",
+      "score",
+      "pv",
+      "nodes",
+      "depth",
+      "bound"
+    ],
+    "all_pv_legal": true,
+    "illegal_negative_control_rejected": true,
+    "fixed_input_bindings": 209,
+    "timing_qualified": false
+  },
+  "speed": {
+    "status": "unqualified",
+    "summary": null,
+    "attempts": [
+      {
+        "capture": "speed-8t-1",
+        "status": "interrupted",
+        "accepted_positions": 1,
+        "actual_calls": 16,
+        "host_rejected_quartets": 3,
+        "reason": "three host-rejected whole quartets",
+        "summary": null,
+        "capture_sha256": "c9f8054f03fd6adcddd541b715c64c0959755dc74adf4193a27e664f71a59a69",
+        "all_actual_pv_replay_sha256": "4198b066f686dab2775634bb1bead12aa2f082e1a4e44a2b215d705b3e84c019"
+      },
+      {
+        "capture": "speed-8t-2",
+        "status": "interrupted",
+        "accepted_positions": 5,
+        "actual_calls": 60,
+        "host_rejected_quartets": 10,
+        "reason": "three host-rejected whole quartets",
+        "summary": null,
+        "capture_sha256": "d39308d74ff55b5a079b9e35d65072a2eb9fbb10a0730401632cdaf6e15d1d22",
+        "all_actual_pv_replay_sha256": "8805a3833726b6cfed998bf3c66d774827d1a9c7c33f038a4022a3046b386d75"
+      },
+      {
+        "capture": "speed-8t-4",
+        "status": "interrupted",
+        "accepted_positions": 3,
+        "actual_calls": 36,
+        "host_rejected_quartets": 6,
+        "reason": "three host-rejected whole quartets",
+        "summary": null,
+        "capture_sha256": "f4d99484bb392fbaabf231741ea78a4de873b2c16c8cf123776644dba6db2422",
+        "all_actual_pv_replay_sha256": "2ccd5c022e449db8c51a3453ac97ca8692b0df130871eb8c0804913f955b14db"
+      },
+      {
+        "capture": "speed-8t-5",
+        "status": "interrupted",
+        "accepted_positions": 28,
+        "actual_calls": 160,
+        "host_rejected_quartets": 12,
+        "reason": "three consecutive host-rejected whole quartets",
+        "summary": null,
+        "capture_sha256": "2f7e8a3465f2e0e29b76b9796d38d27be2f546e0ec4ded48a7dc74fa352f443d",
+        "all_actual_pv_replay_sha256": "30c7492bb34cfc773c65496e1d10875dccf9bd12fd750d7771a63c05671ce3f5"
+      }
+    ],
+    "incomplete_captures_pooled": false,
+    "partial_statistics_computed": false,
+    "speed_candidate_accepted": false,
+    "speed_candidate_rejected": false,
+    "earlier_launch_wait": {
+      "status": "quiet_timeout_no_engines",
+      "samples": 577,
+      "maximum_wait_seconds": 600,
+      "actual_search_calls": 0,
+      "summary": null
+    },
+    "latest_launch": {
+      "status": "child_reaped",
+      "operational_guard_only": true,
+      "additional_schedule_rule": "no outside compiler process even if momentarily idle",
+      "acceptance_and_statistics_unchanged": true,
+      "continuous_quiet_seconds": 30.463131750002503,
+      "samples": 95,
+      "child_returncode": 1
+    },
+    "all_actual_pvs_verified": 272
+  },
+  "local_receipt_sha256": {
+    "build/manifest.json": "52cdec942cb724396e314833d183c8242dadb42fcb215b5fd3cd8277e5911b7e",
+    "build_native.py": "0917ea26070fee044168aabde54b356568b44ea9a0795e9295084c6a2e492bb8",
+    "native-build-independent-audit.json": "60d3a99e1d4c03cc53207de62a65a405f01fd9ff944aa4192714342d038c059a",
+    "identity-1t-1/report.json": "573f9d0ff3e51699841e0f94458fb009ee15f73d9b4a2cef4621c2b9d88a2f2e",
+    "identity-1t-1-independent-qa.json": "d8f63e5c3214faf2b863f0529cda910174605c90b1973696fb663c14137ea02f",
+    "internal-route/compare_internal.py": "f00dcaa8e8015cfc338c91a3bf7e6424ce899dd2b97b31095ee4305d66ac6524",
+    "internal-route/test_compare_internal.py": "8139cbb22c73929b33ad3af076bcc648687df7a678d742d28611c40914111cb5",
+    "internal-route/pure-tests-final.log": "1d19153dfacdcda46bf6a3747173e9272f8e335418113649df10472645ca6cb2",
+    "internal-route/prepared.json": "4a6d685d901177587cef4dc904bdbe5a52464e142b57a0fa07b7d7cc90d22bf2",
+    "internal-route/plan.json": "d206ce051ef1a253a0e260d10cf81cbf0a429baa776cb87f8cd45feecc029531",
+    "internal-route/pins.json": "367a6afd9f8e7dc9939f5896db54f3d652b036a08ea9b2af93d0276c212e3b0d",
+    "plan.json": "d206ce051ef1a253a0e260d10cf81cbf0a429baa776cb87f8cd45feecc029531",
+    "prepare_corpus.py": "ec9817cdfe77637e8671ba42bad7f815f902c101470e0c1faf74b3112f39dc02",
+    "corpus-provenance.json": "486e4cac3307c4ae7263a424580fb11f6a579b321677316eaef47b24b1e91078",
+    "launch-quiet-2.json": "5201bea985946381a34a084ead43fa964d8c684d4379ad07ba68aff553b7f773",
+    "launch-quiet-3.json": "769f227ff61c3f603d1963f4c10f7d2ab0338d8b942a0c507c16d9cec1c4eeef",
+    "launch-quiet-3.jsonl": "4b98bb8d7b54fbf363704e66ea1b9d2f1ac07d7983ad262e3e135f154e19da06",
+    "speed-8t-4/report.json": "f4d99484bb392fbaabf231741ea78a4de873b2c16c8cf123776644dba6db2422",
+    "interrupted-pv-audit-speed-8t-4/qa.json": "2ccd5c022e449db8c51a3453ac97ca8692b0df130871eb8c0804913f955b14db",
+    "launch-quiet-4.json": "262cce168e23270a24a258ac59df935cbe289d72e99b90e352e3fbff1196315f",
+    "launch-quiet-4.jsonl": "4a19d3d4578e4646b250e5b075dca07e9232254f5611133ae22c7efe3cfdb155",
+    "speed-8t-5/report.json": "2f7e8a3465f2e0e29b76b9796d38d27be2f546e0ec4ded48a7dc74fa352f443d",
+    "interrupted-pv-audit-speed-8t-5/qa.json": "30c7492bb34cfc773c65496e1d10875dccf9bd12fd750d7771a63c05671ce3f5",
+    "launch-quiet-5.json": "a985f19ea75fecf0393d18cdfecdcf55e79fa9a8256bbc4c927c9c8742bfd64a",
+    "launch-quiet-5.jsonl": "85c94eb0801e6a9f0b650c3a6a82cc5d73c8316fa720127ac21a5c1775d9015c",
+    "audit_incomplete.py": "c57fe6d1e84608ddf24d7add222333da7452adaeb8f7f559b2700738b1a0529e"
+  },
+  "source_validation_receipt_sha256": "5495ced078d9e79217be1f81b6b88b57746e148c0b912eb33596bd631ccd3544",
+  "raw_or_weights_published": false,
+  "default_adoption": false,
+  "strength_claim": false
+}

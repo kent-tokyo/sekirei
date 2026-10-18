@@ -1086,7 +1086,23 @@ fn refresh_from_cache(
     }
 }
 
+#[inline]
 fn refresh_from_cache_impl<const TILE: bool>(
+    net: &HalfKpNetwork,
+    perspective: Color,
+    king: Square,
+    acc: &mut [i16; HALF_DIMS],
+    mailbox: &[Option<Piece>; 81],
+    hand: &[[u8; 7]; 2],
+) {
+    if cfg!(feature = "nnue_finny_inplace") || crate::search::params::NNUE_FINNY_INPLACE() != 0 {
+        refresh_from_cache_mode::<TILE, true>(net, perspective, king, acc, mailbox, hand);
+    } else {
+        refresh_from_cache_mode::<TILE, false>(net, perspective, king, acc, mailbox, hand);
+    }
+}
+
+fn refresh_from_cache_mode<const TILE: bool, const INPLACE: bool>(
     net: &HalfKpNetwork,
     perspective: Color,
     king: Square,
@@ -1118,10 +1134,19 @@ fn refresh_from_cache_impl<const TILE: bool>(
             }
         }
         let e = &mut cache.entries[perspective.index() * 81 + king.0 as usize];
-        if !e.valid {
-            refresh_full_impl::<TILE>(net, perspective, king, acc, mailbox, hand);
-        } else {
+        let was_valid = e.valid;
+        if INPLACE {
+            // A panicking column lookup or tile flush must not leave a
+            // partially updated entry eligible for the next refresh.
+            e.valid = false;
+        } else if was_valid {
+            // Default specialization retains the original warm copy-in.
             *acc = e.values;
+        }
+        let target = if INPLACE { &mut e.values } else { &mut *acc };
+        if !was_valid {
+            refresh_full_impl::<TILE>(net, perspective, king, target, mailbox, hand);
+        } else {
             let mut columns = RefreshColumns::new();
             for (i, (old, new)) in e.mailbox.iter().zip(mailbox.iter()).enumerate() {
                 if old == new {
@@ -1131,12 +1156,12 @@ fn refresh_from_cache_impl<const TILE: bool>(
                 if let Some(piece) = old
                     && let Some(f) = board_feature(king, sq, piece.kind, piece.color, perspective)
                 {
-                    refresh_column::<TILE, true>(&mut columns, acc, net.column(f));
+                    refresh_column::<TILE, true>(&mut columns, target, net.column(f));
                 }
                 if let Some(piece) = new
                     && let Some(f) = board_feature(king, sq, piece.kind, piece.color, perspective)
                 {
-                    refresh_column::<TILE, false>(&mut columns, acc, net.column(f));
+                    refresh_column::<TILE, false>(&mut columns, target, net.column(f));
                 }
             }
             for color in PERSPECTIVES {
@@ -1149,19 +1174,25 @@ fn refresh_from_cache_impl<const TILE: bool>(
                     for n in now.min(was) + 1..=now.max(was) {
                         if let Some(f) = hand_feature(king, kind, n, color, perspective) {
                             if now > was {
-                                refresh_column::<TILE, false>(&mut columns, acc, net.column(f));
+                                refresh_column::<TILE, false>(&mut columns, target, net.column(f));
                             } else {
-                                refresh_column::<TILE, true>(&mut columns, acc, net.column(f));
+                                refresh_column::<TILE, true>(&mut columns, target, net.column(f));
                             }
                         }
                     }
                 }
             }
             if TILE {
-                columns.flush(acc);
+                columns.flush(target);
             }
         }
-        e.values = *acc;
+        if INPLACE {
+            // The cache was the destination of every delta, so only the
+            // final 512-byte copy to the caller remains (cold or warm).
+            *acc = e.values;
+        } else {
+            e.values = *acc;
+        }
         e.mailbox = *mailbox;
         e.hand = *hand;
         e.valid = true;
@@ -1770,6 +1801,13 @@ mod tests {
         net: &HalfKpNetwork,
         states: &[RefreshFixture],
     ) -> Vec<[[i16; HALF_DIMS]; 2]> {
+        check_refresh_sequence_mode::<TILE, false>(net, states)
+    }
+
+    fn check_refresh_sequence_mode<const TILE: bool, const INPLACE: bool>(
+        net: &HalfKpNetwork,
+        states: &[RefreshFixture],
+    ) -> Vec<[[i16; HALF_DIMS]; 2]> {
         // Each arm starts cold and replays the same cache history. Running the
         // arms interleaved would silently turn the second arm into zero deltas.
         REFRESH_CACHE.with(|cell| *cell.borrow_mut() = None);
@@ -1810,7 +1848,7 @@ mod tests {
                     &state.hand,
                 );
                 assert_eq!(both[p], expected, "full TILE={TILE}");
-                refresh_from_cache_impl::<TILE>(
+                refresh_from_cache_mode::<TILE, INPLACE>(
                     net,
                     perspective,
                     king,
@@ -1846,9 +1884,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn refresh_tiles_keep_missing_kings_duplicate_features_and_hand_semantics() {
-        let net = HalfKpNetwork::random(11);
+    fn malformed_refresh_fixtures() -> Vec<RefreshFixture> {
         // Explicit king arguments also cover refresh_perspective's retained
         // previous king when the mailbox has no king. Duplicate feature
         // contributions from malformed hands retain their old multiplicity.
@@ -1872,6 +1908,13 @@ mod tests {
         states.push(crowded);
         states.push(empty.clone());
         states.push(empty);
+        states
+    }
+
+    #[test]
+    fn refresh_tiles_keep_missing_kings_duplicate_features_and_hand_semantics() {
+        let net = HalfKpNetwork::random(11);
+        let states = malformed_refresh_fixtures();
         assert_eq!(
             check_refresh_sequence::<false>(&net, &states),
             check_refresh_sequence::<true>(&net, &states)
@@ -1937,6 +1980,317 @@ mod tests {
                 });
             }
         }
+    }
+
+    #[test]
+    fn finny_inplace_matches_full_and_tiled_through_legal_moves_and_undo() {
+        #[cfg(not(feature = "tune"))]
+        assert_eq!(crate::search::params::NNUE_FINNY_INPLACE(), 0);
+        let net = HalfKpNetwork::random(11);
+        let states = refresh_fixtures();
+        let reference = check_refresh_sequence_mode::<false, false>(&net, &states);
+        for actual in [
+            check_refresh_sequence_mode::<false, true>(&net, &states),
+            check_refresh_sequence_mode::<true, false>(&net, &states),
+            check_refresh_sequence_mode::<true, true>(&net, &states),
+        ] {
+            assert_eq!(actual, reference);
+            for (actual, expected) in actual.iter().zip(&reference) {
+                assert_eq!(
+                    net.forward(&actual[0], &actual[1]),
+                    net.forward(&expected[0], &expected[1])
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn finny_inplace_preserves_wrapping_malformed_hands_and_network_switches() {
+        let mut net = HalfKpNetwork::random(11);
+        let states = malformed_refresh_fixtures();
+        let extremes = [i16::MIN, i16::MAX, -1, 1];
+        *net.ft_bias = std::array::from_fn(|i| extremes[i % extremes.len()]);
+        // Force real wrapping in the full-rebuild oracle and cached deltas,
+        // including the existing duplicate hand-feature contributions.
+        for state in &states {
+            for perspective in PERSPECTIVES {
+                let king = state.kings[perspective.index()];
+                for (i, piece) in state.mailbox.iter().enumerate() {
+                    if let Some(piece) = piece
+                        && let Some(f) = board_feature(
+                            king,
+                            Square(i as u8),
+                            piece.kind,
+                            piece.color,
+                            perspective,
+                        )
+                    {
+                        net.ft_weights[f * HALF_DIMS..(f + 1) * HALF_DIMS]
+                            .fill(extremes[f % extremes.len()]);
+                    }
+                }
+                for color in PERSPECTIVES {
+                    for (k, &count) in state.hand[color.index()].iter().enumerate() {
+                        let kind = PieceKind::from_u8(k as u8).unwrap();
+                        for n in 1..=count {
+                            if let Some(f) = hand_feature(king, kind, n, color, perspective) {
+                                net.ft_weights[f * HALF_DIMS..(f + 1) * HALF_DIMS]
+                                    .fill(extremes[f % extremes.len()]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let reference = check_refresh_sequence_mode::<false, false>(&net, &states);
+        assert_eq!(
+            check_refresh_sequence_mode::<false, true>(&net, &states),
+            reference
+        );
+        assert_eq!(
+            check_refresh_sequence_mode::<true, false>(&net, &states),
+            reference
+        );
+        assert_eq!(
+            check_refresh_sequence_mode::<true, true>(&net, &states),
+            reference
+        );
+
+        fn check_switch<const TILE: bool, const INPLACE: bool>(
+            net: &HalfKpNetwork,
+            alternate: &HalfKpNetwork,
+            state: &RefreshFixture,
+        ) {
+            REFRESH_CACHE.with(|cell| *cell.borrow_mut() = None);
+            for active in [net, alternate, net] {
+                for perspective in PERSPECTIVES {
+                    let king = state.kings[perspective.index()];
+                    let mut expected = [0; HALF_DIMS];
+                    let mut cached = [0; HALF_DIMS];
+                    refresh_full_impl::<false>(
+                        active,
+                        perspective,
+                        king,
+                        &mut expected,
+                        &state.mailbox,
+                        &state.hand,
+                    );
+                    refresh_from_cache_mode::<TILE, INPLACE>(
+                        active,
+                        perspective,
+                        king,
+                        &mut cached,
+                        &state.mailbox,
+                        &state.hand,
+                    );
+                    assert_eq!(cached, expected);
+                    REFRESH_CACHE.with(|cell| {
+                        let slot = cell.borrow();
+                        let cache = slot.as_ref().unwrap();
+                        assert_eq!(cache.net, active as *const HalfKpNetwork as usize);
+                        assert!(cache.entries[perspective.index() * 81 + king.0 as usize].valid);
+                    });
+                }
+            }
+        }
+        let alternate = HalfKpNetwork::random(12);
+        check_switch::<false, false>(&net, &alternate, &states[6]);
+        check_switch::<false, true>(&net, &alternate, &states[6]);
+        check_switch::<true, false>(&net, &alternate, &states[6]);
+        check_switch::<true, true>(&net, &alternate, &states[6]);
+    }
+
+    #[test]
+    fn finny_inplace_partial_delta_panic_invalidates_entry_and_rebuilds() {
+        fn refresh<const TILE: bool, const PUBLIC: bool>(
+            net: &HalfKpNetwork,
+            king: Square,
+            cached: &mut [i16; HALF_DIMS],
+            mailbox: &[Option<Piece>; 81],
+            hand: &[[u8; 7]; 2],
+        ) {
+            if PUBLIC {
+                let mut public = HalfKpAcc::new();
+                public.king[Color::Black.index()] = king;
+                public.values[Color::Black.index()] = *cached;
+                public.refresh_perspective(net, Color::Black, mailbox, hand);
+                *cached = public.values[Color::Black.index()];
+            } else {
+                refresh_from_cache_mode::<TILE, true>(
+                    net,
+                    Color::Black,
+                    king,
+                    cached,
+                    mailbox,
+                    hand,
+                );
+            }
+        }
+        fn check<const TILE: bool, const PUBLIC: bool>() {
+            // Only this owned synthetic network is corrupted temporarily;
+            // no process-global or file-loaded evaluator is modified.
+            let mut net = HalfKpNetwork::random(11);
+            net.ft_bias.fill(i16::MAX);
+            let king = Square::from_fr(8, 0);
+            let empty = [None; 81];
+            let hand = [[0; 7]; 2];
+            let mut changed = empty;
+            let features: [usize; 5] = std::array::from_fn(|i| {
+                changed[i] = Some(Piece::new(Color::Black, PieceKind::Fu));
+                board_feature(
+                    king,
+                    Square(i as u8),
+                    PieceKind::Fu,
+                    Color::Black,
+                    Color::Black,
+                )
+                .unwrap()
+            });
+            assert!(features.windows(2).all(|pair| pair[0] < pair[1]));
+            for &f in &features {
+                net.ft_weights[f * HALF_DIMS..(f + 1) * HALF_DIMS].fill(1);
+            }
+            REFRESH_CACHE.with(|cell| *cell.borrow_mut() = None);
+            let mut cached = [0; HALF_DIMS];
+            refresh::<TILE, PUBLIC>(&net, king, &mut cached, &empty, &hand);
+            let original = std::mem::replace(&mut net.ft_weights, Vec::new().into_boxed_slice());
+            // Four valid columns mutate the cache (one full tile); the
+            // fifth lookup panics after that mutation in either TILE mode.
+            net.ft_weights = original[..features[4] * HALF_DIMS]
+                .to_vec()
+                .into_boxed_slice();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                refresh::<TILE, PUBLIC>(&net, king, &mut cached, &changed, &hand);
+            }));
+            net.ft_weights = original;
+            assert!(result.is_err());
+            REFRESH_CACHE.with(|cell| {
+                let slot = cell.borrow();
+                let entry = &slot.as_ref().unwrap().entries[king.0 as usize];
+                assert!(!entry.valid, "partial cache must not be reusable");
+                assert_eq!(entry.values, [i16::MAX.wrapping_add(4); HALF_DIMS]);
+                assert_eq!(entry.mailbox, empty);
+                assert_eq!(entry.hand, hand);
+            });
+            let mut expected = [0; HALF_DIMS];
+            refresh_full_impl::<false>(&net, Color::Black, king, &mut expected, &changed, &hand);
+            refresh::<TILE, PUBLIC>(&net, king, &mut cached, &changed, &hand);
+            assert_eq!(cached, expected);
+            REFRESH_CACHE.with(|cell| {
+                let slot = cell.borrow();
+                let entry = &slot.as_ref().unwrap().entries[king.0 as usize];
+                assert!(entry.valid);
+                assert_eq!(entry.values, expected);
+                assert_eq!(entry.mailbox, changed);
+                assert_eq!(entry.hand, hand);
+            });
+        }
+        check::<false, false>();
+        check::<true, false>();
+        #[cfg(feature = "nnue_finny_inplace")]
+        check::<false, true>();
+    }
+
+    #[cfg(feature = "nnue_finny_inplace")]
+    #[test]
+    fn finny_inplace_feature_public_refresh_matches_full_rebuild() {
+        // No tune feature or installed global evaluator is needed: this
+        // calls the public HalfKpAcc route used by a normal native build.
+        assert_eq!(crate::search::params::NNUE_FINNY(), 1);
+        assert_eq!(crate::search::params::NNUE_FINNY_INPLACE(), 0);
+        let net = HalfKpNetwork::random(11);
+        let states = refresh_fixtures();
+        REFRESH_CACHE.with(|cell| *cell.borrow_mut() = None);
+        let mut acc = HalfKpAcc::new();
+        let mut changed_warm = 0;
+        for state in &states {
+            REFRESH_CACHE.with(|cell| {
+                if let Some(cache) = cell.borrow().as_ref() {
+                    for perspective in PERSPECTIVES {
+                        let p = perspective.index();
+                        let e = &cache.entries[p * 81 + state.kings[p].0 as usize];
+                        changed_warm += usize::from(
+                            e.valid && (e.mailbox != state.mailbox || e.hand != state.hand),
+                        );
+                    }
+                }
+            });
+            acc.dirty = [true; 2];
+            acc.refresh(&net, &state.mailbox, &state.hand);
+            assert!(!acc.needs_refresh());
+            for perspective in PERSPECTIVES {
+                let p = perspective.index();
+                let mut expected = [0; HALF_DIMS];
+                refresh_full_impl::<false>(
+                    &net,
+                    perspective,
+                    state.kings[p],
+                    &mut expected,
+                    &state.mailbox,
+                    &state.hand,
+                );
+                assert_eq!(acc.king[p], state.kings[p]);
+                assert_eq!(acc.values[p], expected);
+            }
+        }
+        assert!(changed_warm > 0, "exercise populated Finny entries");
+        eprintln!(
+            "finny inplace native feature public own random11: states={} perspectives={} changed_warm={} exact=true",
+            states.len(),
+            2 * states.len(),
+            changed_warm
+        );
+    }
+
+    #[cfg(all(feature = "tune", not(feature = "nnue_finny_inplace")))]
+    #[test]
+    #[ignore = "isolated process: changes NNUE refresh tuning parameters"]
+    fn finny_inplace_runtime_flag_keeps_cached_refresh_exact() {
+        use crate::search::params;
+        struct Restore(i32, i32, i32);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                assert!(params::set("NNUE_FINNY_INPLACE", self.0));
+                assert!(params::set("NNUE_REFRESH_TILE", self.1));
+                assert!(params::set("NNUE_FINNY", self.2));
+            }
+        }
+        let _restore = Restore(
+            params::NNUE_FINNY_INPLACE(),
+            params::NNUE_REFRESH_TILE(),
+            params::NNUE_FINNY(),
+        );
+        assert!(params::set("NNUE_FINNY", 1));
+        assert_eq!(params::NNUE_FINNY_INPLACE(), 0);
+        let net = HalfKpNetwork::random(11);
+        let states = refresh_fixtures();
+        let mut reference = Vec::new();
+        for tile in [0, 1] {
+            for inplace in [0, 1] {
+                assert!(params::set("NNUE_REFRESH_TILE", tile));
+                assert!(params::set("NNUE_FINNY_INPLACE", inplace));
+                REFRESH_CACHE.with(|cell| *cell.borrow_mut() = None);
+                let mut acc = HalfKpAcc::new();
+                for (i, state) in states.iter().enumerate() {
+                    acc.dirty = [true, true];
+                    acc.refresh(&net, &state.mailbox, &state.hand);
+                    if tile == 0 && inplace == 0 {
+                        reference.push(acc.clone());
+                    } else {
+                        assert_eq!(acc, reference[i], "tile={tile} inplace={inplace} state={i}");
+                        assert_eq!(
+                            acc.evaluate(&net, Color::Black, 24),
+                            reference[i].evaluate(&net, Color::Black, 24)
+                        );
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "finny inplace runtime own random11: tile_modes=2 arms=2 states={} completed_refreshes={} exact=true",
+            states.len(),
+            4 * states.len()
+        );
     }
 
     #[cfg(feature = "tune")]
