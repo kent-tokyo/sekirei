@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -158,28 +159,118 @@ def validate_halfkp_artifact(artifact: object, root: Path) -> tuple[list[str], P
     return errors, path
 
 
+def _finite_number(value: object) -> bool:
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _unique_object(pairs: list) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _reject_constant(_value: str) -> None:
+    raise ValueError("non-finite JSON constant")
+
+
+def validate_gate_evidence(
+    condition: dict, gate: dict, artifact: dict, path: Path, field: str
+) -> list[str]:
+    # Read bounded metadata only, never extract raw archives or inspect hold-outs.
+    try:
+        with path.open("rb") as handle:
+            payload = handle.read(1024 * 1024 + 1)
+        if len(payload) > 1024 * 1024:
+            return [f"{field}.evidence.size"]
+        if hashlib.sha256(payload).hexdigest() != condition["evidence"]["sha256"]:
+            return [f"{field}.evidence.sha256"]
+        report = json.loads(payload.decode("utf-8"), object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+    except (OSError, ValueError, UnicodeError, RecursionError):
+        return [f"{field}.evidence.json"]
+    if not isinstance(report, dict):
+        return [f"{field}.evidence.object"]
+    raw = condition.get("raw_evidence")
+    expected = {
+        "schema": "sekirei.nnue-engine-gate-evidence.v1",
+        "engine_commit": gate.get("engine_commit"),
+        "engine_sha256": gate.get("engine_sha256"),
+        "candidate_sha256": artifact.get("sha256"),
+        "opening_corpus_sha256": gate.get("opening_corpus_sha256"),
+        "raw_evidence_sha256": raw.get("sha256") if isinstance(raw, dict) else None,
+        "threads": condition.get("threads"), "games": condition.get("games"),
+        "byoyomi_ms": condition.get("byoyomi_ms"), "fv_scale": artifact.get("fv_scale"),
+        "verdict": condition.get("verdict"), "status": "complete",
+        "baseline_evaluator": "material", "candidate_load_acknowledged": True,
+        "baseline_weights_loaded": False, "artifact_write_failures": [], "invalid_games": [],
+    }
+    errors = []
+    for name, value in expected.items():
+        if type(report.get(name)) is not type(value) or report.get(name) != value:
+            errors.append(f"{field}.evidence.{name}")
+    counts = [report.get(name) for name in ("wins", "draws", "losses")]
+    if any(type(value) is not int or value < 0 for value in counts) or sum(counts) != condition.get("games"):
+        errors.append(f"{field}.evidence.counts")
+    sprt = report.get("sprt")
+    if not isinstance(sprt, dict):
+        return errors + [f"{field}.evidence.sprt"]
+    if (
+        sprt.get("method") != "paired-trinomial"
+        or sprt.get("require_complete_pairs") is not True
+        or type(sprt.get("analyzed_pairs")) is not int
+        or sprt.get("analyzed_pairs") * 2 != condition.get("games")
+    ):
+        errors.append(f"{field}.evidence.sprt.pairs")
+    numbers = [sprt.get(name) for name in
+               ("elo0", "elo1", "alpha", "beta", "llr", "lower_bound", "upper_bound")]
+    if not all(_finite_number(value) for value in numbers):
+        return errors + [f"{field}.evidence.sprt.numbers"]
+    elo0, elo1, alpha, beta, llr, lower, upper = numbers
+    if alpha != 0.05 or beta != 0.05 or elo0 >= elo1:
+        errors.append(f"{field}.evidence.sprt.protocol")
+    if (not math.isclose(lower, -math.log(19), rel_tol=0, abs_tol=1e-6)
+            or not math.isclose(upper, math.log(19), rel_tol=0, abs_tol=1e-6)
+            or llr < upper):
+        errors.append(f"{field}.evidence.sprt.not_accepted")
+    if condition.get("verdict") == "PASS" and elo0 < 0:
+        errors.append(f"{field}.evidence.sprt.superiority")
+    if condition.get("verdict") == "NON_REGRESSION":
+        margin = condition.get("non_regression_margin_elo")
+        if not _finite_number(margin) or margin <= 0 or elo0 != -margin or elo1 != 0:
+            errors.append(f"{field}.evidence.sprt.non_regression_margin")
+    return errors
+
+
 def validate_gate_condition(
-    condition: object,
-    root: Path,
-    index: int,
+    condition: object, root: Path, index: int, gate: dict, artifact: dict,
 ) -> list[str]:
     field = f"current_engine_gate.conditions[{index}]"
     if not isinstance(condition, dict):
         return [field]
     errors: list[str] = []
     threads = condition.get("threads")
-    verdict = condition.get("verdict")
-    if threads not in (1, 4):
+    if type(threads) is not int or threads not in (1, 4):
         errors.append(f"{field}.threads")
     allowed = {"PASS"} if threads == 1 else {"PASS", "NON_REGRESSION"}
-    if verdict not in allowed:
-        errors.append(f"{field}.verdict")
+    if not isinstance(condition.get("verdict"), str) or condition["verdict"] not in allowed:
+        return errors + [f"{field}.verdict"]
     games = condition.get("games")
-    if not isinstance(games, int) or games <= 0:
+    if type(games) is not int or games <= 0 or games % 2:
         errors.append(f"{field}.games")
+    if type(condition.get("byoyomi_ms")) is not int or condition["byoyomi_ms"] <= 0:
+        errors.append(f"{field}.byoyomi_ms")
     for name in ("evidence", "raw_evidence"):
-        reference_errors, _ = validate_reference(condition.get(name), root, f"{field}.{name}")
+        reference_errors, path = validate_reference(condition.get(name), root, f"{field}.{name}")
         errors.extend(reference_errors)
+        if name == "evidence" and not reference_errors and path is not None:
+            errors.extend(validate_gate_evidence(condition, gate, artifact, path, field))
     return errors
 
 
@@ -224,6 +315,8 @@ def validate_v2(card: dict, root: Path, expected_engine_commit: str | None) -> l
             errors.append("current_engine_gate.engine_commit")
         elif expected_engine_commit is not None and engine_commit != expected_engine_commit:
             errors.append("current_engine_gate.engine_commit.expected")
+        if not SHA256.fullmatch(gate.get("engine_sha256", "")):
+            errors.append("current_engine_gate.engine_sha256")
         if gate.get("candidate_sha256") != artifact.get("sha256"):
             errors.append("current_engine_gate.candidate_sha256")
         if not SHA256.fullmatch(gate.get("opening_corpus_sha256", "")):
@@ -233,7 +326,7 @@ def validate_v2(card: dict, root: Path, expected_engine_commit: str | None) -> l
             errors.append("current_engine_gate.conditions")
         else:
             for index, condition in enumerate(conditions):
-                errors.extend(validate_gate_condition(condition, root, index))
+                errors.extend(validate_gate_condition(condition, root, index, gate, artifact))
             threads = {
                 condition.get("threads")
                 for condition in conditions
