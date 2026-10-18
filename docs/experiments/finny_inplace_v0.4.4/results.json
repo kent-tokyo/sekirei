@@ -133,6 +133,17 @@
         "summary": null,
         "capture_sha256": "f4d99484bb392fbaabf231741ea78a4de873b2c16c8cf123776644dba6db2422",
         "all_actual_pv_replay_sha256": "2ccd5c022e449db8c51a3453ac97ca8692b0df130871eb8c0804913f955b14db"
+      },
+      {
+        "capture": "speed-8t-5",
+        "status": "interrupted",
+        "accepted_positions": 28,
+        "actual_calls": 160,
+        "host_rejected_quartets": 12,
+        "reason": "three consecutive host-rejected whole quartets",
+        "summary": null,
+        "capture_sha256": "2f7e8a3465f2e0e29b76b9796d38d27be2f546e0ec4ded48a7dc74fa352f443d",
+        "all_actual_pv_replay_sha256": "30c7492bb34cfc773c65496e1d10875dccf9bd12fd750d7771a63c05671ce3f5"
       }
     ],
     "incomplete_captures_pooled": false,
@@ -151,11 +162,11 @@
       "operational_guard_only": true,
       "additional_schedule_rule": "no outside compiler process even if momentarily idle",
       "acceptance_and_statistics_unchanged": true,
-      "continuous_quiet_seconds": 30.240677541005425,
-      "samples": 478,
+      "continuous_quiet_seconds": 30.463131750002503,
+      "samples": 95,
       "child_returncode": 1
     },
-    "all_actual_pvs_verified": 112
+    "all_actual_pvs_verified": 272
   },
   "local_receipt_sha256": {
     "build/manifest.json": "52cdec942cb724396e314833d183c8242dadb42fcb215b5fd3cd8277e5911b7e",
@@ -178,7 +189,12 @@
     "speed-8t-4/report.json": "f4d99484bb392fbaabf231741ea78a4de873b2c16c8cf123776644dba6db2422",
     "interrupted-pv-audit-speed-8t-4/qa.json": "2ccd5c022e449db8c51a3453ac97ca8692b0df130871eb8c0804913f955b14db",
     "launch-quiet-4.json": "262cce168e23270a24a258ac59df935cbe289d72e99b90e352e3fbff1196315f",
-    "launch-quiet-4.jsonl": "4a19d3d4578e4646b250e5b075dca07e9232254f5611133ae22c7efe3cfdb155"
+    "launch-quiet-4.jsonl": "4a19d3d4578e4646b250e5b075dca07e9232254f5611133ae22c7efe3cfdb155",
+    "speed-8t-5/report.json": "2f7e8a3465f2e0e29b76b9796d38d27be2f546e0ec4ded48a7dc74fa352f443d",
+    "interrupted-pv-audit-speed-8t-5/qa.json": "30c7492bb34cfc773c65496e1d10875dccf9bd12fd750d7771a63c05671ce3f5",
+    "launch-quiet-5.json": "a985f19ea75fecf0393d18cdfecdcf55e79fa9a8256bbc4c927c9c8742bfd64a",
+    "launch-quiet-5.jsonl": "85c94eb0801e6a9f0b650c3a6a82cc5d73c8316fa720127ac21a5c1775d9015c",
+    "audit_incomplete.py": "c57fe6d1e84608ddf24d7add222333da7452adaeb8f7f559b2700738b1a0529e"
   },
   "source_validation_receipt_sha256": "5495ced078d9e79217be1f81b6b88b57746e148c0b912eb33596bd631ccd3544",
   "raw_or_weights_published": false,
