@@ -107,6 +107,8 @@ impl ContRows<'_> {
 #[cfg(test)]
 thread_local! {
     static CONT_ROW_BATCHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    // None during ordinary unit tests; no observer exists in production builds.
+    static PC_SEE_OBSERVER: std::cell::Cell<Option<(u64, u64)>> = const { std::cell::Cell::new(None) };
 }
 
 // Test-only observations of the real guarded transform below. No observer,
@@ -399,6 +401,26 @@ fn see_below(
     } else {
         exact() < threshold
     }
+}
+
+/// ProbCut needs only the comparison: a capture-up proof is enough for a
+/// non-positive threshold. Keep both the proof and exact SEE lazy so a
+/// default-off or positive-threshold call performs only the original SEE.
+#[inline]
+fn probcut_see_below(
+    enabled: bool,
+    threshold: i32,
+    non_negative: impl FnOnce() -> bool,
+    exact: impl FnOnce() -> i32,
+) -> bool {
+    let proven = enabled && threshold <= 0 && non_negative();
+    #[cfg(test)]
+    PC_SEE_OBSERVER.with(|observer| {
+        if let Some((comparisons, skipped)) = observer.get() {
+            observer.set(Some((comparisons + 1, skipped + u64::from(proven))));
+        }
+    });
+    see_below(i32::MIN, proven, threshold, exact)
 }
 
 #[inline]
@@ -1973,7 +1995,12 @@ fn node(
         }
         caps.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
         for &(_, m, _, _) in caps.iter() {
-            if see2(board, m) < pc_beta - static_eval {
+            if probcut_see_below(
+                cfg!(feature = "probcut_see_bound") || p::V2_PC_SEE_BOUND() != 0,
+                pc_beta - static_eval,
+                || captures_up(board, m),
+                || see2(board, m),
+            ) {
                 continue;
             }
             d.ss[i].mv = Some(m);
@@ -3909,6 +3936,264 @@ mod tests {
         }
     }
 
+    const SEE_CAPTURE_FIXTURES: [&str; 3] = [
+        "4k4/4g4/4p4/4P4/9/9/9/9/4K4 b - 1",
+        "4k4/9/9/9/9/4p4/4P4/9/4K4 w - 1",
+        "4k4/4g4/4p4/4R4/9/9/9/9/4K4 b - 1",
+    ];
+
+    // A Cargo feature fixes mode ON, so runtime OFF/ON identity belongs only
+    // to the separate tune process without that feature.
+    #[cfg(all(feature = "tune", not(feature = "probcut_see_bound")))]
+    #[test]
+    #[ignore = "run alone: process-global tuning; material only, no model"]
+    fn probcut_see_bound_preserves_material_search_and_reaches_comparator() {
+        use crate::search::{SearchConfig, Searcher};
+        use crate::tt::Tt;
+        struct Restore(i32);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                PC_SEE_OBSERVER.with(|observer| observer.set(None));
+                assert!(p::set("V2_PC_SEE_BOUND", self.0));
+            }
+        }
+        let _restore = Restore(p::V2_PC_SEE_BOUND());
+        assert!(!crate::halfkp::is_active());
+        assert!(!crate::nnue::weights_active());
+        assert_eq!(p::V2_SEE_BOUND_CACHE(), 0);
+        assert_eq!(p::SEARCH_V2(), 1);
+        assert_eq!(p::V2_QS(), 0);
+        let spec = p::ALL.iter().find(|s| s.name == "V2_PC_SEE_BOUND").unwrap();
+        assert_eq!((spec.default, spec.min, spec.max), (0, 0, 1));
+        fn compare() {
+            let mut totals = [(0_u64, 0_u64); 2];
+            for sfen in std::iter::once(crate::sfen::STARTPOS_SFEN).chain(SEE_CAPTURE_FIXTURES) {
+                for depth in [6, 8] {
+                    let mut results = Vec::new();
+                    for enabled in [0, 1] {
+                        assert!(p::set("V2_PC_SEE_BOUND", enabled));
+                        let mut board = Board::from_sfen(sfen).unwrap();
+                        board.refresh_acc();
+                        let before = (
+                            crate::sfen::board_to_sfen(&board),
+                            board.hash(),
+                            board.acc.clone(),
+                            board.hkp.clone(),
+                        );
+                        // Fixed TT size and no time/node cutoff: complete each
+                        // depth, then require the visited node count itself exact.
+                        let searcher = Searcher::new(Tt::new(4));
+                        searcher.clear_tt();
+                        PC_SEE_OBSERVER.with(|observer| observer.set(Some((0, 0))));
+                        let result = searcher.search(
+                            &mut board,
+                            SearchConfig {
+                                max_depth: depth,
+                                ..SearchConfig::default()
+                            },
+                        );
+                        let observed =
+                            PC_SEE_OBSERVER.with(|observer| observer.replace(None).unwrap());
+                        totals[enabled as usize].0 += observed.0;
+                        totals[enabled as usize].1 += observed.1;
+                        assert!(!result.aborted);
+                        assert_eq!(result.depth, depth);
+                        assert_eq!(
+                            (
+                                crate::sfen::board_to_sfen(&board),
+                                board.hash(),
+                                board.acc.clone(),
+                                board.hkp.clone()
+                            ),
+                            before
+                        );
+                        let mut replay = board.clone();
+                        for &mv in &result.pv {
+                            assert!(generate_legal_moves(&mut replay).contains(&mv));
+                            let _ = replay.do_move(mv);
+                        }
+                        results.push(result);
+                    }
+                    let a = &results[0];
+                    let b = &results[1];
+                    assert_eq!(
+                        (
+                            a.best_move,
+                            a.score,
+                            a.depth,
+                            a.nodes,
+                            &a.pv,
+                            a.bound,
+                            a.completed_bound
+                        ),
+                        (
+                            b.best_move,
+                            b.score,
+                            b.depth,
+                            b.nodes,
+                            &b.pv,
+                            b.bound,
+                            b.completed_bound
+                        ),
+                        "{sfen} depth={depth}"
+                    );
+                }
+            }
+            assert!(totals[0].0 > 0 && totals[1].0 > 0);
+            assert_eq!(totals[0].1, 0);
+            assert_eq!(totals[0].0, totals[1].0);
+            assert!(totals[1].1 > 0);
+            // Require a natural opportunity, without changing search windows or margins.
+            eprintln!(
+                "ProbCut material identity: searches=16 depth=6,8 comparisons_off={} comparisons_on={} exact_skipped_on={}",
+                totals[0].0, totals[1].0, totals[1].1
+            );
+        }
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(compare)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn probcut_see_bound_keeps_proof_and_exact_evaluation_lazy() {
+        use std::cell::Cell;
+        #[cfg(not(feature = "tune"))]
+        assert_eq!(p::V2_PC_SEE_BOUND(), 0);
+        for enabled in [false, true] {
+            for threshold in [i32::MIN, -1, 0, 1, i32::MAX] {
+                for (proven, exact_value) in [
+                    (false, -400),
+                    (false, 0),
+                    (false, 400),
+                    (true, 0),
+                    (true, 400),
+                ] {
+                    let proof_calls = Cell::new(0);
+                    let exact_calls = Cell::new(0);
+                    let actual = probcut_see_below(
+                        enabled,
+                        threshold,
+                        || {
+                            proof_calls.set(proof_calls.get() + 1);
+                            proven
+                        },
+                        || {
+                            exact_calls.set(exact_calls.get() + 1);
+                            exact_value
+                        },
+                    );
+                    assert_eq!(actual, exact_value < threshold);
+                    assert_eq!(proof_calls.get(), usize::from(enabled && threshold <= 0));
+                    assert_eq!(
+                        exact_calls.get(),
+                        usize::from(!(enabled && threshold <= 0 && proven))
+                    );
+                }
+            }
+        }
+        // Both arguments also accept genuinely one-shot, owned closures.
+        let proof_payload = Box::new(false);
+        let exact_payload = Box::new(-3);
+        assert!(probcut_see_below(
+            true,
+            0,
+            move || {
+                let proof = *proof_payload;
+                drop(proof_payload);
+                proof
+            },
+            move || {
+                let exact = *exact_payload;
+                drop(exact_payload);
+                exact
+            }
+        ));
+    }
+
+    #[test]
+    fn probcut_see_bound_matches_exact_legal_captures_without_board_changes() {
+        use std::cell::Cell;
+        let (mut eliminated, mut promoted, mut zero_bound, mut losing_unknown) = (0, 0, 0, 0);
+        for sfen in SEE_CAPTURE_FIXTURES {
+            let mut board = Board::from_sfen(sfen).unwrap();
+            let hash = board.hash();
+            let accumulator = board.acc.clone();
+            let hkp = board.hkp.clone();
+            for m in generate_legal_captures(&mut board) {
+                let exact = see2(&board, m);
+                let proven = captures_up(&board, m);
+                if proven {
+                    assert!(exact >= 0, "{m:?}");
+                    promoted += usize::from(m.promote);
+                    zero_bound += usize::from(exact == 0);
+                } else {
+                    losing_unknown += usize::from(exact < 0);
+                }
+                for enabled in [false, true] {
+                    for threshold in [-2000, -1, 0, 1, 2000, exact - 1, exact, exact + 1] {
+                        let proof_calls = Cell::new(0);
+                        let exact_calls = Cell::new(0);
+                        let actual = probcut_see_below(
+                            enabled,
+                            threshold,
+                            || {
+                                proof_calls.set(proof_calls.get() + 1);
+                                captures_up(&board, m)
+                            },
+                            || {
+                                exact_calls.set(exact_calls.get() + 1);
+                                see2(&board, m)
+                            },
+                        );
+                        assert_eq!(actual, exact < threshold, "{m:?} threshold={threshold}");
+                        assert_eq!(proof_calls.get(), usize::from(enabled && threshold <= 0));
+                        let skipped = enabled && threshold <= 0 && proven;
+                        assert_eq!(exact_calls.get(), usize::from(!skipped));
+                        eliminated += usize::from(skipped);
+                    }
+                }
+            }
+            assert_eq!(board.hash(), hash);
+            assert_eq!(board.acc, accumulator);
+            assert_eq!(board.hkp, hkp);
+        }
+        assert!(eliminated > 0);
+        assert!(promoted > 0);
+        assert!(zero_bound > 0);
+        assert!(losing_unknown > 0);
+    }
+
+    #[test]
+    fn probcut_see_bound_quiet_promotion_and_drop_keep_exact_fallback() {
+        use crate::sfen::move_from_usi;
+        use std::cell::Cell;
+        for usi in ["5b5a+", "P*4e"] {
+            let mut board = Board::from_sfen("k8/4P4/9/9/9/9/9/9/4K4 b P 1").unwrap();
+            let m = move_from_usi(usi, &board).unwrap();
+            assert!(generate_legal_moves(&mut board).contains(&m));
+            assert!(!captures_up(&board, m));
+            assert!(m.promote || m.from.is_none());
+            let exact = see2(&board, m);
+            for threshold in [-1, 0, 1, exact - 1, exact, exact + 1] {
+                let exact_calls = Cell::new(0);
+                let actual = probcut_see_below(
+                    true,
+                    threshold,
+                    || captures_up(&board, m),
+                    || {
+                        exact_calls.set(exact_calls.get() + 1);
+                        see2(&board, m)
+                    },
+                );
+                assert_eq!(actual, exact < threshold);
+                assert_eq!(exact_calls.get(), 1);
+            }
+        }
+    }
+
     #[test]
     fn see_bound_keeps_unknown_exact_and_positive_thresholds_distinct() {
         use std::cell::Cell;
@@ -3987,11 +4272,7 @@ mod tests {
             assert_eq!(board.acc, accumulator);
             assert_eq!(board.hkp, hkp);
         };
-        for sfen in [
-            "4k4/4g4/4p4/4P4/9/9/9/9/4K4 b - 1",
-            "4k4/9/9/9/9/4p4/4P4/9/4K4 w - 1",
-            "4k4/4g4/4p4/4R4/9/9/9/9/4K4 b - 1",
-        ] {
+        for sfen in SEE_CAPTURE_FIXTURES {
             check_position(&mut Board::from_sfen(sfen).unwrap());
         }
         let mut seed = 0x9e37_79b9_7f4a_7c15u64;
