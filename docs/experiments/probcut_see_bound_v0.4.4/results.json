@@ -1,0 +1,261 @@
+{
+  "schema": "sekirei.probcut-see-bound-public.v1",
+  "status": "correctness_verified_speed_unmeasured",
+  "date": "2026-10-18",
+  "base_commit": "9204a3577b0e0a0a68930e09dcfea694212964d1",
+  "candidate_patch_sha256": "b334f76b8cd0f771418b423db871d81693cbbbb21bc5642584155d124756fe77",
+  "source_hashes": {
+    "crates/sekirei-core/Cargo.toml": "7396cd6e4ede24e638675988d36f2a8698da7f23b28f27b47bec0d223cabdaaf",
+    "crates/sekirei-core/src/search/params.rs": "a019bfc4f2c5b308049147d1d8a94022813b8a492a5a510a15f608d815be9010",
+    "crates/sekirei-core/src/search/v2.rs": "e0eb7342ed8dca24c10200648d882e8b7312e72da512c390273a822d3a2b12da",
+    "crates/sekirei-usi/Cargo.toml": "511cfe05a0bca1ec173b4e77e0bc7c7ac4bce07791cc62f14846b55a769f5ea3"
+  },
+  "compiler_input_count": 149,
+  "compiler_input_map_sha256": "ba0acad48ede87eddeb7c0b847b5aa7e210819979ad7c138c4f8a62c61a69224",
+  "compiler_input_map_encoding": "UTF-8 JSON sorted keys, separators comma/colon, no trailing newline",
+  "cargo_feature": {
+    "core": "probcut_see_bound",
+    "usi": "probcut_see_bound",
+    "enabled_by_default": false,
+    "tune_required_for_native_feature": false
+  },
+  "parameter": {
+    "name": "V2_PC_SEE_BOUND",
+    "default": 0,
+    "min": 0,
+    "max": 1
+  },
+  "existing_see_bound_cache_default": 0,
+  "checks": {
+    "default_see_bound": {
+      "status": "passed",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "-p",
+        "sekirei-core",
+        "--lib",
+        "see_bound",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "local_log_sha256": "b6f7034557e1e78315c27503b1406d190d4161582eec080713775c0ad65ae30a"
+    },
+    "feature_see_bound": {
+      "status": "passed",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "-p",
+        "sekirei-core",
+        "--features",
+        "probcut_see_bound",
+        "--lib",
+        "see_bound",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "local_log_sha256": "0b8fba4153e808ba2a452fb65374e57c698fa3fd34eae4fc1377ff2826842dfb"
+    },
+    "tune_see_bound": {
+      "status": "passed",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "-p",
+        "sekirei-core",
+        "--features",
+        "tune",
+        "--lib",
+        "see_bound",
+        "--",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "passed": 5,
+      "failed": 0,
+      "ignored": 1,
+      "local_log_sha256": "6c4f6dbe668a4994b13ccb4684b5cc36ee62b850e95dc6df8bdfe32e871342c6"
+    },
+    "isolated_material_search": {
+      "status": "passed",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "-p",
+        "sekirei-core",
+        "--features",
+        "tune",
+        "--lib",
+        "search::v2::tests::probcut_see_bound_preserves_material_search_and_reaches_comparator",
+        "--",
+        "--exact",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "local_log_sha256": "933df474eb7e262ec1855aeac5f3679a9a2a3efc1e617695960737120ad73d48"
+    },
+    "feature_core_usi_clippy": {
+      "status": "passed",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "-p",
+        "sekirei-core",
+        "-p",
+        "sekirei",
+        "--features",
+        "probcut_see_bound",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "local_log_sha256": "440a17896ee760ba563c58b53515c37552034e4f513e6e18271096e183e54343"
+    },
+    "tune_core_usi_clippy": {
+      "status": "passed",
+      "command": [
+        "cargo",
+        "clippy",
+        "--offline",
+        "-p",
+        "sekirei-core",
+        "-p",
+        "sekirei",
+        "--features",
+        "tune",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "local_log_sha256": "676cb3dd555984b1fd5f46cdd372e9d8dc9550dea5d6c324587257dd265c2849"
+    },
+    "default_core_all_lib": {
+      "status": "passed",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "-p",
+        "sekirei-core",
+        "--lib",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "passed": 457,
+      "failed": 0,
+      "ignored": 9,
+      "local_log_sha256": "34280c09346178ce256d05e76bd187c046aa775ce06db9fbca90e03c33691ab0"
+    },
+    "fmt": {
+      "status": "passed",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "local_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "diff": {
+      "status": "passed",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "local_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "material_identity": {
+    "searches": 16,
+    "positions": 4,
+    "depths": [
+      6,
+      8
+    ],
+    "arms": [
+      0,
+      1
+    ],
+    "tt_mib": 4,
+    "time_limit": null,
+    "node_limit": null,
+    "diagnostics": false,
+    "model": null,
+    "signature_exact": [
+      "best_move",
+      "score",
+      "pv",
+      "nodes",
+      "depth",
+      "bound",
+      "completed_bound"
+    ],
+    "root_restored": [
+      "sfen",
+      "hash",
+      "acc",
+      "hkp"
+    ],
+    "all_pvs_legal": true,
+    "actual_probcut_comparisons_off": 106,
+    "actual_probcut_comparisons_on": 106,
+    "actual_exact_see_skipped_on": 10,
+    "observer": "cfg(test) only; opt-in thread-local Option, one search thread; absent from normal/tune non-test native builds",
+    "restoration": "RAII tuning restore; observer disabled after each arm; fresh Searcher and cleared TT for every arm"
+  },
+  "independent_review": "passed; production shortcut and test reach assertions, feature gating, CI and documentation reviewed read-only",
+  "parent_checks": {
+    "ci_yaml": "parsed; feature and isolated tune jobs checked",
+    "documentation_references": "passed",
+    "public_surface": "passed",
+    "release_metadata": "passed"
+  },
+  "local_verification_receipt_sha256": "ba54528cdfaa69ea07fb62908f50fbeec6d6c40afc809b3a69e44b301f2bd59b",
+  "speed": {
+    "measured": false,
+    "summary": null,
+    "default_adoption": false,
+    "native_off_on_identity": "pending",
+    "fresh_own_evaluator_8t_abba": "pending"
+  },
+  "limits": [
+    "Correctness development fixtures only; no NPS or playing-strength evidence.",
+    "Normal core lib run once; focused comparator tests additionally cover default, native feature ON and tune.",
+    "The native feature fixes the candidate ON, so isolated runtime OFF/ON search uses tune without the feature.",
+    "No change to Entry layout, scratch, sorting, ProbCut thresholds or pruning eligibility."
+  ],
+  "model_or_training_changed": false,
+  "external_model_used": false,
+  "raw_or_weights_published": false
+}

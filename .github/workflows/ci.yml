@@ -21,6 +21,23 @@ env:
   RUSTFLAGS: ""
 
 jobs:
+  probcut-see-bound:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Feature compilation and fallback contracts
+        run: |
+          cargo clippy -p sekirei-core -p sekirei --all-targets --features probcut_see_bound -- -D warnings
+          cargo test -p sekirei-core --features probcut_see_bound --lib see_bound -- --test-threads=1
+      - name: Isolated material search identity
+        # Tune parameters are process-global. Keep this ignored test alone,
+        # without the compile-time feature that would force both arms ON.
+        run: cargo test -p sekirei-core --features tune --lib search::v2::tests::probcut_see_bound_preserves_material_search_and_reaches_comparator -- --ignored --exact --nocapture --test-threads=1
+
   wasm:
     runs-on: ubuntu-latest
     steps:

@@ -667,6 +667,9 @@ search_params! {
     V2_NMP_EV_PER = 20, 0, 60;
     /// SEARCH_V2 null move static-evaluation condition: constant part.
     V2_NMP_EV_BASE = 380, 0, 1000;
+    /// Skip ProbCut exact SEE only for a capture-up proof and a non-positive
+    /// comparison threshold. Default off; the comparison result is unchanged.
+    V2_PC_SEE_BOUND = 0, 0, 1;
     /// SEARCH_V2 ProbCut margin over beta.
     V2_PC_MARGIN = 190, 50, 500;
     /// SEARCH_V2 ProbCut margin reduction at improving nodes.
