@@ -1,0 +1,145 @@
+{
+  "schema": "sekirei.nnue-delivery-receipt.v1",
+  "received_at": "2026-10-18T04:41:17.896178+00:00",
+  "status": "metadata_verified_scope_review_pending",
+  "delivery_root": "data/selfplay/nnue/claude061 (local-only, outside Git)",
+  "source_commit": "db2a1e3a4c5f3ae0e484676b6acfd5469af46a03",
+  "private_audit_sha256": "c16ad88fa360daaeaad867f88f918eb3b9c5a83f3e97ef2bd13eb1c81ef07e79",
+  "verified_files": [
+    {
+      "path": "freeze_r6/batch3/MANIFEST_nn_r6.json",
+      "sha256": "4aa9432be8f61bf268508de16c397d6ec71794c6ee121f46487b7363a8356991",
+      "bytes": 10050
+    },
+    {
+      "path": "freeze_r6/batch3/README.txt",
+      "sha256": "ec8686d100ff850cdab324046371b03e6be2556ca739ab7528b16556dc6bc143",
+      "bytes": 845
+    },
+    {
+      "path": "freeze_r6/batch3/candidate_card_nn_r6.draft.json",
+      "sha256": "20b8c0457b29906a290ef86a524e4f39c872aa2967781b346ac34a8fb6dc9cde",
+      "bytes": 3198
+    },
+    {
+      "path": "freeze_r6/batch3/candidate_card_validation.txt",
+      "sha256": "1ec3db3e9b78d700ec1191f5518a01cfe1a8fe8cc7e89cc9bc4cc95b7aa85c16",
+      "bytes": 134
+    },
+    {
+      "path": "freeze_r6/batch3/make_manifest_r6.py",
+      "sha256": "f12a2fe353d54229d7d5a07577c1aa08e42dbaf0d5c62348c9dfd0ce3d3e6769",
+      "bytes": 13889
+    },
+    {
+      "path": "freeze_r6/batch3/make_manifest_r6_v1.py",
+      "sha256": "efc17789dd3ed5ac9003e7637bedac9af2fab909bb83d43b01acf8bb8d779755",
+      "bytes": 5455
+    },
+    {
+      "path": "freeze_r6/batch3/repro_logs.tar.gz",
+      "sha256": "a1a658895c9afad6b641f5272b06b37c559348fadbdb0ad881b6624a1c2dc0cc",
+      "bytes": 3578
+    },
+    {
+      "path": "nnue-holdouts-v2/README.txt",
+      "sha256": "9832e6c282fed198649558ef9401f1146a829acc22a9e6901b8fadf0196b1a33",
+      "bytes": 1481
+    },
+    {
+      "path": "nnue-holdouts-v2/REASSEMBLE.sha256",
+      "sha256": "71f541238b461fc23c785bea212fa8186f98c21b4ea2b0de4eb5914a69775710",
+      "bytes": 193
+    },
+    {
+      "path": "nnue-holdouts-v2/holdout_scope_review_v2.json",
+      "sha256": "c9ee6bec588ab3077bc031aeebcec5d25d4df7eb597dfadac2fd09b347b9e16b",
+      "bytes": 13749
+    },
+    {
+      "path": "nnue-holdouts-v2/holdout_sources_and_conversion.tar.gz",
+      "sha256": "25cfddbe3caaf4a5e01246b5442c4277f7a2ce3d84dcd40be00ec1e93a3e314e",
+      "bytes": 130956
+    },
+    {
+      "path": "nnue-holdouts-v2/nnue-holdouts_claude_v2.json.xz.part00",
+      "sha256": "fac391734303f73c94686795c7a2063d4a19c50cd84147abfcc12b8960239cc8",
+      "bytes": 20971520
+    },
+    {
+      "path": "nnue-holdouts-v2/nnue-holdouts_claude_v2.json.xz.part01",
+      "sha256": "8d753541539529cf0436c7c4464d6f5c498c3f1190c98aa8b482d423e93206bd",
+      "bytes": 20971520
+    },
+    {
+      "path": "nnue-holdouts-v2/nnue-holdouts_claude_v2.json.xz.part02",
+      "sha256": "f7b45998b0cc9f82d9113e9e02fec225e2646ca1c6ae7418c2149f5d8ef183d1",
+      "bytes": 2684440
+    }
+  ],
+  "reproduction": {
+    "verification_level": "owner comparison logs cross-checked against received manifest and candidate card; no retraining or binary re-comparison by this lane",
+    "uninterrupted_log_pair_matches": true,
+    "checkpoint_resume_log_pair_matches": true,
+    "resume_checkpoint_step": 1400,
+    "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+    "checkpoint_sha256": "76a0ec9ba53fe8fe7fe739565de32cdde50babb8a08dbb0c9f984394f1332d9c"
+  },
+  "identity_manifest": {
+    "sha256": "189c1d149e2a7157f00425d30f2e7b2c5d5694042beeb35b21174b19344dbaa5",
+    "compressed_sha256": "2c9b8387d64ef334fc84e9f5248cb67827c2516de877efd9ebec40ab7c4a5fa5",
+    "json_bytes": 100549187,
+    "schema": "sekirei.opening-identity-exclusions.v1",
+    "role": "nnue-holdouts",
+    "complete_for_declared_scope": true,
+    "owner_attestation_present": true,
+    "actual_unique_identity_count": 1396414,
+    "source_count": 17,
+    "records": 1430541,
+    "identity_format_and_unique_count_verified": true,
+    "source_metadata_matches_scope_review": true,
+    "matching_validation_digest_pairs_in_logs": 15,
+    "included_scope": "cloud nn_g10_base..nn_r7 validation/holdout sets plus owner reserved gate openings",
+    "excluded_scope": "Mac-trained nn_gen0..nn_gen10s; Q20/search-side scopes; see owner scope review",
+    "retired_mac_scope_exception": "owner metadata reports user confirmation; this lane has not independently verified the historical user decision",
+    "raw_holdout_positions_read": false,
+    "decompressed_in_memory_only": true
+  },
+  "candidate_card_validation": {
+    "status": "PASS",
+    "mode": "schema metadata only; no artifact argument",
+    "script": "scripts/validate_nnue_candidate_card.py",
+    "script_sha256": "0d1e0d647d03ed74ded49aa32825ee380cd3116b8339be96af230796ef6e8df2",
+    "artifact_bytes_reverified_by_this_receipt": false
+  },
+  "metadata_corrections_needed": [
+    {
+      "path": "nnue-holdouts-v2/holdout_scope_review_v2.json",
+      "field": "scope_in.validation_and_holdout_sets[*].val_bin_sha256",
+      "issue": "all 15 values are filenames instead of SHA256 digests",
+      "available_evidence": "actual matching digest pairs verified in corresponding val_compare.txt archive members"
+    }
+  ],
+  "independent_search_gate": {
+    "started": false,
+    "all_three_exclusion_scopes_qualified": false,
+    "remaining_search_owned_scope_manifests": [
+      "diagnostic",
+      "previous-strength-gates"
+    ],
+    "scope_exception_review_before_freeze": true
+  },
+  "qualification": {
+    "new_strength_claim": false,
+    "release_or_default_adoption_authorized": false,
+    "full_historical_holdout_coverage_verified": false,
+    "current_engine_1t_4t_qualification_added": false
+  },
+  "operational_state": {
+    "training_or_accumulation_started": false,
+    "schedules_created_or_changed": false,
+    "weights_or_candidate_selection_changed": false,
+    "search_policy_changed": false,
+    "raw_holdout_positions_or_labels_read": false
+  }
+}

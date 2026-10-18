@@ -162,6 +162,16 @@ with optional legal moves, rejects completed repetition prefixes and joins
 engine/kifu moves with one moves keyword. CSA replays prefix then played moves
 from the initial board. Bare inputs remain valid.
 
+## NNUE exclusion delivery update — 2026-10-18
+
+The [nn_r6 receipt](../nnue_r6_receipt_2026-10-18/README.md) verifies the
+owner's v2 identity manifest for the declared cloud lineage and reserved sets.
+It contains 1,396,414 unique identities from 17 sources. This does not establish
+full historical coverage: the retired Mac hold-out scope exception needs
+review, and the scope table has a filename/hash metadata defect documented
+in the receipt. Complete diagnostic and previous-strength-gates manifests
+are still required. No independent corpus or match was started by this receipt.
+
 ## Validation and pending work
 
 Runner: 91 tests passed; generator: four; related Python tools: 99. Workspace
