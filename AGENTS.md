@@ -91,6 +91,8 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-19: Make NNUE qualification progress on the shared Mac despite routine OS activity; separate resource scheduling from game/evaluator integrity and preregister revised trial rules without changing past verdicts.
+
 * 2026-10-15: Implement lower-memory JSONL ingestion, durable audit manifests and optional Pure Rust gzip/zstd input in isolation; preserve sample selection, shuffle, resume and hold-out contracts, and keep ingestion measurements separate from training throughput or strength.
 
 * 2026-10-15: Delete verified-unused, regenerable build caches and temporary files to reclaim space; preserve sources, evaluation/training data, measurement evidence, and active jobs.

@@ -249,6 +249,19 @@ records the six-way audit/training comparisons and local coverage result.
 
 ## NNUE candidates and gates
 
+`nnue_gate_host.py` provides shared-host **strength** trial admission. On the
+preregistered 10-core policy, three consecutive observations at no more than
+300% foreign CPU (three cores) and at least 512 MiB free admit the next
+colour-reversed pair. CPU activity during a pair is telemetry only: finish
+and retain both games, regardless of outcome or transient load, then wait
+before the next pair if needed. Missing observations defer the next dispatch.
+Do not use these rules to qualify idle-host speed/NPS, discard loaded games,
+reopen historical invalid trials, or reinterpret a failed strength verdict.
+Pin the policy and its source before a fresh trial. Engine/weight identities,
+load acknowledgements, complete paired records and artifact validation remain
+required; actual protocol or I/O failures still stop the trial.
+
+
 Freeze the input, evaluator, hashes, factor change, and decision rule before a
 candidate run. Finalize only complete artifacts, and keep `PASS`, `FAIL`,
 `INCONCLUSIVE`, and resource-censored outcomes distinct. Useful entry points:
