@@ -25,6 +25,10 @@ HALFKP_VERSION = 0x7AF32F16
 HALFKP_FORMAT = "HalfKP(Friend) 256x2-32-32"
 
 
+def matches_text(pattern: re.Pattern[str], value: object) -> bool:
+    return isinstance(value, str) and pattern.fullmatch(value) is not None
+
+
 def digest(path: Path) -> str:
     value = hashlib.sha256()
     with path.open("rb") as handle:
@@ -40,7 +44,7 @@ def resolve_reference(
         return [field], None, None
     relative = reference.get("path")
     expected = reference.get("sha256")
-    if not isinstance(relative, str) or not relative or not SHA256.fullmatch(expected or ""):
+    if not isinstance(relative, str) or not relative or not matches_text(SHA256, expected):
         return [field], None, None
     if Path(relative).is_absolute():
         return [f"{field}.outside_root"], None, None
@@ -72,7 +76,7 @@ def validate_v1(card: dict, root: Path) -> list[str]:
     path = root / artifact
     if not path.is_file():
         return errors + ["artifact.missing"]
-    if not SHA256.fullmatch(card.get("sha256", "")):
+    if not matches_text(SHA256, card.get("sha256")):
         errors.append("sha256.format")
     elif digest(path) != card["sha256"]:
         errors.append("sha256.mismatch")
@@ -92,8 +96,8 @@ def validate_v1(card: dict, root: Path) -> list[str]:
         errors.append("strength_gate")
     elif not isinstance(gate.get("scope"), str) or "not a Floodgate" not in gate["scope"]:
         errors.append("strength_gate.scope")
-    elif not isinstance(gate.get("baseline"), dict) or not SHA256.fullmatch(
-        gate["baseline"].get("sha256", "")
+    elif not isinstance(gate.get("baseline"), dict) or not matches_text(
+        SHA256, gate["baseline"].get("sha256")
     ):
         errors.append("strength_gate.baseline")
     status = card.get("current_status")
@@ -296,7 +300,7 @@ def validate_v2(card: dict, root: Path, expected_engine_commit: str | None) -> l
     else:
         if training.get("external_teacher_used") is not False:
             errors.append("training.external_teacher_used")
-        if not GIT_COMMIT.fullmatch(training.get("engine_commit", "")):
+        if not matches_text(GIT_COMMIT, training.get("engine_commit")):
             errors.append("training.engine_commit")
         for name in ("dataset_manifest", "whole_game_holdout_manifest"):
             reference_errors, _ = validate_reference(
@@ -311,15 +315,15 @@ def validate_v2(card: dict, root: Path, expected_engine_commit: str | None) -> l
         errors.append("current_engine_gate")
     else:
         engine_commit = gate.get("engine_commit")
-        if not GIT_COMMIT.fullmatch(engine_commit or ""):
+        if not matches_text(GIT_COMMIT, engine_commit):
             errors.append("current_engine_gate.engine_commit")
         elif expected_engine_commit is not None and engine_commit != expected_engine_commit:
             errors.append("current_engine_gate.engine_commit.expected")
-        if not SHA256.fullmatch(gate.get("engine_sha256", "")):
+        if not matches_text(SHA256, gate.get("engine_sha256")):
             errors.append("current_engine_gate.engine_sha256")
         if gate.get("candidate_sha256") != artifact.get("sha256"):
             errors.append("current_engine_gate.candidate_sha256")
-        if not SHA256.fullmatch(gate.get("opening_corpus_sha256", "")):
+        if not matches_text(SHA256, gate.get("opening_corpus_sha256")):
             errors.append("current_engine_gate.opening_corpus_sha256")
         conditions = gate.get("conditions")
         if not isinstance(conditions, list):
@@ -339,7 +343,7 @@ def validate_v2(card: dict, root: Path, expected_engine_commit: str | None) -> l
     if not isinstance(distribution, dict) or (
         distribution.get("availability") != "github_release_asset"
         or not isinstance(distribution.get("default_evaluator"), bool)
-        or not SEMVER.fullmatch(distribution.get("release_version", ""))
+        or not matches_text(SEMVER, distribution.get("release_version"))
     ):
         errors.append("distribution")
     if card.get("evidence_gaps") != []:
