@@ -69,7 +69,8 @@ false; the existing gate rejects it. True is the named owner's explicit
 self-attestation that the supplied files cover the whole role. The tool cannot
 verify ownership or discover omitted files. Each of the three roles still
 needs its own complete manifest, and empty scopes cannot be filled with dummy
-identities. This command was tested only on synthetic data in this task.
+identities. The original exporter validation used synthetic data; subsequent owner receipts
+and local draft exports are recorded below.
 
 | Input format | Record contract |
 |---|---|
@@ -99,8 +100,8 @@ Owner-export validation: new17 plus related98 Python tests passed (115 total).
 A real CLI synthetic draft remained incomplete and was rejected by the existing
 loader. Mutation during manifest fsync, source aliases, duplicate JSON keys,
 control characters and no-clobber races are covered. See
-[identity-export-validation.json](identity-export-validation.json). No real
-owner scope was attested and no independent match started.
+[identity-export-validation.json](identity-export-validation.json). That original
+validation attested no real owner scope and started no independent match.
 
 ## Build, freeze and match
 
@@ -172,7 +173,41 @@ review, and the scope table has a filename/hash metadata defect documented
 in the receipt. Complete diagnostic and previous-strength-gates manifests
 are still required. No independent corpus or match was started by this receipt.
 
-## Validation and pending work
+## Search exclusion recovery and fixed-build checks — 2026-10-18
+
+[The preparation record](exclusion-preparation-2026-10-18.json) binds the current
+drafts, recovered inputs and fixed tune build. The search-side scan covered
+1,693 retained input files; a separate audit bound 1,062 additional aliases and
+historical gate inputs. These are inventory counts, not counts of played games.
+
+Eleven missing diagnostic corpora (550 records) were recovered with their
+original whole-file SHA-256 values. The older v0.3.58 material corpus was also
+reconstructed from its original source commit, TT setting and seed: both the
+raw TSV and the filtered 1,000-record corpus matched their recorded hashes.
+The initial two smoke roots are included. No closed gate was restarted.
+
+The current diagnostic draft contains 4,439 unique identities. The conservative
+local prior-gate draft contains 4,382; its union with Claude's played-opening
+manifest contains 6,509. Whole input-corpus inclusion does not imply that every
+record was played. All search drafts remain incomplete and are rejected by
+the gate loader.
+
+The fixed tune executable advertises the unchanged default
+T_ASP_VOLATILITY=0. On an existing development fixture, enabling it adapted two
+root windows; the observer preserved bestmove, score, PV and nodes. A separate
+nn_r6 loading/PV smoke passed 20 diagnostic roots at both 1T and 4T, with all
+40 weight loads acknowledged and PVs replayed legally. This used the tune build
+and establishes mechanical compatibility only.
+
+Old Q25 reserve metadata identifies an additional unresolved ownership/scope
+boundary, including versioned files that reused a path. The NNUE-owner task is
+exporting conservative exclusions while preserving the reservations; the search
+lane did not open those reserved Q25 positions, SFEN-containing indices, or
+associated labels. Complete owner exclusions are still required before any fresh
+independent generation or match. No depth gain, Elo, H1 or default adoption is
+claimed.
+
+## Original preparation validation
 
 Runner: 91 tests passed; generator: four; related Python tools: 99. Workspace
 all-target Clippy passed. A real v0.4.1 smoke produced three trajectories and
@@ -180,8 +215,8 @@ all full histories passed the real runner validator. This smoke is diagnostic
 only, with no independence qualification. See [validation.json](validation.json).
 Coverage was not remeasured locally.
 
-No independent 400-opening corpus is frozen: complete owner exclusion scopes
-are unavailable. An existing legacy gate process was present and was not
+At initial preparation, no independent 400-opening corpus was frozen because
+complete owner exclusion scopes were unavailable. A legacy gate process was not
 interrupted; no second match was started. Disk space fluctuated below 512 MiB,
 then recovered for bounded tests. Only this task's unused duplicate example
 build outputs were removed; frozen smoke tools/raw/logs were retained. No new

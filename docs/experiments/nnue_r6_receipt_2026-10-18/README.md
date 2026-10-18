@@ -48,3 +48,13 @@ plus review of the Mac scope exception before freezing a corpus. This receipt
 does not start the gate, qualify a release/default, establish current-engine
 1T/4T strength, or change search settings. No training, accumulation loop or
 reporting schedule was started.
+
+## Follow-up receipt
+
+The owner supplied review v2.1 correcting all 15 validation hashes, the used
+cloud-gate opening inventory, and the final freeze record. The corrected hashes
+match the original comparison logs; the exclusion identity manifest is unchanged.
+The original receipt above remains a record of the first delivery.
+[Search preparation](../aspiration_independent_gate_v0.4.1/exclusion-preparation-2026-10-18.json)
+records the subsequent recovery, exclusions and mechanical 1T/4T smoke.
+Legacy Q25 reserve scope remains under owner review.

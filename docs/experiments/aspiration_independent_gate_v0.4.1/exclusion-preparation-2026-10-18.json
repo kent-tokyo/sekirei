@@ -1,0 +1,155 @@
+{
+  "schema": "sekirei.search-exclusion-preparation.v1",
+  "date": "2026-10-18",
+  "status": "drafts_prepared_legacy_nnue_scope_pending",
+  "candidate": {
+    "option": "T_ASP_VOLATILITY",
+    "A": 1,
+    "B": 0,
+    "default": 0,
+    "changed": false
+  },
+  "source_scope": {
+    "original_inventory_files": 1693,
+    "original_distinct_input_hashes": 703,
+    "additional_source_bindings_reviewed": 1062,
+    "known_missing_corpora_recovered": 11,
+    "known_missing_records_recovered": 550,
+    "all_recovered_original_sha256_match": true,
+    "legacy_release058": {
+      "source_commit": "90d9e0e57b0ab82fb3c88e6fc2b5e4d62d69b723",
+      "source_default_TT_BUCKET": 3,
+      "raw_tsv_sha256": "93265b59d9769455ec4f8360cb2cc580ca129254146ef359fa92021c821850e2",
+      "filtered_corpus_sha256": "e1c7e34ea416fa046c0092f1d7ca4619b814b50aa1f13eb34080710dd86d1d43",
+      "records": 1000,
+      "unique_identities": 823,
+      "initial_smoke_records": 2,
+      "old_gate_reexecuted": false
+    },
+    "static_fixture_records": 317,
+    "pgx_tsv_records": 76,
+    "global_completeness_attested": false
+  },
+  "draft_exclusions": {
+    "diagnostic": {
+      "artifact_name": "diagnostic.campaign-draft.json",
+      "sha256": "853d22c55b52f68b81517b49e5019977f338e8585c960db29152f9adf6f5c0b0",
+      "unique_identities": 4439,
+      "complete_for_scope": false
+    },
+    "previous-strength-gates": {
+      "artifact_name": "previous-strength-gates.campaign-local-draft.json",
+      "sha256": "b72777dc34c1d39a08078be7a3ffa9ae5f827e0ab0901c959f8ec8d867224f63",
+      "unique_identities": 4382,
+      "complete_for_scope": false
+    },
+    "previous-strength-gates-combined": {
+      "artifact_name": "previous-strength-gates.campaign-and-claude-draft.json",
+      "sha256": "a26e4c80099c923a52c520809a6b2cf94cf6254f1cc3f70da04656132fd66bf1",
+      "unique_identities": 6509,
+      "complete_for_scope": false
+    }
+  },
+  "nnue_cloud_owner_manifest": {
+    "sha256": "189c1d149e2a7157f00425d30f2e7b2c5d5694042beeb35b21174b19344dbaa5",
+    "unique_identities": 1396414,
+    "scope_review_v2_1_sha256": "dcf3e4c10461cb6cdd6b3aa7cbc44b4f0903ee6a7b68ce96d61a95a461b0a6a1",
+    "scope": "declared cloud lineage and reserved sets; no assertion of old Q25 or retired Mac coverage"
+  },
+  "frozen_build": {
+    "source_commit": "95195d367bef180fef399432966c1937bdaf454f",
+    "origin_main": "db2a1e3a4c5f3ae0e484676b6acfd5469af46a03",
+    "features": [
+      "sekirei/tune"
+    ],
+    "files": [
+      {
+        "name": "sekirei-tune",
+        "sha256": "f1fd699e3f68f979f77cd56ecb10795d6752f33a39c828bd505e88a2165ab46d",
+        "bytes": 4783200
+      },
+      {
+        "name": "gate_openings",
+        "sha256": "05db8026c1e5641d57c66434fda9388bff516b36151d43d9b92810366b7e69ac",
+        "bytes": 3690640
+      },
+      {
+        "name": "sekirei-match",
+        "sha256": "66381905a7f64380795f8da4506ca962187fc68f0f7af07a46bf8d592a563b02",
+        "bytes": 1535504
+      }
+    ],
+    "build_log_sha256": "65c27a37599ccf1f759b9ec81d0c33164e75c5e5b395767622f1391743b1572f"
+  },
+  "activation": {
+    "fixture": "existing diagnostic20 root; no independent position read",
+    "depth": 8,
+    "adapted_roots_off": 0,
+    "adapted_roots_on": 2,
+    "observer_preserves_bestmove_score_pv_nodes": true,
+    "evidence_sha256": "2f5d875a8b5e1b8da22077ee3dd4c53a0e771a93df929a5dc7df31179f44a87e"
+  },
+  "nn_r6_mechanical_smoke": {
+    "source_commit": "95195d367bef180fef399432966c1937bdaf454f",
+    "engine_sha256": "f1fd699e3f68f979f77cd56ecb10795d6752f33a39c828bd505e88a2165ab46d",
+    "engine_features": [
+      "sekirei/tune"
+    ],
+    "candidate_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+    "fv_scale": 24,
+    "diagnostic_positions": 20,
+    "threads": [
+      1,
+      4
+    ],
+    "searches": 40,
+    "all_weight_loads_acknowledged": true,
+    "all_pv_legal": true,
+    "minimum_completed_depth": 8,
+    "strength_gate": false,
+    "evidence_sha256": "d3adb3f9b7983a6808f6ff765f855bc39f5b63c81b98afef6f4df60764d228ea"
+  },
+  "pending": [
+    "NNUE-owner classification/export for old Q25 reserved sets and overwritten-version provenance; no raw index, holdout or label opened by search lane",
+    "Owner scope completeness review and attestation before publishing complete exclusion manifests"
+  ],
+  "independent_corpus_qualified": false,
+  "independent_openings_generated": false,
+  "independent_match_started": false,
+  "default_changed": false,
+  "strength_claim": false,
+  "local_evidence": [
+    {
+      "artifact": "campaign-exclusion-review.json",
+      "sha256": "647dfccc3282c9f6da1aa2608804ca9e0a5ad0e0875d6e00ac67a1e31424584e"
+    },
+    {
+      "artifact": "source-inventory-and-drafts.json",
+      "sha256": "e5e6612eaa6b2d1965d7c355092ff1c7746508de1df85a76fd518f9662ec2d20"
+    },
+    {
+      "artifact": "source-coverage-audit.v3.json",
+      "sha256": "afb9d4d5eff6308fc4f5d92f3f5978a041b4e6dd15f80077b07f976ca1171e65"
+    },
+    {
+      "artifact": "static-fixtures-independent-qa.json",
+      "sha256": "7f55130377f5644a6479c75b80813700e88a80201fa4f566f89afaec0151ffda"
+    },
+    {
+      "artifact": "q25-metadata-scope-audit.json",
+      "sha256": "927823c18d126c97ab003f9a66b7d2eeb0c48c66d92e07d77bc581756cdcd46d"
+    },
+    {
+      "artifact": "recovered/recovery-provenance-32.json",
+      "sha256": "b16afc0f095a629fd5007644de051563f506a57b0f6064ea96684d692ab78a32"
+    },
+    {
+      "artifact": "recovered/recovery-provenance-development.json",
+      "sha256": "a22e4bbae864f593089b1120128432f5d59c80a73032675d0aaef2dc0c1aecb0"
+    },
+    {
+      "artifact": "recovered/recovery-provenance-release058.json",
+      "sha256": "7f66b9a2068214cc53356760bfa5892eef7b97b4a6075a0115c7b25f6f819444"
+    }
+  ]
+}
