@@ -393,6 +393,22 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# The default-off ProbCut SEE shortcut must exercise its real search branch
+# under the runtime tuning flag. This isolated material-only test owns the
+# process-wide tuning state and verifies the shortcut preserves exact results.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-probcut-see-bound-summary.json" \
+  -- search::v2::tests::probcut_see_bound_preserves_material_search_and_reaches_comparator \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # Isolate the completed-score aspiration flag while checking real activation,
 # fixed-root/MultiPV exclusions and observer noninterference.
 cargo llvm-cov -p sekirei-core \
