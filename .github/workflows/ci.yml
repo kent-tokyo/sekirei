@@ -444,3 +444,17 @@ jobs:
         run: |
           cargo test --release -p sekirei-core -p sekirei -p sekirei-train \
             --features sekirei-core/king_relative_b_small,sekirei/king_relative_b_small,sekirei-train/king_relative_b_small
+
+  finny-inplace-feature:
+    # Native opt-in route must be tested without enabling tune atomics.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy core Finny feature
+        run: cargo clippy -p sekirei-core --all-targets --features nnue_finny_inplace -- -D warnings
+      - name: Clippy USI feature forwarding
+        run: cargo clippy -p sekirei --all-targets --features nnue_finny_inplace -- -D warnings
+      - name: Exact Finny public-path and recovery tests
+        run: cargo test -p sekirei-core --lib --features nnue_finny_inplace halfkp::tests -- --test-threads=1
