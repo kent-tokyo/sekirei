@@ -122,19 +122,40 @@
         "summary": null,
         "capture_sha256": "d39308d74ff55b5a079b9e35d65072a2eb9fbb10a0730401632cdaf6e15d1d22",
         "all_actual_pv_replay_sha256": "8805a3833726b6cfed998bf3c66d774827d1a9c7c33f038a4022a3046b386d75"
+      },
+      {
+        "capture": "speed-8t-4",
+        "status": "interrupted",
+        "accepted_positions": 3,
+        "actual_calls": 36,
+        "host_rejected_quartets": 6,
+        "reason": "three host-rejected whole quartets",
+        "summary": null,
+        "capture_sha256": "f4d99484bb392fbaabf231741ea78a4de873b2c16c8cf123776644dba6db2422",
+        "all_actual_pv_replay_sha256": "2ccd5c022e449db8c51a3453ac97ca8692b0df130871eb8c0804913f955b14db"
       }
     ],
-    "final_launch_wait": {
+    "incomplete_captures_pooled": false,
+    "partial_statistics_computed": false,
+    "speed_candidate_accepted": false,
+    "speed_candidate_rejected": false,
+    "earlier_launch_wait": {
       "status": "quiet_timeout_no_engines",
       "samples": 577,
       "maximum_wait_seconds": 600,
       "actual_search_calls": 0,
       "summary": null
     },
-    "incomplete_captures_pooled": false,
-    "partial_statistics_computed": false,
-    "speed_candidate_accepted": false,
-    "speed_candidate_rejected": false
+    "latest_launch": {
+      "status": "child_reaped",
+      "operational_guard_only": true,
+      "additional_schedule_rule": "no outside compiler process even if momentarily idle",
+      "acceptance_and_statistics_unchanged": true,
+      "continuous_quiet_seconds": 30.240677541005425,
+      "samples": 478,
+      "child_returncode": 1
+    },
+    "all_actual_pvs_verified": 112
   },
   "local_receipt_sha256": {
     "build/manifest.json": "52cdec942cb724396e314833d183c8242dadb42fcb215b5fd3cd8277e5911b7e",
@@ -153,7 +174,11 @@
     "corpus-provenance.json": "486e4cac3307c4ae7263a424580fb11f6a579b321677316eaef47b24b1e91078",
     "launch-quiet-2.json": "5201bea985946381a34a084ead43fa964d8c684d4379ad07ba68aff553b7f773",
     "launch-quiet-3.json": "769f227ff61c3f603d1963f4c10f7d2ab0338d8b942a0c507c16d9cec1c4eeef",
-    "launch-quiet-3.jsonl": "4b98bb8d7b54fbf363704e66ea1b9d2f1ac07d7983ad262e3e135f154e19da06"
+    "launch-quiet-3.jsonl": "4b98bb8d7b54fbf363704e66ea1b9d2f1ac07d7983ad262e3e135f154e19da06",
+    "speed-8t-4/report.json": "f4d99484bb392fbaabf231741ea78a4de873b2c16c8cf123776644dba6db2422",
+    "interrupted-pv-audit-speed-8t-4/qa.json": "2ccd5c022e449db8c51a3453ac97ca8692b0df130871eb8c0804913f955b14db",
+    "launch-quiet-4.json": "262cce168e23270a24a258ac59df935cbe289d72e99b90e352e3fbff1196315f",
+    "launch-quiet-4.jsonl": "4a19d3d4578e4646b250e5b075dca07e9232254f5611133ae22c7efe3cfdb155"
   },
   "source_validation_receipt_sha256": "5495ced078d9e79217be1f81b6b88b57746e148c0b912eb33596bd631ccd3544",
   "raw_or_weights_published": false,

@@ -72,15 +72,17 @@ attempts are allowed per position. Rejected or incomplete captures are
 retained and never pooled; no partial speed statistics are computed.
 Normal shutdown, input hashes and every actual PV are checked.
 
-Two 8T attempts stopped on three host-rejected quartets: the first had
-16 actual calls / one accepted position, and the second 60 calls / five
-accepted positions. Neither completed the corpus; both summaries remain
-null and are not pooled. All 76 actual PVs were nevertheless replayed as
-legal, with the negative control rejected. A final launch guard required
-outside compiler processes to exit plus 30 continuous quiet seconds; it
-timed out after the 600-second ceiling (577 samples) without starting an
-engine. This was an operational launch rule, not a change to speed acceptance
-or statistics. No candidate speed value or confidence interval is reported.
+Three 8T captures stopped on three consecutive host-rejected quartets.
+They had 16 actual calls / one accepted position, 60 calls / five accepted
+positions, and 36 calls / three accepted positions. None completed the
+corpus; all summaries remain null and are never pooled. All 112 actual PVs
+were independently replayed as legal, with the negative control rejected.
+An earlier no-compiler/30-second-quiet launch guard hit its 600-second ceiling
+(577 samples) without starting an engine. A later retry verified all 731
+bindings including the identity raw proof, passed the launch guard, then
+stopped on host interference as described above. Operational launch guards
+do not change speed acceptance or statistics. No candidate speed value or
+confidence interval is reported.
 
 The [results summary](results.json) records the actual qualification state
 and local evidence hashes. Private raw reports and own evaluator files
