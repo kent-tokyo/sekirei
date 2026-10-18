@@ -104,6 +104,8 @@ Dedicated PGO binaries exceeded the pinned YaneuraOu build on Apple M4:
 and [4T study](docs/experiments/compiler_pgo_4t_v0.4.1/README.md) independently
 qualify their pinned binaries and workloads. Ordinary Cargo builds do not use
 these profiles.
+A separate [v0.4.4 own-HalfKP PGO study](docs/experiments/own_halfkp_pgo_8t_v0.4.4/README.md)
+measured **8T +3.09%** (+0.76% to +5.40%) for its pinned artifact.
 
 ## Matches and training
 
