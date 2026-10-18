@@ -298,6 +298,63 @@ class ThreadOptionsTest(unittest.TestCase):
             self.assertEqual(measure(args, 8, ["startpos"])[0]["process_shutdown"], proof)
             usi.return_value.quit.assert_called_once_with()
 
+    def test_required_halfkp_load_is_proven_before_search_and_retained(self):
+        from nps_threads import evaluator_load_proof
+        args = self.measurement_args(yaneuraou=False, evalfile="own.bin")
+        args.require_evaluator_load = True
+        path = str(Path(args.evalfile).resolve())
+        ready = ["info string NNUE weights loaded from " + path, "info string evaluator format HalfKP 256x2-32-32", "readyok"]
+        responses = [["usiok"], ready, ["readyok"], self.fake_response("bestmove")]
+        with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+            usi.return_value.wait_for.side_effect = responses
+            rows = measure(args, 8, ["startpos"])
+        self.assertEqual(rows[0]["evaluator_load"], evaluator_load_proof(ready, args.evalfile))
+
+    def test_halfkp_missing_wrong_error_or_preexisting_load_never_searches(self):
+        args = self.measurement_args(yaneuraou=False, evalfile="own.bin")
+        args.require_evaluator_load = True
+        path = str(Path(args.evalfile).resolve())
+        good = ["info string NNUE weights loaded from " + path, "info string evaluator format HalfKP 256x2-32-32", "readyok"]
+        variants = [["readyok"], [*good[:-1], "info string weight load failed: bad file", "readyok"], [good[0].replace(path, "/wrong"), *good[1:]], [good[0], "info string evaluator format SEKIRW01", "readyok"], [good[0], *good], [*good[:-1], "info string NNUE weights loaded from /external", "readyok"]]
+        for ready in variants:
+            with self.subTest(ready=ready), patch("nps_threads.Usi") as usi, self.assertRaises(ValueError):
+                usi.return_value.wait_for.side_effect = [["usiok"], ready]
+                measure(args, 8, ["startpos"])
+            self.assertFalse(any(call.args[0].startswith("go ") for call in usi.return_value.send.call_args_list))
+            usi.return_value.quit.assert_called_once_with()
+        with patch("nps_threads.Usi") as usi, self.assertRaisesRegex(ValueError, "already loaded"):
+            usi.return_value.wait_for.return_value = ["info string NNUE weights loaded from /external", "usiok"]
+            measure(args, 8, ["startpos"])
+
+    def test_strict_requested_evalfile_option_must_be_advertised(self):
+        args = self.measurement_args(yaneuraou=False, evalfile="own.bin")
+        args.require_evaluator_load = True
+        args.strict_options = True
+        with patch("nps_threads.Usi") as usi, self.assertRaisesRegex(ValueError, "does not advertise"):
+            usi.return_value.wait_for.return_value = ["usiok"]
+            measure(args, 8, ["startpos"])
+        self.assertFalse(any(call.args[0].startswith("go ") for call in usi.return_value.send.call_args_list))
+
+    def test_required_model_path_is_validated_before_starting_engine(self):
+        malformed_paths = ["", " own.bin", "own.bin "] + ["own" + chr(code) + "file.bin" for code in (10, 13, 0)]
+        for path in malformed_paths:
+            args = self.measurement_args(yaneuraou=False, evalfile=None)
+            args.evalfile = path
+            args.require_evaluator_load = True
+            with self.subTest(path=path), patch("nps_threads.Usi") as usi, self.assertRaises(ValueError):
+                measure(args, 8, ["startpos"])
+            usi.assert_not_called()
+
+    def test_required_model_errors_after_initial_ready_discard_measurements(self):
+        args = self.measurement_args(yaneuraou=False, evalfile="own.bin")
+        args.require_evaluator_load = True
+        path = str(Path(args.evalfile).resolve())
+        ready = ["info string NNUE weights loaded from " + path, "info string evaluator format HalfKP 256x2-32-32", "readyok"]
+        with patch("nps_threads.Usi") as usi, self.assertRaisesRegex(ValueError, "load failure"):
+            usi.return_value.wait_for.side_effect = [["usiok"], ready, ["info string weight load failed: other file", "readyok"]]
+            measure(args, 8, ["startpos"])
+        self.assertFalse(any(call.args[0].startswith("go ") for call in usi.return_value.send.call_args_list))
+
     def test_wait_for_collects_response_and_detects_early_exit(self):
         with patch("nps_threads.subprocess.Popen") as popen:
             popen.return_value.stdout = io.StringIO("info depth 1\nbestmove 7g7f\n")
