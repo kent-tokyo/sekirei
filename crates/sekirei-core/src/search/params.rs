@@ -627,6 +627,9 @@ search_params! {
     /// NNUE refresh after a king move starts from the accumulator kept for the
     /// new king square (1) or rebuilds from scratch (0). Same values either way.
     NNUE_FINNY = 1, 0, 1;
+    /// Update the Finny entry in place and copy its result to the caller once.
+    /// Default off; cached feature order and wrapping arithmetic are unchanged.
+    NNUE_FINNY_INPLACE = 0, 0, 1;
     /// Fuse four HalfKP refresh feature columns in one accumulator traversal.
     /// Default off; feature order, wrapping sums and Finny cache are unchanged.
     NNUE_REFRESH_TILE = 0, 0, 1;
