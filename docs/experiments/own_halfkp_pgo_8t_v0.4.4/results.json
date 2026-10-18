@@ -1,0 +1,173 @@
+{
+  "schema": "sekirei.own-halfkp-pgo-8t-public-summary.v1",
+  "date": "2026-10-18",
+  "scope": "Pinned local compiler-PGO artifact; aggregate search nodes per measured wall second; no strength or ordinary-release-build claim",
+  "source_commit": "4afc8608e43646743ae78564ec45a3e98540d4a4",
+  "engine_source_baseline_commit": "adb4745e6eb33ee5102d857f17b18fa4196d2653",
+  "binary_sha256": {
+    "native": "a01be6eacb4f3ae8f9eec6c28db1781e9610a5b0f61004db209426fb3b1cba63",
+    "pgo": "1c5578df7c8ce3ec43d79d69a257a65a61c91dbd54a95238c1e7b4532650d76e",
+    "reference": "83ed10ca6708eda4dd7984096ebdd0adebcee115f4085eb0c003d169a4e5f26c"
+  },
+  "hardware": {
+    "cpu": "Apple M4",
+    "machine": "Mac16,12",
+    "performance_cores": 4,
+    "efficiency_cores": 6,
+    "affinity_fixed": false
+  },
+  "build": {
+    "rust": "1.97.0",
+    "llvm": "22.1.6",
+    "target_cpu": "native",
+    "opt_level": 3,
+    "lto": "thin",
+    "codegen_units": 1,
+    "panic": "abort",
+    "runtime_profile_hooks": false,
+    "separate_build_script_profiles": true
+  },
+  "compiler_profile": {
+    "evaluator": "own HalfKP r3 read-only",
+    "model_sha256": "075ff76cc023abd7bae07ee5cd0c2ccf6e6b4ec80942d1bfb86a2bb83ee78627",
+    "public_card": "weights/candidates/sekirei-halfkp-r3.json",
+    "card_sha256": "571b214896ebfd0184ed8178374f57156ccc05fc6d7221c319e07c0c4e76a00a",
+    "corpus": "docs/experiments/pgo_native_v0.4.1/compiler-profile-training.sfen",
+    "corpus_sha256": "fab2db53f64a5ec460c9ebc229844ad716af7f58c74695aba283de365cf04d53",
+    "count": 64,
+    "threads": 8,
+    "movetime_ms": 1000,
+    "hash_mib": 64,
+    "fv_scale": 24,
+    "external_evaluator_used": false
+  },
+  "own_speed": {
+    "point": 1.024118212426736,
+    "bootstrap_95pct": [
+      1.0162349816554774,
+      1.0312745907897625
+    ],
+    "eligible_positions": 32,
+    "excluded_positions": [],
+    "actual_speed_calls": 152,
+    "host_rejected_quartets": 6
+  },
+  "reference_speed": {
+    "geomean_candidate_over_reference": 1.0308851974765418,
+    "bootstrap_95pct": [
+      1.0076401702617084,
+      1.0540192698613924
+    ],
+    "eligible_positions": 30,
+    "excluded_positions": [
+      28
+    ],
+    "accepted_calls": 124,
+    "actual_calls": 128,
+    "host_rejected_quartets": 1,
+    "host_samples": 268,
+    "max_scheduled_gap_seconds": 1.2978562909993343,
+    "raw_file_count": 521,
+    "input_bindings": 2315,
+    "gate_passed": true
+  },
+  "reference_build": {
+    "source_commit": "c1b80eaa09fe13d5f12b1599d1ae4d53c224de30",
+    "compiler": "Apple clang 21.0.0",
+    "target": "APPLEM1 / NNUE / NEON dotprod / -mcpu=native"
+  },
+  "reference_conditions": {
+    "threads": 8,
+    "rayon_num_threads": 8,
+    "hash_mib": 64,
+    "movetime_ms": 1000,
+    "fv_scale": 24,
+    "common_private_evaluator_sha256": "768068f0d534a0603a5d38bcd143de6bbca820d5f1c95a14d40863e5b7892d76",
+    "corpus": "data/gate/openings_quick.sfen",
+    "corpus_sha256": "d554106e3b6682f4365c2169a4aca048f5cefb043bd3c8cbc023d0f42981a06d",
+    "corpus_positions": 31,
+    "corpus_turns": "all White",
+    "sekirei_options": [
+      "SearchMode=Auto",
+      "SpecTopN=0",
+      "LazyFlags=15",
+      "LazyDiagnostics=false",
+      "MoveOverhead=0",
+      "NnueOutput=absolute"
+    ],
+    "bitwise_runtime_evaluator_equivalence_proven": false
+  },
+  "own_corpus": {
+    "file": "own-speed32.sfen",
+    "sha256": "3ad031078be824a42e8fe0362772f8abe8a49d6b1b016cbfd0b2d2251deb0206",
+    "positions": 32,
+    "black": 16,
+    "white": 16,
+    "generator_seed": 20261018081,
+    "material_only": true,
+    "nnue_owner_holdout_attested": false
+  },
+  "fixed_depth_identity": {
+    "threads": 1,
+    "depth": 12,
+    "positions": 32,
+    "calls": 128,
+    "identical": [
+      "bestmove",
+      "score",
+      "pv",
+      "nodes",
+      "depth",
+      "bound"
+    ],
+    "legitimate_early_mate_only_if_all_four_calls_identical": true,
+    "timing_qualified": false
+  },
+  "policy": {
+    "order": [
+      "reference",
+      "candidate",
+      "candidate",
+      "reference"
+    ],
+    "fresh_process_per_call": true,
+    "bootstrap_samples": 5000,
+    "reference_bootstrap_seed": 20261018,
+    "own_bootstrap_seed": 2026101808,
+    "bootstrap_indices": [
+      125,
+      4874
+    ],
+    "host_sample_hz": 1,
+    "quiet_samples_required": 5,
+    "host_wait_ceiling_seconds": 600,
+    "host_only_attempts_per_quartet": 3,
+    "minimum_free_bytes": 1073741824,
+    "minimum_call_elapsed_ms": 700,
+    "minimum_reference_eligible_positions": 20,
+    "minimum_own_eligible_positions": 24,
+    "partial_statistics": false,
+    "pool_rejected_attempts": false,
+    "external_evaluator_used_for_selection": false,
+    "default_changed": false,
+    "nnue_weights_changed": false,
+    "strength_claim": false
+  },
+  "local_receipt_sha256": {
+    "build/manifest.json": "a085224e0baf1c3d772cb40c008e87b431f8ff21f87844f052d94e55f3e3f309",
+    "binary-audit.json": "fb865029d1e0f152d0f8d5f717328d7491ff34aae2c7cfd828a0dcc5f23e4754",
+    "halfkp-profile-coverage.json": "e8e6fae394c07123f593e8955071b52e8fdf40e4cc3ec5d6e063e8e407c98117",
+    "identity-1t-semantics/report.json": "9b18731e686048e775bf872f0af3f6d410d2cb00ddd369d42d6b08ccb896e292",
+    "identity-qa.json": "0f8fd34e39438714101447c3dcf3c48936a0fbc1546e3ad324a2b76ea56bcbe3",
+    "speed-8t-2/report.json": "0b4a16c18417f59b256dcd3c331aa31de7268c8bdb4879eb76ccccde0dcb0542",
+    "own-speed-independent-qa.json": "63ae73c85d1a8de25993b2f8c2870a5b7580e0ee3b5a9f29f72468edee9c2ec8",
+    "selection-freeze.json": "14683ef95b4b315bcac30a4e1ffc9241f56066f2b6e37325406c5e39eab9b4d3",
+    "reference-smoke-1/report.json": "11f2615aa1ebac831a95019255653fac1eb13aa4c8c520557148d22c81d0c5ae",
+    "reference-8t-1/report.json": "6e35b2f89ca80bdda037ccc79d0df0e71f5a7b05bfe43b62480502a6d7ac9287",
+    "reference-independent-qa.json": "d4c70b9551eb28200a4f65d0d241cea6158e6f7e622ba5ad11f8f34a63168fc0",
+    "verify_reference_capture.py": "ad0d49cfbc921faec018f355543bafa562876113ed7aae602c09c2d0591ad0f3",
+    "reference-route/plan.json": "827d6f90a28d6c7c1d1f1084e9e2e0be7e4d25e4dc4350a88220e0cc93461962",
+    "internal-route/plan.json": "dcfbc840b70dae7011a02f439dc96e8a7187648e1d06341cb83a7f83080eb9ec"
+  },
+  "private_raw_published": false
+}

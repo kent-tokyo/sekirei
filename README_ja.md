@@ -97,6 +97,8 @@ python3 scripts/check_release_manifest_layout.py
 （同：+5.1〜+9.0%）上回りました。[8Tの測定条件と証跡](docs/experiments/compiler_pgo_8t_v0.4.2/README.md)と
 [4Tの測定条件と証跡](docs/experiments/compiler_pgo_4t_v0.4.1/README.md)は独立した測定です。
 通常のCargoビルドには、これらのプロファイルを適用していません。
+v0.4.4の[自前HalfKPでプロファイルした別候補](docs/experiments/own_halfkp_pgo_8t_v0.4.4/README.md)も、
+固定条件の8T比較で**+3.09%**（95%信頼区間：+0.76〜+5.40%）でした。
 
 ## 対局と学習
 
