@@ -2,9 +2,11 @@
 """Unit tests for the fail-closed compiler PGO lane."""
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
+from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 import unittest
 from pathlib import Path
@@ -209,6 +211,194 @@ class PgoReceiptTests(unittest.TestCase):
             self.assertEqual([phase["status"] for phase in saved["phases"]], ["complete", "incomplete"])
             self.assertIn("native", saved["binaries"])
             self.assertEqual(calls[1]["compiler_raw_dir"], (output / "compiler-profdata").resolve())
+
+
+class OwnHalfKpProfileTests(unittest.TestCase):
+    def fixture(self, root):
+        card = json.loads((lane.ROOT / "weights/candidates/sekirei-halfkp-r3.json").read_text())
+        descriptor = "Sekirei own synthetic unit-test fixture"
+        model = root / "model.bin"
+        contents = (0x7AF32F16).to_bytes(4, "little") + b"hash" + len(descriptor).to_bytes(4, "little") + descriptor.encode() + b"test parameters"
+        model.write_bytes(contents)
+        card["artifact"].update(sha256=hashlib.sha256(contents).hexdigest(), bytes=len(contents), architecture_descriptor=descriptor)
+        card["material_gate"]["candidate_sha256"] = card["artifact"]["sha256"]
+        path = root / "weights/candidates/own.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(card))
+        source = {"commit": "test", "tracked_inputs": {"weights/candidates/own.json": lane.file_identity(path)}}
+        return model, path, card, source
+
+    def test_material_default_and_paired_cli_contract(self):
+        self.assertEqual(lane.load_training_evaluator(None, None, {}), {"kind": "material-only", "path": None, "sha256": None})
+        for model, card in ((Path("model"), None), (None, Path("card"))):
+            with self.assertRaisesRegex(ValueError, "supplied together"):
+                lane.load_training_evaluator(model, card, {})
+        for flag in ("--training-evalfile", "--training-eval-card"):
+            with patch.object(sys, "argv", ["build_pgo_lane.py", "--output", "unused", "--training-positions", "unused", flag, "unused"]), patch.object(lane, "cargo_build") as build, patch.object(sys, "stderr"), self.assertRaises(SystemExit) as exit_info:
+                lane.main()
+            self.assertEqual(exit_info.exception.code, 2)
+            build.assert_not_called()
+
+    def test_own_public_card_and_exact_readonly_model_are_bound(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            model, card_path, card, source = self.fixture(root)
+            original = model.read_bytes()
+            with patch.object(lane, "ROOT", root):
+                selected = lane.load_training_evaluator(model, card_path, source)
+            self.assertEqual(selected["sha256"], card["artifact"]["sha256"])
+            self.assertEqual(selected["fv_scale"], 24)
+            self.assertEqual(selected["candidate_card"]["sha256"], lane.sha256_file(card_path))
+            self.assertEqual(model.read_bytes(), original)
+            bound = {"model": {"path": str(model), "identity": lane.file_identity(model)}, "card": {"path": str(card_path), "identity": lane.file_identity(card_path)}}
+            for path in (model, card_path):
+                original = path.read_bytes()
+                path.write_bytes(original + b"changed")
+                with patch.object(lane, "require_clean_source", return_value=source), self.assertRaisesRegex(ValueError, "bound input changed"):
+                    lane.validate_inputs(source, bound)
+                path.write_bytes(original)
+
+    def test_model_read_allows_atime_only_change_and_resolved_regular_symlink(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            model, card_path, _, source = self.fixture(root)
+            alias = root / "model-alias.bin"
+            alias.symlink_to(model)
+            original_stat = Path.stat
+            observations = []
+            def changing_atime(path, *args, **kwargs):
+                status = original_stat(path, *args, **kwargs)
+                if path == model:
+                    observations.append(status.st_atime_ns + len(observations))
+                    fields = {name: getattr(status, name) for name in ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns")}
+                    return SimpleNamespace(**fields, st_atime_ns=observations[-1])
+                return status
+            with patch.object(lane, "ROOT", root), patch.object(Path, "stat", changing_atime):
+                selected = lane.load_training_evaluator(alias, card_path, source)
+            self.assertGreaterEqual(len(observations), 3)
+            self.assertEqual(selected["path"], str(model))
+
+    def test_model_stable_stat_detects_content_mutation_and_paths_reject_injection(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            model, card_path, _, source = self.fixture(root)
+            original_stat = Path.stat
+            observations = []
+            def changing_mtime(path, *args, **kwargs):
+                status = original_stat(path, *args, **kwargs)
+                if path == model:
+                    observations.append(1)
+                    fields = {name: getattr(status, name) for name in ("st_dev", "st_ino", "st_mode", "st_size", "st_ctime_ns")}
+                    return SimpleNamespace(**fields, st_mtime_ns=status.st_mtime_ns + len(observations))
+                return status
+            with patch.object(lane, "ROOT", root), patch.object(Path, "stat", changing_mtime), self.assertRaisesRegex(ValueError, "size/SHA changed"):
+                lane.load_training_evaluator(model, card_path, source)
+            malformed_paths = ["", " own.bin", "own.bin "] + ["own" + chr(code) + "file.bin" for code in (10, 13, 0)]
+            for malformed in malformed_paths:
+                with self.subTest(path=malformed), patch.object(lane, "ROOT", root), self.assertRaises(ValueError):
+                    lane.load_training_evaluator(malformed, card_path, source)
+
+    def test_rejects_external_unsupported_malformed_untracked_and_changed_inputs(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            model, card_path, card, source = self.fixture(root)
+            original = model.read_bytes()
+            variants = [None, [], {**card, "schema": "external-eval.v1"}, {**card, "training": {**card["training"], "external_teacher_used": True}}, {**card, "artifact": {**card["artifact"], "format": "SEKIRW01"}}, {**card, "artifact": {**card["artifact"], "sha256": 123}}, {**card, "artifact": {**card["artifact"], "fv_scale": True}}, {**card, "training": {**card["training"], "fv_scale": 16}}]
+            for variant in variants:
+                card_path.write_text(json.dumps(variant))
+                source["tracked_inputs"]["weights/candidates/own.json"] = lane.file_identity(card_path)
+                with self.subTest(variant=variant), patch.object(lane, "ROOT", root), self.assertRaises(ValueError):
+                    lane.load_training_evaluator(model, card_path, source)
+            card_path.write_text(json.dumps(card))
+            source["tracked_inputs"]["weights/candidates/own.json"] = lane.file_identity(card_path)
+            for contents in (original + b"changed", b"SEKIRW01" + original[8:]):
+                model.write_bytes(contents)
+                with self.subTest(contents=contents[:8]), patch.object(lane, "ROOT", root), self.assertRaises(ValueError):
+                    lane.load_training_evaluator(model, card_path, source)
+            model.write_bytes(original)
+            with patch.object(lane, "ROOT", root), self.assertRaisesRegex(ValueError, "tracked source"):
+                lane.load_training_evaluator(model, card_path, {"tracked_inputs": {}})
+            card_path.write_text('{"schema":"one","schema":"two"}')
+            source["tracked_inputs"]["weights/candidates/own.json"] = lane.file_identity(card_path)
+            with patch.object(lane, "ROOT", root), self.assertRaisesRegex(ValueError, "duplicate"):
+                lane.load_training_evaluator(model, card_path, source)
+
+    def test_real_phase_guards_stop_when_model_changes_during_native_build(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            model, card_path, _, source = self.fixture(root)
+            corpus, tool, output = root / "positions", root / "profdata", root / "lane"
+            corpus.write_text("startpos\n")
+            tool.write_text("fake tool")
+            def fake_build(target_dir, target, *flags, **kwargs):
+                binary = target_dir / "release/sekirei"
+                binary.parent.mkdir(parents=True)
+                binary.write_bytes(b"test native")
+                model.write_bytes(model.read_bytes() + b"changed")
+                return binary
+            argv = ["build_pgo_lane.py", "--output", str(output), "--training-positions", str(corpus), "--count", "1", "--training-evalfile", str(model), "--training-eval-card", str(card_path)]
+            with patch.object(sys, "argv", argv), patch.object(lane, "ROOT", root), patch.object(lane, "require_clean_source", return_value=source), patch.object(lane, "llvm_profdata", return_value=tool), patch.object(lane, "rust_host", return_value="test-host"), patch.object(lane, "checked", return_value="version"), patch.object(lane, "cargo_build", side_effect=fake_build) as build, self.assertRaisesRegex(ValueError, "training_evalfile"):
+                lane.main()
+            saved = json.loads((output / "manifest.json").read_text())
+            self.assertEqual(saved["status"], "incomplete")
+            self.assertEqual(build.call_count, 1)
+            self.assertEqual(saved["training"]["evaluator"], "own-halfkp")
+            self.assertEqual(saved["phases"][0]["status"], "incomplete")
+            self.assertEqual(set(saved["bound_inputs"]) & {"training_evalfile", "training_eval_card"}, {"training_evalfile", "training_eval_card"})
+
+    def test_public_card_rejects_nonfinite_numbers(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            model, card_path, card, source = self.fixture(root)
+            for number in ("NaN", "Infinity", "1e999"):
+                card_path.write_text(json.dumps(card)[:-1] + ', "invalid_extra_number": ' + number + '}')
+                source["tracked_inputs"]["weights/candidates/own.json"] = lane.file_identity(card_path)
+                with self.subTest(number=number), patch.object(lane, "ROOT", root), self.assertRaisesRegex(ValueError, "non-finite"):
+                    lane.load_training_evaluator(model, card_path, source)
+
+    def test_training_command_keeps_material_default_and_enforces_halfkp_load_when_selected(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evaluator = {"kind": "halfkp", "path": str(root / "own.bin"), "fv_scale": 24, "sha256": "fake"}
+            for selected in (None, evaluator):
+                with self.subTest(selected=selected), patch.object(lane, "checked") as run, patch.object(lane, "validate_training_output", return_value={}) as validate:
+                    lane.run_profile_training(root / "engine", root / "positions", root / "rows", [8], 64, 1000, root / "raw", evaluator=selected)
+                command = run.call_args.args[0]
+                self.assertIn("--strict-options", command)
+                self.assertIn("--require-normal-shutdown", command)
+                if selected:
+                    self.assertIn("--require-evaluator-load", command)
+                    self.assertEqual(command[command.index("--fv-scale") + 1], "24")
+                    self.assertEqual(command[command.index("--evalfile") + 1], selected["path"])
+                else:
+                    self.assertNotIn("--evalfile", command)
+                    self.assertNotIn("--require-evaluator-load", command)
+                self.assertIs(validate.call_args.args[-1], selected)
+
+    def test_halfkp_rows_require_matching_provenance_options_and_actual_load_proof(self):
+        from nps_threads import effective_positions_sha256, evaluator_load_proof
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            model, card_path, _, source = self.fixture(root)
+            with patch.object(lane, "ROOT", root):
+                evaluator = lane.load_training_evaluator(model, card_path, source)
+            binary, corpus, output = root / "engine", root / "positions", root / "rows"
+            binary.write_bytes(b"test engine")
+            corpus.write_text("startpos\n")
+            proof = evaluator_load_proof(["info string NNUE weights loaded from " + str(model), "info string evaluator format HalfKP 256x2-32-32", "readyok"], str(model))
+            row = {"threads": 8, "position": 0, "repeat": 0, "nodes": 10, "evaluator_load": proof,
+                   "process_shutdown": {"exitcode": 0, "killed": False, "reaped": True},
+                   "provenance": {"evaluator": {key: evaluator[key] for key in ("kind", "path", "sha256")},
+                       "engine_sha256": lane.sha256_file(binary), "positions_file_sha256": lane.sha256_file(corpus),
+                       "effective_positions_sha256": effective_positions_sha256(["startpos"]), "effective_position_count": 1,
+                       "options": [*lane.TRAINING_OPTIONS, "Threads=8", "Hash=64", "FV_SCALE=24", "EvalFile=" + str(model)]}}
+            output.write_text(json.dumps(row) + "\n")
+            self.assertEqual(lane.validate_training_output(output, binary, corpus, [8], 1, evaluator)["validated_rows"], 1)
+            variants = [{**row, "evaluator_load": {}}, {**row, "evaluator_load": {**proof, "path": "/other"}}, {**row, "provenance": {**row["provenance"], "evaluator": {"kind": "material-only", "path": None, "sha256": None}}}, {**row, "provenance": {**row["provenance"], "options": [*row["provenance"]["options"], "FV_SCALE=16"]}}]
+            for variant in variants:
+                output.write_text(json.dumps(variant) + "\n")
+                with self.subTest(variant=variant), self.assertRaises(ValueError):
+                    lane.validate_training_output(output, binary, corpus, [8], 1, evaluator)
 
 
 if __name__ == "__main__":

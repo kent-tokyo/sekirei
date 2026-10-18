@@ -2,7 +2,8 @@
 """Build a hash-bound native/instrumented/PGO Sekirei lane from clean source.
 
 This is compiler profiling, not NNUE training or a playing-strength gate. It
-uses material-only searches to collect a fresh profile, preserves the native
+defaults to material-only searches; an opt-in verified own HalfKP file can
+collect the profile without modifying weights. It preserves the native
 control and profile-use binary, and records every bound input. A later speed or
 match gate must freeze either emitted binary and qualify its own corpus, host
 and statistics independently.
@@ -12,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -225,8 +227,104 @@ def selected_training_positions(path: Path, count: int) -> list[str]:
     return positions
 
 
-def validate_training_output(output: Path, binary: Path, positions: Path, threads: list[int], count: int) -> dict:
-    from nps_threads import effective_positions_sha256
+def stable_stat_identity(status) -> tuple:
+    """Exclude atime, which may legitimately change when the model is read."""
+    return tuple(getattr(status, field) for field in (
+        "st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns",
+    ))
+
+
+def load_training_evaluator(evalfile: Path | None, card_path: Path | None, source: dict) -> dict:
+    """Bind one public own-HalfKP card and read-only artifact, never an external model."""
+    if (evalfile is None) != (card_path is None):
+        raise ValueError("--training-evalfile and --training-eval-card must be supplied together")
+    if evalfile is None:
+        return {"kind": "material-only", "path": None, "sha256": None}
+    from validate_nnue_candidate_card import validate, HALFKP_VERSION, EXPECTED_FORMAT
+    from nps_threads import _lexical_absolute
+    evalfile = _lexical_absolute(evalfile).resolve()
+    _lexical_absolute(evalfile)
+    card_path = _lexical_absolute(card_path).resolve()
+    try:
+        relative_card = str(card_path.relative_to(ROOT))
+    except ValueError as error:
+        raise ValueError("training candidate card must be public and tracked in this checkout") from error
+    card_identity = file_identity(card_path)
+    if source["tracked_inputs"].get(relative_card) != card_identity:
+        raise ValueError("training candidate card must match the clean tracked source snapshot")
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate candidate-card key: " + key)
+            result[key] = value
+        return result
+
+    card_bytes = card_path.read_bytes()
+    if hashlib.sha256(card_bytes).hexdigest() != card_identity["sha256"]:
+        raise ValueError("training candidate card changed during inspection")
+    def finite_float(value):
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError("non-finite candidate-card number")
+        return parsed
+
+    def reject_constant(value):
+        raise ValueError("non-finite candidate-card constant: " + value)
+
+    card = json.loads(card_bytes.decode("utf-8"), object_pairs_hook=unique_object,
+                      parse_float=finite_float, parse_constant=reject_constant)
+    if not isinstance(card, dict):
+        raise ValueError("training candidate card must be a JSON object")
+    try:
+        errors = validate(card)
+    except (TypeError, KeyError, AttributeError) as error:
+        raise ValueError("malformed own-HalfKP candidate card") from error
+    if errors:
+        raise ValueError("invalid own-HalfKP candidate card: " + ", ".join(errors))
+    artifact = card["artifact"]
+    if not isinstance(artifact.get("architecture_descriptor"), str) or type(artifact["bytes"]) is not int:
+        raise ValueError("invalid own-HalfKP architecture descriptor or byte length")
+    if type(artifact["fv_scale"]) is not int or card["training"]["external_teacher_used"] is not False:
+        raise ValueError("compiler profiles require own HalfKP weights and an integer FV_SCALE")
+    # Bind the resolved regular file; aliases are intentionally allowed.
+    if not evalfile.is_file():
+        raise ValueError("training EvalFile must be a regular read-only input")
+    before = stable_stat_identity(evalfile.stat())
+    digest = hashlib.sha256()
+    # Hash exactly the stream whose header/descriptor is validated.
+    with evalfile.open("rb") as handle:
+        header = handle.read(12)
+        digest.update(header)
+        if len(header) != 12 or int.from_bytes(header[:4], "little") != HALFKP_VERSION:
+            raise ValueError("training EvalFile is not a supported HalfKP model")
+        descriptor_size = int.from_bytes(header[8:12], "little")
+        if descriptor_size > 4096:
+            raise ValueError("training HalfKP descriptor is too long")
+        descriptor = handle.read(descriptor_size)
+        digest.update(descriptor)
+        if descriptor.decode("utf-8") != artifact["architecture_descriptor"]:
+            raise ValueError("training HalfKP descriptor differs from public card")
+        total_bytes = len(header) + len(descriptor)
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+            total_bytes += len(chunk)
+    if before != stable_stat_identity(evalfile.stat()) or total_bytes != artifact["bytes"] or digest.hexdigest() != artifact["sha256"]:
+        raise ValueError("training EvalFile size/SHA changed or differs from public card")
+    return {
+        "kind": "halfkp", "path": str(evalfile), "sha256": digest.hexdigest(),
+        "size_bytes": total_bytes, "format": EXPECTED_FORMAT,
+        "fv_scale": artifact["fv_scale"], "candidate_id": card["candidate_id"],
+        "candidate_card": {"path": str(card_path), **card_identity},
+        "scope": "read-only compiler-profile workload; no model training or adoption",
+    }
+
+
+def validate_training_output(output: Path, binary: Path, positions: Path, threads: list[int], count: int, evaluator: dict | None = None) -> dict:
+    from nps_threads import effective_positions_sha256, evaluator_load_proof
+    evaluator = evaluator or {"kind": "material-only", "path": None, "sha256": None}
+    expected_evaluator = {key: evaluator[key] for key in ("kind", "path", "sha256")}
     selected = selected_training_positions(positions, count)
     expected = {(thread, index, 0) for thread in threads for index in range(count)}
     seen = set()
@@ -244,12 +342,19 @@ def validate_training_output(output: Path, binary: Path, positions: Path, thread
             if type(row["nodes"]) is not int or row["nodes"] <= 0:
                 raise ValueError("training nodes must be a positive integer")
             provenance = row["provenance"]
-            if provenance["evaluator"] != {"kind": "material-only", "path": None, "sha256": None}:
-                raise ValueError("training evaluator must be material-only")
+            if provenance["evaluator"] != expected_evaluator:
+                raise ValueError("training evaluator differs from bound runtime evaluator")
+            if evaluator["kind"] == "halfkp":
+                proof = row["evaluator_load"]
+                if not isinstance(proof, dict) or proof != evaluator_load_proof(proof["ready_lines"], evaluator["path"]):
+                    raise ValueError("training lacks requested HalfKP load proof")
             if provenance["engine_sha256"] != engine_sha or provenance["positions_file_sha256"] != corpus_sha or provenance["effective_positions_sha256"] != effective_sha or provenance["effective_position_count"] != count:
                 raise ValueError("training input provenance differs from bound inputs")
             options = provenance["options"]
-            for expected_option in (*TRAINING_OPTIONS, "Threads=" + str(row["threads"]), "Hash=64"):
+            required_options = [*TRAINING_OPTIONS, "Threads=" + str(row["threads"]), "Hash=64"]
+            if evaluator["kind"] == "halfkp":
+                required_options.extend(("EvalFile=" + evaluator["path"], "FV_SCALE=" + str(evaluator["fv_scale"])))
+            for expected_option in required_options:
                 name, _, expected_value = expected_option.partition("=")
                 actual_values = [option.partition("=")[2] for option in options if option.partition("=")[0] == name]
                 if not actual_values or any(value != expected_value for value in actual_values):
@@ -273,7 +378,7 @@ def run_profile_training(
     count: int,
     movetime: int,
     raw_dir: Path,
-    *, receipt: Path | None = None,
+    *, receipt: Path | None = None, evaluator: dict | None = None,
 ) -> dict:
     env = dict(os.environ)
     # ``nps_threads.py`` starts the engine from the binary's directory.  A
@@ -296,11 +401,14 @@ def run_profile_training(
         "--json",
         str(output),
         "--require-normal-shutdown",
+        "--strict-options",
     ]
+    if evaluator is not None and evaluator["kind"] == "halfkp":
+        command.extend(("--evalfile", evaluator["path"], "--fv-scale", str(evaluator["fv_scale"]), "--require-evaluator-load"))
     for option in TRAINING_OPTIONS:
         command.extend(("--option", option))
     checked(command, env=env, receipt=receipt)
-    return validate_training_output(output, binary, positions, threads, count)
+    return validate_training_output(output, binary, positions, threads, count, evaluator)
 
 
 def training_profiles(raw_dir: Path) -> list[Path]:
@@ -322,11 +430,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--output", type=Path, required=True, help="new output directory")
     parser.add_argument("--training-positions", type=Path, required=True)
+    parser.add_argument("--training-evalfile", type=Path, help="optional read-only own HalfKP model, requires --training-eval-card")
+    parser.add_argument("--training-eval-card", type=Path, help="public tracked own-HalfKP candidate card, requires --training-evalfile")
     parser.add_argument("--threads", type=parse_threads, default=[4, 8])
     parser.add_argument("--count", type=int, default=64)
     parser.add_argument("--movetime", type=int, default=1000)
     parser.add_argument("--target", help="optional Rust target triple")
     args = parser.parse_args()
+    if (args.training_evalfile is None) != (args.training_eval_card is None):
+        parser.error("--training-evalfile and --training-eval-card must be supplied together")
     if args.count < 1 or args.movetime < 1:
         parser.error("--count and --movetime must be positive")
     if args.output.exists():
@@ -341,6 +453,7 @@ def main() -> int:
     try:
         selected_training_positions(positions, args.count)
         source = require_clean_source()
+        evaluator = load_training_evaluator(args.training_evalfile, args.training_eval_card, source)
         profdata = llvm_profdata()
     except (OSError, subprocess.CalledProcessError, ValueError) as error:
         parser.error(str(error))
@@ -371,7 +484,9 @@ def main() -> int:
             },
         },
         "training": {
-            "evaluator": "material-only", "positions": str(positions),
+            "evaluator": "own-halfkp" if evaluator["kind"] == "halfkp" else "material-only",
+            "runtime_evaluator": evaluator, "strict_options": True, "normal_shutdown_required": True,
+            "positions": str(positions),
             "positions_sha256": sha256_file(positions),
             "threads": args.threads, "count": args.count, "options": list(TRAINING_OPTIONS),
             "movetime_ms": args.movetime, "hash_mb": 64,
@@ -412,6 +527,12 @@ def main() -> int:
         return Path(manifest["binaries"][name]["path"])
 
     try:
+        if evaluator["kind"] == "halfkp":
+            for name, path, identity in (
+                ("training_evalfile", evaluator["path"], {"sha256": evaluator["sha256"], "size_bytes": evaluator["size_bytes"]}),
+                ("training_eval_card", evaluator["candidate_card"]["path"], {key: evaluator["candidate_card"][key] for key in ("sha256", "size_bytes")}),
+            ):
+                manifest["bound_inputs"][name] = {"path": path, "identity": identity}
         bind_input(manifest, "training_positions", positions)
         bind_input(manifest, "llvm_profdata", profdata)
         manifest["target"] = args.target or rust_host()
@@ -432,7 +553,7 @@ def main() -> int:
             raise ValueError("training profile directory must be empty before USI training")
         manifest["training"]["receipt"] = phase("training", lambda receipt: run_profile_training(
             instrumented, positions, args.output / "profile-training.jsonl",
-            args.threads, args.count, args.movetime, raw_dir, receipt=receipt,
+            args.threads, args.count, args.movetime, raw_dir, receipt=receipt, evaluator=evaluator,
         ))
         bind_input(manifest, "training_results", args.output / "profile-training.jsonl")
         raw = training_profiles(raw_dir)

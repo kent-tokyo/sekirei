@@ -1384,10 +1384,41 @@ def read_positions(path: str, limit: int) -> list[str]:
     return positions
 
 
+def reject_evaluator_load_errors(lines: list[str]) -> None:
+    errors = ("weight load failed", "nnue load failed", "failed to load", "error loading", "evaluator load failed")
+    if any(any(error in line.lower() for error in errors) for line in lines):
+        raise ValueError("engine reported an evaluator load failure")
+
+
+def evaluator_load_proof(ready_lines: list[str], evalfile: str) -> dict:
+    """Require the requested HalfKP runtime model before accepting any searches."""
+    if not isinstance(ready_lines, list) or not ready_lines or any(not isinstance(line, str) for line in ready_lines) or ready_lines[-1] != "readyok" or ready_lines.count("readyok") != 1:
+        raise ValueError("invalid evaluator ready transcript")
+    reject_evaluator_load_errors(ready_lines)
+    _lexical_absolute(evalfile)
+    resolved_path = Path(evalfile).resolve()
+    _lexical_absolute(resolved_path)
+    expected_path = str(resolved_path)
+    expected_ack = "info string NNUE weights loaded from " + expected_path
+    acknowledgements = [line for line in ready_lines if line.startswith("info string NNUE weights loaded")]
+    expected_format = "info string evaluator format HalfKP 256x2-32-32"
+    formats = [line for line in ready_lines if line.startswith("info string evaluator format")]
+    if acknowledgements != [expected_ack] or formats != [expected_format]:
+        raise ValueError("engine did not acknowledge requested HalfKP EvalFile and format")
+    return {"path": expected_path, "format": "HalfKP 256x2-32-32", "load_acknowledgement": expected_ack,
+            "format_acknowledgement": expected_format, "ready_lines": ready_lines}
+
+
 def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> list[dict]:
     # Side options must not override the declared evaluator or inject USI
     # commands, including on material-only and explicit Sekirei lanes.
     reject_evaluator_overrides(args.option)
+    require_load = getattr(args, "require_evaluator_load", False)
+    if require_load and (args.yaneuraou or not args.evalfile):
+        raise ValueError("--require-evaluator-load requires a Sekirei --evalfile")
+    if require_load:
+        _lexical_absolute(args.evalfile)
+        _lexical_absolute(Path(args.evalfile).resolve())
     yaneuraou_binding = None
     yaneuraou_binary = None
     if args.yaneuraou:
@@ -1421,6 +1452,8 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
     try:
         engine.send("usi")
         handshake = engine.wait_for("usiok")
+        if require_load and any(line.startswith("info string NNUE weights loaded") for line in handshake):
+            raise ValueError("engine already loaded an evaluator before requested EvalFile")
         advertised = {line[len("option name "):].split(" type ", 1)[0]
                       for line in handshake if line.startswith("option name ")}
         effective_options = engine_options(args, threads)
@@ -1438,18 +1471,23 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
             name, _, value = option.partition("=")
             engine.send(f"setoption name {name} value {value}")
         engine.send("isready")
-        engine.wait_for("readyok")
+        ready_lines = engine.wait_for("readyok")
+        load_proof = evaluator_load_proof(ready_lines, args.evalfile) if require_load else None
         for index, position in enumerate(positions):
             for repeat in range(args.repeats):
                 engine.send("usinewgame")
                 # Some engines reset their board on isready. Finish the
                 # new-game reset before setting the requested position.
                 engine.send("isready")
-                engine.wait_for("readyok")
+                position_ready = engine.wait_for("readyok")
+                if require_load:
+                    reject_evaluator_load_errors(position_ready)
                 engine.send(f"position {position}")
                 start = time.perf_counter()
                 engine.send(go_command(args))
                 lines = engine.wait_for("bestmove")
+                if require_load:
+                    reject_evaluator_load_errors(lines)
                 elapsed = time.perf_counter() - start
                 depth, nodes, nps = parse_info(lines)
                 lazy_smp = parse_lazy_smp(lines)
@@ -1532,6 +1570,8 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                             "timing_qualified": False} if getattr(args, "nodes", None) is not None else {}),
                     },
                 }
+                if load_proof is not None:
+                    row["evaluator_load"] = load_proof
                 if getattr(args, "nodes", None) is not None:
                     row["node_limit_overshoot"] = max(0, nodes - args.nodes)
                 if lazy_smp is not None:
@@ -1616,6 +1656,10 @@ def main() -> int:
         "--evalfile",
         help="HalfKP nn.bin; omit for a material-only Sekirei measurement",
     )
+    parser.add_argument("--require-evaluator-load", action="store_true",
+                        help="require initial requested EvalFile and HalfKP format acknowledgements before searching")
+    parser.add_argument("--strict-options", action="store_true",
+                        help="require every requested option to be advertised in the USI handshake")
     parser.add_argument("--fv-scale", type=int, default=24)
     parser.add_argument("--timeout", type=float, default=120, help="maximum seconds per USI response")
     parser.add_argument("--hash", type=int, default=64)
@@ -1666,6 +1710,8 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
+    if args.require_evaluator_load and (args.yaneuraou or args.evalfile is None):
+        parser.error("--require-evaluator-load requires a Sekirei --evalfile")
     if args.yaneuraou and args.evalfile is None:
         parser.error("--yaneuraou requires --evalfile")
     if args.yaneuraou and args.lazy_diagnostics:
