@@ -2,6 +2,7 @@
 """Contract tests for the separately distributed NNUE artifact validator."""
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib.util
 import json
@@ -148,6 +149,48 @@ class ReleaseArtifactTests(unittest.TestCase):
             root = Path(directory)
             document = v2_card(root)
             self.assertEqual(ARTIFACT.validate(document, root, "2" * 40), [])
+
+    def test_v2_rejects_non_string_identity_and_version_metadata(self) -> None:
+        cases = [
+            (("artifact", "sha256"), "artifact"),
+            (("training", "engine_commit"), "training.engine_commit"),
+            (("training", "dataset_manifest", "sha256"), "training.dataset_manifest"),
+            (("training", "whole_game_holdout_manifest", "sha256"), "training.whole_game_holdout_manifest"),
+            (("current_engine_gate", "engine_commit"), "current_engine_gate.engine_commit"),
+            (("current_engine_gate", "engine_sha256"), "current_engine_gate.engine_sha256"),
+            (("current_engine_gate", "opening_corpus_sha256"), "current_engine_gate.opening_corpus_sha256"),
+            (("distribution", "release_version"), "distribution"),
+            (("current_engine_gate", "conditions", 0, "evidence", "sha256"), "current_engine_gate.conditions[0].evidence"),
+            (("current_engine_gate", "conditions", 0, "raw_evidence", "sha256"), "current_engine_gate.conditions[0].raw_evidence"),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            valid = v2_card(root)
+            for path, expected in cases:
+                for value in (None, True, 42, ["bad"], {"bad": "value"}):
+                    with self.subTest(path=path, value=value):
+                        document = copy.deepcopy(valid)
+                        target = document
+                        for key in path[:-1]:
+                            target = target[key]
+                        target[path[-1]] = value
+                        self.assertIn(expected, ARTIFACT.validate(document, root, "2" * 40))
+
+    def test_v1_rejects_non_string_hash_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = b"SEKIRW01fixture"
+            write_reference(root, "weights/model.bin", payload)
+            for value in (None, True, 42, ["bad"], {"bad": "value"}):
+                for baseline in (False, True):
+                    with self.subTest(value=value, baseline=baseline):
+                        document = v1_card(payload)
+                        if baseline:
+                            document["strength_gate"]["baseline"]["sha256"] = value
+                        else:
+                            document["sha256"] = value
+                        expected = "strength_gate.baseline" if baseline else "sha256.format"
+                        self.assertIn(expected, ARTIFACT.validate(document, root))
 
     def test_v2_requires_current_one_and_four_thread_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
