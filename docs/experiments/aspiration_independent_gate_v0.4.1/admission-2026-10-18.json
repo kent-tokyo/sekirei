@@ -1,0 +1,23 @@
+{
+  "schema": "sekirei.asp-match-admission-receipt.v1",
+  "status": "blocked_before_match",
+  "status_source": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/search-experiments/aspiration-independent-v0.4.4/20261018T052619304001Z/independent-match-v2/status.json",
+    "sha256": "4ce302399d1b8fcfc2c756e0025b06ac4c32c3d01598937d8d6a7123e63579a9"
+  },
+  "supervisor_alive_after_completion": false,
+  "admission_samples": 37,
+  "admission_wait_seconds": 180,
+  "busy_samples": 37,
+  "minimum_free_mib_observed": 2752,
+  "completed_games": 0,
+  "runner_started": false,
+  "independent_corpus_retained": true,
+  "automatic_retry_scheduled": false,
+  "other_tasks_stopped": false,
+  "strength_claim": false,
+  "preflight_only_initial_attempt": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/search-experiments/aspiration-independent-v0.4.4/20261018T052619304001Z/independent-match-v1/status.json",
+    "note": "No wrapper or runner was launched. SystemExit was initially recorded as failed; operational admission handler corrected in v2 without changing match settings or reading outcomes."
+  }
+}

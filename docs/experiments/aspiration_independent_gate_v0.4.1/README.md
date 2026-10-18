@@ -228,3 +228,12 @@ interrupted; no second match was started. Disk space fluctuated below 512 MiB,
 then recovered for bounded tests. Only this task's unused duplicate example
 build outputs were removed; frozen smoke tools/raw/logs were retained. No new
 depth, Elo, H1 or adoption result follows from this preparation.
+
+## Admission outcome — 2026-10-18
+
+The [bounded admission record](admission-2026-10-18.json) ended before any
+runner or engine was launched: other-project tests and macOS analysis kept
+the host above the quiet-sample threshold for the three-minute admission
+window. Zero games were played. The frozen corpus remains retained; no
+automatic retry or reporting schedule was created, and no other job was
+stopped. This is an operational block, not a candidate rejection.
