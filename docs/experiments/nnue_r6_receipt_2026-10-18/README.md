@@ -58,3 +58,5 @@ The original receipt above remains a record of the first delivery.
 [Search preparation](../aspiration_independent_gate_v0.4.1/exclusion-preparation-2026-10-18.json)
 records the subsequent recovery, exclusions and mechanical 1T/4T smoke.
 Legacy Q25 reserve scope remains under owner review.
+
+The follow-up [exclusion closure](../aspiration_independent_gate_v0.4.1/exclusion-closure-2026-10-18.json) now binds the qualified cloud-plus-legacy NNUE scope and the independent 400-opening material corpus. This does not qualify nn_r6 strength or distribution.

@@ -1,0 +1,67 @@
+{
+  "schema": "sekirei.asp-exclusion-and-corpus-closure.v1",
+  "created_at": "2026-10-18T05:55:02.581308+00:00",
+  "search_scope_receipt": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/search-experiments/exclusion-source-preparation/20261018T051918054799Z/attested-search-scopes-v1/receipt.json",
+    "sha256": "3ab22dffcb7608dda569e0c545e82a1fd7731d1b634ba21d11e2b8fe4e3962de",
+    "bytes": 2191
+  },
+  "search_independent_review": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/search-experiments/exclusion-source-preparation/20261018T051918054799Z/attested-search-scopes-v1/independent-review.json",
+    "sha256": "22ea95b0576d516e309af7caa61d9fa4560e1e84a59874f52f164a04cab95b4c",
+    "bytes": 1583
+  },
+  "nnue_scope_receipt": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/opening-exclusion-exports/nnue-asp-union-20261018-v1/receipt.json",
+    "sha256": "5f63733d17e574baeaa270ca897579cb288b580683132e582f039d233b6b517a",
+    "bytes": 2668
+  },
+  "nnue_scope_validation": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/opening-exclusion-exports/nnue-asp-union-20261018-v1/validation.json",
+    "sha256": "5008b43e308fd260a304a1a327d7cd4434a74adaef9b2d872837f1f4f24d6d9e",
+    "bytes": 2301
+  },
+  "exclusions": [
+    {
+      "path": "/Users/k_tanabe/.local/state/sekirei/search-experiments/exclusion-source-preparation/20261018T051918054799Z/attested-search-scopes-v1/diagnostic.json",
+      "sha256": "a8a330680c443d159f7a992376d11cb771c4da655a6fe95360a73abe30f4461b",
+      "bytes": 59869365
+    },
+    {
+      "path": "/Users/k_tanabe/.local/state/sekirei/search-experiments/exclusion-source-preparation/20261018T051918054799Z/attested-search-scopes-v1/previous-strength-gates.json",
+      "sha256": "c1ea1d5c7eb5ce5270c94b28f00a56f568a1426b2c0bac5dae0f0a1ed8d823e5",
+      "bytes": 749535
+    },
+    {
+      "path": "/Users/k_tanabe/.local/state/sekirei/opening-exclusion-exports/nnue-asp-union-20261018-v1/nnue-holdouts.asp-scoped.json",
+      "sha256": "84787b251b9049e246fc91f51a3a2f6e3de8a47163f518be0901f0595c0154e6",
+      "bytes": 159841689
+    }
+  ],
+  "union_identities": 2227192,
+  "pre_generation_receipt": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/search-experiments/aspiration-independent-v0.4.4/20261018T052619304001Z/pre-generation-receipt.json",
+    "sha256": "e873a00f20af6781ce3d3c4cbfadd434aa0c2e00777fdbee0dbcc38f1cfa9540",
+    "bytes": 678015
+  },
+  "corpus_manifest": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/search-experiments/aspiration-independent-v0.4.4/20261018T052619304001Z/independent-corpus-v1/manifest.json",
+    "sha256": "9d2441534df3bb2b29964ede765408de2ee0105fd8288e3cf98da71da430d56b",
+    "bytes": 863851
+  },
+  "corpus_openings": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/search-experiments/aspiration-independent-v0.4.4/20261018T052619304001Z/independent-corpus-v1/openings.usi",
+    "sha256": "10012f65cd988751bd0ed73a93c613fd6eef940223b2004ecc43df665fb17b31",
+    "bytes": 78428
+  },
+  "positions": 400,
+  "full_histories_validated": 400,
+  "selection_replay_pass": true,
+  "known_missing_required_sources": [],
+  "scope_exception": "Owner-recorded user-confirmed retired Mac nn_gen0..nn_gen10s exact split exception; not reconstructed identities.",
+  "match_status_at_document_commit": "ready_not_started",
+  "match_directory": "/Users/k_tanabe/.local/state/sekirei/search-experiments/aspiration-independent-v0.4.4/20261018T052619304001Z/independent-match-v1",
+  "strength_claim": false,
+  "default_changed": false,
+  "training_weights_or_candidate_selection_changed": false
+}

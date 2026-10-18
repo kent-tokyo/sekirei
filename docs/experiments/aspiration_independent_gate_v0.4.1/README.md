@@ -2,7 +2,8 @@
 
 The candidate stays fixed: A uses T_ASP_VOLATILITY=1, B uses 0, with the same
 clean v0.4.1-or-later tune executable. This preparation changes no search
-policy/default, NNUE model or adoption decision. No strength gate has started.
+policy/default, NNUE model or adoption decision. The qualified corpus is now
+frozen; match status is recorded separately below.
 
 ## Prospective protocol
 
@@ -163,49 +164,55 @@ with optional legal moves, rejects completed repetition prefixes and joins
 engine/kifu moves with one moves keyword. CSA replays prefix then played moves
 from the initial board. Bare inputs remain valid.
 
-## NNUE exclusion delivery update — 2026-10-18
+## Exclusion closure and independent corpus — 2026-10-18
 
-The [nn_r6 receipt](../nnue_r6_receipt_2026-10-18/README.md) verifies the
-owner's v2 identity manifest for the declared cloud lineage and reserved sets.
-It contains 1,396,414 unique identities from 17 sources. This does not establish
-full historical coverage: the retired Mac hold-out scope exception needs
-review, and the scope table has a filename/hash metadata defect documented
-in the receipt. Complete diagnostic and previous-strength-gates manifests
-are still required. No independent corpus or match was started by this receipt.
-
-## Search exclusion recovery and fixed-build checks — 2026-10-18
-
-[The preparation record](exclusion-preparation-2026-10-18.json) binds the current
-drafts, recovered inputs and fixed tune build. The search-side scan covered
-1,693 retained input files; a separate audit bound 1,062 additional aliases and
-historical gate inputs. These are inventory counts, not counts of played games.
+The [preparation record](exclusion-preparation-2026-10-18.json) retains the
+draft-stage recovery and fixed-build evidence. The search scan covered 1,693
+retained input files; a separate audit bound 1,062 additional aliases and
+historical gate inputs. These are inventory counts, not played-game counts.
 
 Eleven missing diagnostic corpora (550 records) were recovered with their
-original whole-file SHA-256 values. The older v0.3.58 material corpus was also
-reconstructed from its original source commit, TT setting and seed: both the
-raw TSV and the filtered 1,000-record corpus matched their recorded hashes.
-The initial two smoke roots are included. No closed gate was restarted.
+original SHA-256 values. The v0.3.58 material corpus was reconstructed from
+its original source commit, TT setting and seed; its raw TSV and filtered
+1,000-record corpus matched the recorded hashes. Initial smoke roots are
+included. No closed gate was restarted.
 
-The current diagnostic draft contains 4,439 unique identities. The conservative
-local prior-gate draft contains 4,382; its union with Claude's played-opening
-manifest contains 6,509. Whole input-corpus inclusion does not imply that every
-record was played. All search drafts remain incomplete and are rejected by
-the gate loader.
+The NNUE task exported the legacy Q25 supplement from all 21 SHA-bound source
+versions referenced by eight preregistrations, including three relocated
+historical versions. It expanded four symmetry directions into 823,080 exact
+board identities. Search-side review independently checked the conversion
+on synthetic data and verified the identity unions, without opening Q25 raw
+positions, indices or labels. The original incomplete drafts remain retained.
 
-The fixed tune executable advertises the unchanged default
-T_ASP_VOLATILITY=0. On an existing development fixture, enabling it adapted two
-root windows; the observer preserved bestmove, score, PV and nodes. A separate
-nn_r6 loading/PV smoke passed 20 diagnostic roots at both 1T and 4T, with all
-40 weight loads acknowledged and PVs replayed legally. This used the tune build
-and establishes mechanical compatibility only.
+[The closure record](exclusion-closure-2026-10-18.json) binds the three qualified
+manifests: diagnostic 826,847 identities; previous-strength-gates 6,509;
+NNUE-holdouts 2,219,484. Their union contains 2,227,192 identities. Attestations
+are limited to the audited campaign and enumerated NNUE sources. The
+owner-recorded, user-confirmed retired Mac nn_gen0..nn_gen10s exception is
+explicit; it is not reconstructed identity coverage. Claude's cloud ownership
+and attestation remain separate from Codex's integration confirmation.
 
-Old Q25 reserve metadata identifies an additional unresolved ownership/scope
-boundary, including versioned files that reused a path. The NNUE-owner task is
-exporting conservative exclusions while preserving the reservations; the search
-lane did not open those reserved Q25 positions, SFEN-containing indices, or
-associated labels. Complete owner exclusions are still required before any fresh
-independent generation or match. No depth gain, Elo, H1 or default adoption is
-claimed.
+Using the unchanged recipe above, the fixed material generator produced 800
+trajectories. The first 400 unique samples passed the exclusions without
+selection rejections, and the frozen runner validated all 400 full histories.
+Replaying the manifest reproduced the complete selection and hashes.
+The corpus SHA-256 is
+10012f65cd988751bd0ed73a93c613fd6eef940223b2004ecc43df665fb17b31.
+This establishes the declared exact-position exclusion contract, with no
+opening-family independence or strength claim.
+
+The clean tune executable was built from 95195d367bef180fef399432966c1937bdaf454f
+(engine code equal to v0.4.4 main at build time). It advertises the unchanged
+default T_ASP_VOLATILITY=0. Enabling it on an existing development fixture
+adapted two root windows; its observer preserved bestmove, score, PV and nodes.
+A separate nn_r6 loading/PV smoke passed 20 diagnostic roots at both 1T and 4T:
+40 acknowledged weight loads and legally replayed PVs. This is mechanical
+compatibility only, not 1T/4T strength qualification.
+
+At this documentation commit, the corpus is qualified and frozen, and the
+prospective match is ready to launch. Match launch/progress/terminal evidence
+is retained in the private fixed-build directory identified by the closure
+record. No Elo, H1, depth gain or default adoption is established here.
 
 ## Original preparation validation
 
