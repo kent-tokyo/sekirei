@@ -39,8 +39,10 @@ The retained owner record also attests a whole-game hold-out, hashed training
 shards, and byte-identical uninterrupted/checkpoint-resume export. The
 current public evidence does not yet form a card accepted by
 `validate_nnue_release_artifact.py`, so no r6 model file is attached to this
-release. These native fixed-condition gates are not an external rating, a
-default-choice decision, or a WebAssembly/mobile qualification.
+release. The [evidence intake contract](../weights/releases/README.md#evidence-intake-for-nn_r6)
+lists the redacted attestations and fresh current-source 1T/4T gates required
+before that can change. These native fixed-condition gates are not an external
+rating, a default-choice decision, or a WebAssembly/mobile qualification.
 
 ## Historical `nn_r3` candidate
 
