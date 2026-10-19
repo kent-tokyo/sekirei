@@ -30,23 +30,12 @@ cargo run --release -p sekirei
 ```
 
 生成された`sekirei`をUSI対応GUIへ登録します。`EvalFile`を指定しない場合は
-駒得評価を使います。リリース添付の`nn_r6`は1スレッドの実験用に使えます。使用前に
-チェックサムを確認して展開してください。
-
-```bash
-shasum -a 256 sekirei-halfkp-r6-v0.4.5.bin.xz
-xz -d sekirei-halfkp-r6-v0.4.5.bin.xz
-sekirei /path/to/sekirei-halfkp-r6-v0.4.5.bin
-```
-
-GUIでは`isready`より前に`EvalFile`と`FV_SCALE=24`を設定します。HalfKPでは
-`NnueOutput`は使いません。
-外部HalfKP 256x2-32-32では`FV_SCALE`を使い、そのファイルのライセンスに
+駒得評価を使います。外部HalfKP 256x2-32-32では`FV_SCALE`を使い、そのファイルのライセンスに
 従ってください。対応形式、SHA-256、測定範囲は
 [NNUE重み](docs/nnue_weights.md)にまとめています。`nn_r6`は記録済みの固定ソース
-におけるネイティブ1T・4Tのmaterial gateに合格しており、
-[`FV_SCALE=24`の任意添付ファイル](weights/releases/README.md)として配布します。
-ただし既定評価器にはせず、外部レートや今回のリリースでの棋力向上を示すものでもありません。
+におけるネイティブ1T・4Tのmaterial gateに合格していますが、公開artifactの証跡が
+strict validatorを通るまで配布しません。既定評価器にはせず、外部レートや今回の
+リリースでの棋力向上を示すものでもありません。
 
 ## 構成
 

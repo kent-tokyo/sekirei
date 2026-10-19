@@ -45,21 +45,13 @@
     "size": 547547,
     "npm_registry_status": "not_published"
   },
-  "nnue_release_asset": {
-    "status": "experimental_opt_in",
-    "asset": "sekirei-halfkp-r6-v0.4.5.bin.xz",
-    "compressed_sha256": "92e2b2ce67f5829b17752d4dba37cc278d7ae96e4e25d880fc68f7f9552ec38f",
-    "uncompressed_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
-    "uncompressed_size": 64216957,
-    "model_card": "weights/sekirei-halfkp-r6-v0.4.5.json",
-    "model_card_sha256": "da882eb080ef52aca212e967b55d38985282a32e8e43bcc88c20c7f108c2e9aa",
+  "nnue_candidate_evidence": {
+    "status": "not_published",
     "qualification_record": "weights/releases/sekirei-halfkp-nn_r6.json",
     "qualification_record_sha256": "f9c073b125c5eccaa6e028f3478a3e05b94c7d2fc4081f28d77a6c896cf4a9b3",
     "compatibility_receipt": "weights/releases/nn_r6-main-compatibility.json",
     "compatibility_receipt_sha256": "02859bbd7a1debae87f4ac92e00a448a6454ddf9cb5aea37c7cc19473f44a0c8",
-    "license": "CC-BY-4.0",
-    "default_evaluator": false,
-    "qualification": "Recorded fixed-source material-only gates PASS at 1T (76 games, LLR 2.945103) and 4T (70 games, LLR 3.047240) on engine 311ff12; no current-v0.4.5 strength or default-adoption decision."
+    "reason": "The available candidate record does not pass validate_nnue_release_artifact.py; no model file is attached to v0.4.5."
   },
   "internal_measurement": {
     "spec_top_n": 0,
@@ -67,15 +59,15 @@
     "parallel": 1,
     "status": "release_validation",
     "strength_claim": false,
-    "evaluator": "material-only native USI smoke; nn_r6 is separately distributed as an explicit experimental opt-in asset",
-    "results": "The default evaluator and ordinary search policy are unchanged. nn_r6 is verified to load with FV_SCALE=24; its recorded fixed-source 1T/4T gates are not treated as a v0.4.5 strength decision."
+    "evaluator": "material-only native USI smoke",
+    "results": "The default evaluator and ordinary search policy are unchanged. nn_r6's recorded fixed-source 1T/4T gates are retained as unpublished candidate evidence, not a v0.4.5 strength decision."
   },
   "external_opponents": {
     "status": "excluded_from_release_evidence",
     "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.4.5."
   },
   "known_limitations": [
-    "nn_r6 is optional and experimental; it is not selected by default.",
+    "nn_r6 is not published or selected by default because its public evidence card is not validator-accepted.",
     "nn_r6 has no current-v0.4.5 strength gate, external comparison, or WebAssembly/mobile-quality result.",
     "New search and Lazy SMP policies without an independent H1 remain disabled by default.",
     "The qualified PGO throughput results apply only to their recorded Apple M4 configurations; ordinary release builds do not embed those profiles.",

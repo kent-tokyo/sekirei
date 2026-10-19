@@ -30,18 +30,12 @@ licensed under [CC BY 4.0](../NNUE-LICENSE.md), separately from Sekirei's
 MIT OR Apache-2.0 source code. Retain the Sekirei / Kentaro Tanabe attribution
 when redistributing or adapting the artifact.
 
-## Qualified optional `nn_r6`
+## Unpublished `nn_r6` candidate
 
-The v0.4.5 release carries `sekirei-halfkp-r6-v0.4.5.bin.xz`. After
-decompression it is `sekirei-halfkp-r6-v0.4.5.bin` (64,216,957 bytes; SHA-256
-`634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469`) and
-must be used with `FV_SCALE=24`. Its compressed SHA-256 is
-`92e2b2ce67f5829b17752d4dba37cc278d7ae96e4e25d880fc68f7f9552ec38f`.
-
-This CC BY 4.0 asset passed recorded fixed-source material gates at 1T and
-4T. It remains an explicit opt-in download, not a crate payload or default
-evaluator. The [release evidence](releases/README.md) and
-[`nn_r6` release card](sekirei-halfkp-r6-v0.4.5.json) state its exact scope.
+`nn_r6` passed recorded fixed-source material gates at 1T and 4T, but its
+public distribution remains blocked until a validator-accepted release card
+binds the artifact, licence and evidence. It is not a crate payload or default
+evaluator. The [release evidence](releases/README.md) states its exact scope.
 
 ## Historical local candidate: `nn_r3`
 

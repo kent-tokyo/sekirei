@@ -21,11 +21,10 @@ gate, external rating, or comparison with another engine.
 Without `EvalFile` or a command-line checkpoint, Sekirei uses its material
 fallback. It does not silently select or substitute a model.
 
-## Qualified optional `nn_r6`
+## Unpublished `nn_r6` candidate
 
-The v0.4.5 GitHub Release distributes `nn_r6` as a separate optional
-HalfKP(Friend) 256x2-32-32 asset. It uses `FV_SCALE=24`, is CC BY 4.0, and is
-neither embedded in a crate nor selected automatically.
+`nn_r6` is an unpublished HalfKP(Friend) 256x2-32-32 candidate. It uses
+`FV_SCALE=24`, is not embedded in a crate, and is not selected automatically.
 
 On fixed source `311ff1221064e5807d045bcf2c71badff0442671`, `nn_r6` passed
 one-second material-only paired-trinomial gates at 1T (64-0-12, 76 games,
@@ -37,10 +36,11 @@ the same file and scale; that compatibility check does not extend the older
 strength result.
 
 The retained owner record also attests a whole-game hold-out, hashed training
-shards, and byte-identical uninterrupted/checkpoint-resume export. See the
-[`nn_r6` release card](../weights/sekirei-halfkp-r6-v0.4.5.json) for the
-artifact identity. These native fixed-condition gates are not an external
-rating, a default-choice decision, or a WebAssembly/mobile qualification.
+shards, and byte-identical uninterrupted/checkpoint-resume export. The
+current public evidence does not yet form a card accepted by
+`validate_nnue_release_artifact.py`, so no r6 model file is attached to this
+release. These native fixed-condition gates are not an external rating, a
+default-choice decision, or a WebAssembly/mobile qualification.
 
 ## Historical `nn_r3` candidate
 

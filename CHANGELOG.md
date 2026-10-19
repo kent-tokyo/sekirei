@@ -10,17 +10,18 @@ No changes yet.
 
 ## [0.4.5] – 2026-10-19
 
-Version 0.4.5 publishes the optional in-house `nn_r6` HalfKP artifact with a
-hash, CC BY 4.0 terms, training provenance, and its recorded qualification
-scope. The default material evaluator and ordinary search policy are unchanged.
-This release makes no general playing-strength claim.
+Version 0.4.5 records fail-closed release evidence for the in-house `nn_r6`
+HalfKP candidate. The public artifact bundle is not released because its card
+does not yet satisfy the repository's strict release-artifact validator. The
+default material evaluator and ordinary search policy are unchanged. This
+release makes no general playing-strength claim.
 
 ### Added
 
-- Publish `nn_r6` as a GitHub Release asset for explicit opt-in use with
-  `FV_SCALE=24`, with recorded fixed-source 1T/4T material-gate results and
-  an actual-release load check. It is neither default nor a general
-  replacement recommendation for material evaluation.
+- Preserve the recorded fixed-source 1T/4T `nn_r6` material-gate results and
+  current-source compatibility receipt. Distribution remains blocked until a
+  validator-accepted model card binds the owner attestation, evidence, license
+  and artifact; `nn_r6` is neither default nor publicly released.
 
 ## [0.4.4] – 2026-10-17
 

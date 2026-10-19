@@ -30,23 +30,14 @@ cargo run --release -p sekirei
 ```
 
 Register `sekirei` in a USI-compatible GUI. Without `EvalFile`, the engine
-uses material evaluation. The optional `nn_r6` HalfKP artifact is attached to
-the release for one-thread experiments. Verify and decompress it before use:
-
-```bash
-shasum -a 256 sekirei-halfkp-r6-v0.4.5.bin.xz
-xz -d sekirei-halfkp-r6-v0.4.5.bin.xz
-sekirei /path/to/sekirei-halfkp-r6-v0.4.5.bin
-```
-
-Set `EvalFile` and `FV_SCALE=24` before `isready`; `NnueOutput` does not
-apply to HalfKP. External HalfKP 256x2-32-32 files use `FV_SCALE` and remain
-subject to their own licenses.
+uses material evaluation. External HalfKP 256x2-32-32 files use `FV_SCALE`
+and remain subject to their own licenses.
 [NNUE weights](docs/nnue_weights.md) records supported formats, checksums, and
 the evidence boundary. `nn_r6` passed recorded fixed-source native 1T/4T
-material gates and is distributed as an [optional release asset](weights/releases/README.md)
-with `FV_SCALE=24`. It is not selected by default; those gates are neither an
-external rating nor a current-release strength claim.
+material gates, but its public artifact remains blocked until its evidence
+bundle passes the release-artifact validator. It is not selected by default;
+those gates are neither an external rating nor a current-release strength
+claim.
 
 ## Components
 

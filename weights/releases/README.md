@@ -1,36 +1,10 @@
-# `nn_r6` optional release evidence
+# `nn_r6` release evidence
 
-`sekirei-halfkp-r6-v0.4.5.bin.xz` is the optional GitHub Release asset for
-v0.4.5. It is separate from source crates and executables; material remains
-the fallback when no `EvalFile` is set. The [release plan](sekirei-halfkp-nn_r6.json)
-binds the fixed-source 1T/4T gates and compatibility receipt to the exact
-weight identity.
-
-## Verification and use
-
-After obtaining the release asset, verify its checksum before extraction:
-
-```bash
-shasum -a 256 sekirei-halfkp-r6-v0.4.5.bin.xz
-# 92e2b2ce67f5829b17752d4dba37cc278d7ae96e4e25d880fc68f7f9552ec38f
-xz -d sekirei-halfkp-r6-v0.4.5.bin.xz
-shasum -a 256 sekirei-halfkp-r6-v0.4.5.bin
-# 634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469
-```
-
-In a native USI GUI, set these options before `isready`:
-
-```text
-setoption name EvalFile value /absolute/path/to/sekirei-halfkp-r6-v0.4.5.bin
-setoption name FV_SCALE value 24
-setoption name NnueOutput value absolute
-isready
-```
-
-Require `info string NNUE weights loaded from ...` followed by `readyok`.
-The `FV_SCALE=24` setting is part of this model's operating conditions;
-the engine's HalfKP default scale is 16. Retain the attribution and license
-when redistributing it.
+`nn_r6` is not attached to v0.4.5. It is separate from source crates and
+executables; material remains the fallback when no `EvalFile` is set. The
+[release plan](sekirei-halfkp-nn_r6.json) binds the fixed-source 1T/4T gates
+and compatibility receipt to the exact weight identity, but it is not a
+validator-accepted public artifact card.
 
 ## Recorded qualification
 
@@ -62,15 +36,9 @@ identical. A separate 4T loading/search smoke also passed. The
 and the corpus. These checks establish compatibility on that source only;
 they are not a new strength gate. Recheck the actual release build.
 
-## Release procedure
+## Publication requirement
 
-1. Verify the compressed and decompressed SHA-256 values against the release
-   manifest and model card.
-2. Check loading and scale on the actual release build. Record any source
-   difference and its compatibility checks separately. Changes to evaluation
-   or search require fresh strength evidence before extending the gate claim.
-3. After publication, download the asset again and verify its bytes before
-   declaring it shipped.
-
-This evidence does not switch the default evaluator or make an external-rating
-claim.
+Publication requires a release card that passes
+`validate_nnue_release_artifact.py`, binds the owner attestation, licence,
+artifact and raw gate evidence, and is verified again after upload. This record
+does not switch the default evaluator or make an external-rating claim.
