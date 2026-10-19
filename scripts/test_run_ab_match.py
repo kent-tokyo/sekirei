@@ -28,6 +28,7 @@ from run_ab_match import (  # noqa: E402
     sprt_bounds,
     sprt_llr,
     terminate_match_process_group,
+    validate_candidate_material_evidence,
     validate_raw_match_evidence,
     yaneuraou_options,
 )
@@ -187,6 +188,101 @@ class SprtTest(unittest.TestCase):
         self.assertFalse(any("EvalFile=" in option for option in options))
         self.assertFalse(any("FV_SCALE=" in option for option in options))
         self.assertNotIn("UseBook=false", options)
+
+    def test_candidate_material_evidence_requires_exact_asymmetric_weight_load(self):
+        with tempfile.TemporaryDirectory() as directory:
+            raw_path = Path(directory) / "match.json"
+            candidate = str((Path(directory) / "nn_r6.bin").resolve())
+            raw_path.write_text(
+                json.dumps(
+                    {
+                        "engine1_options": {
+                            "EvalFile": candidate,
+                            "FV_SCALE": "24",
+                            "NnueOutput": "absolute",
+                        },
+                        "engine2_options": {"Threads": "1"},
+                        "engine1_eval_file_acknowledgement": (
+                            f"info string NNUE weights loaded from {candidate}"
+                        ),
+                        "engine2_eval_file_acknowledgement": None,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertIsNone(validate_candidate_material_evidence(raw_path, candidate, 24))
+            raw = json.loads(raw_path.read_text(encoding="utf-8"))
+            raw["engine2_options"]["EvalFile"] = candidate
+            raw_path.write_text(json.dumps(raw), encoding="utf-8")
+            self.assertIn(
+                "baseline unexpectedly",
+                validate_candidate_material_evidence(raw_path, candidate, 24),
+            )
+
+    def test_candidate_material_gate_pins_only_engine_a_evaluator(self):
+        process = _FakeMatchProcess(["→ Draw\n"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate = root / "nn_r6.bin"
+            engine = root / "sekirei"
+            runner = root / "sekirei-match"
+            openings = root / "openings.usi"
+            for path, content in ((candidate, b"candidate"), (engine, b"engine"), (runner, b"runner")):
+                path.write_bytes(content)
+            openings.write_text("startpos\n", encoding="utf-8")
+            snapshot = {
+                "sha256": "1" * 64,
+                "match_binary_sha256": hashlib.sha256(runner.read_bytes()).hexdigest(),
+            }
+            result_path = root / "result.json"
+            argv = [
+                "run_ab_match.py",
+                "selfplay",
+                "--engine-a", str(engine),
+                "--engine-b", str(engine),
+                "--match-binary", str(runner),
+                "--openings", str(openings),
+                "--openings-manifest", str(root / "manifest.json"),
+                "--candidate-evalfile", str(candidate),
+                "--games", "1",
+                "--out-dir", str(root / "match-output"),
+                "--result-json", str(result_path),
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.validate_corpus", side_effect=[snapshot, snapshot]
+            ), patch(
+                "run_ab_match.subprocess.Popen", return_value=process
+            ) as popen, patch(
+                "run_ab_match.validate_candidate_material_evidence", return_value=None
+            ), patch(
+                "run_ab_match.runner_identity", return_value={}
+            ), patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(main(), 0)
+            result = json.loads(result_path.read_text())
+
+        command = popen.call_args.args[0]
+        engine1_options = [command[index + 1] for index, item in enumerate(command[:-1]) if item == "--engine-option1"]
+        engine2_options = [command[index + 1] for index, item in enumerate(command[:-1]) if item == "--engine-option2"]
+        self.assertIn(f"EvalFile={candidate.resolve()}", engine1_options)
+        self.assertIn("FV_SCALE=24", engine1_options)
+        self.assertIn("NnueOutput=absolute", engine1_options)
+        self.assertFalse(any(option.startswith(("EvalFile=", "FV_SCALE=", "NnueOutput=")) for option in engine2_options))
+        self.assertEqual(result["evidence"]["evaluation"]["mode"], "candidate-halfkp-vs-material")
+
+    def test_candidate_material_gate_rejects_evaluator_side_overrides(self):
+        argv = [
+            "run_ab_match.py",
+            "selfplay",
+            "--engine-a", "candidate",
+            "--engine-b", "baseline",
+            "--candidate-evalfile", "candidate.bin",
+            "--openings-manifest", "openings.json",
+            "--option-a", "NnueOutput=residual-material",
+        ]
+        with patch.object(sys, "argv", argv), patch("sys.stderr", new_callable=io.StringIO):
+            with self.assertRaises(SystemExit) as stopped:
+                main()
+        self.assertEqual(stopped.exception.code, 2)
 
     def test_bounds_match_wald_for_five_percent_errors(self):
         lower, upper = sprt_bounds()

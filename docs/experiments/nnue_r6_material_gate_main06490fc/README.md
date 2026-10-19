@@ -1,8 +1,8 @@
 # nn_r6 material gate: recorded one-thread result
 
-This record describes the evidence attached to the optional `nn_r6` artifact
-published with v0.4.5. It is not a gate for v0.4.5 itself and does not select a
-default evaluator.
+This record describes an owner-supplied, one-thread material gate for the
+unpublished `nn_r6` candidate. It is not a gate for v0.4.5, is not attached to
+that release, and does not select a default evaluator.
 
 | Field | Value |
 |---|---|

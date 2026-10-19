@@ -39,8 +39,10 @@ The retained owner record also attests a whole-game hold-out, hashed training
 shards, and byte-identical uninterrupted/checkpoint-resume export. The
 current public evidence does not yet form a card accepted by
 `validate_nnue_release_artifact.py`, so no r6 model file is attached to this
-release. These native fixed-condition gates are not an external rating, a
-default-choice decision, or a WebAssembly/mobile qualification.
+release. The [evidence intake contract](../weights/releases/README.md#evidence-intake-for-nn_r6)
+lists the redacted attestations and fresh current-source 1T/4T gates required
+before that can change. These native fixed-condition gates are not an external
+rating, a default-choice decision, or a WebAssembly/mobile qualification.
 
 ## Historical `nn_r3` candidate
 
@@ -193,6 +195,25 @@ An experimental opt-in asset may be distributed with a release only when its
 card explicitly records every missing v2 condition. It must remain
 non-default and may not be described as a recommended checkpoint until its
 complete v2 bundle validates against the engine commit being released.
+
+Create each gate-evidence summary from its retained terminal receipt instead
+of transcribing results by hand. The exporter checks the raw match JSON,
+candidate load acknowledgement, material baseline options, paired SPRT result,
+and all relevant hashes before writing a new file:
+
+```bash
+python3 scripts/export_nnue_gate_evidence.py \
+  --result /path/to/result.json \
+  --raw-match-json /path/to/match.json \
+  --engine-commit <full-40-hex-commit> \
+  --output /path/to/evidence/1t-gate.json
+```
+
+Run it separately for the 1T and 4T gates. Copy the output, terminal receipt,
+raw match JSON, opening corpus, and manifests into the intended private or
+release bundle before calculating the model card's reference hashes. The
+exporter does not create a gate, waive an owner attestation, or infer a
+license.
 
 Training can use a separately operated external teacher, but its license and
 the dataset terms must be assessed by the person distributing the resulting
