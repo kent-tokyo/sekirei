@@ -89,6 +89,32 @@ class IdentityExportTests(unittest.TestCase):
             self.assertEqual(len(document["sources"]), 3)
             self.assertEqual(document["identities"], sorted({identity_hash(BASE), identity_hash(SIDE)}))
 
+    def test_frozen_opening_manifest_is_checked_before_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = root / "openings.json"
+            document = {
+                "schema": "sekirei.independent-material-openings.v1",
+                "identity_scheme": export.IDENTITY,
+                "positions": [
+                    {"sfen": BASE, "identity_sha256": identity_hash(BASE)},
+                    {"sfen": SAME, "identity_sha256": identity_hash(SAME)},
+                    {"sfen": SIDE, "identity_sha256": identity_hash(SIDE)},
+                ],
+            }
+            manifest.write_text(json.dumps(document), encoding="utf-8")
+            values, source, _ = export.read_source(manifest, "opening-manifest")
+            self.assertEqual(values, {identity_hash(BASE), identity_hash(SIDE)})
+            self.assertEqual(source["records"], 3)
+            result = export.export_manifest(
+                self.args(root, [("opening-manifest", manifest)])
+            )
+            self.assertEqual(result["unique_identities"], 2)
+            document["positions"][0]["identity_sha256"] = "0" * 64
+            manifest.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid opening-manifest"):
+                export.read_source(manifest, "opening-manifest")
+
     def test_tsv_options_require_a_tsv_input(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
