@@ -40,9 +40,10 @@ sekirei /path/to/sekirei-nnue-v0.3.38.bin
 Set `EvalFile` and `NnueOutput=absolute` before `isready`. External HalfKP
 256x2-32-32 files use `FV_SCALE` and remain subject to their own licenses.
 [NNUE weights](docs/nnue_weights.md) records supported formats, checksums, and
-the evidence boundary. In-house NNUE candidates remain unbundled and
-non-default until their frozen provenance and current-main qualification are
-complete.
+the evidence boundary. In-house `nn_r6` has completed native 1T/4T
+qualification; its [optional release asset](weights/releases/README.md) is
+prepared for the proposed next release, with `FV_SCALE=24`. It is not yet
+published or selected by default.
 
 ## Components
 

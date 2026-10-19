@@ -21,9 +21,25 @@ gate, external rating, or comparison with another engine.
 Without `EvalFile` or a command-line checkpoint, Sekirei uses its material
 fallback. It does not silently select or substitute a model.
 
-## Current local candidate
+## Qualified optional nn_r6 (planned release)
 
-The latest in-house candidate is `nn_r3`, a HalfKP 256x2-32-32 network used
+`nn_r6` has completed native optional-checkpoint qualification and is planned
+as a separate GitHub Release asset for the proposed 0.4.5 release. It is not
+yet published and does not change the default evaluator. The
+[release plan and loading instructions](../weights/releases/README.md) record
+the archive checksum, CC BY 4.0 notice, exact gate source, raw evidence,
+recovery addendum and required `FV_SCALE=24` setting.
+
+On source `311ff1221064e5807d045bcf2c71badff0442671`, it passed the
+one-second material gates at both 1T (64-0-12, 76 games) and 4T (61-1-8,
+70 games). These are fixed-condition native results, with all completed
+outcomes retained. They do not establish an external rating, a default
+selection, or WASM/mobile qualification. Recheck compatibility on the actual
+release build without relabeling the original strength evidence.
+
+## Historical nn_r3 candidate
+
+`nn_r3` is a historical in-house candidate, a HalfKP 256x2-32-32 network used
 with `FV_SCALE=24`. It was trained for one epoch from `nn_r2` on the fresh
 gen33--40 self-play slice (156,107 games and 10,312,658 positions), generated
 by Sekirei v0.3.67/v0.3.68 without an external teacher. In the recorded private
@@ -64,7 +80,7 @@ silently.
 
 | Build family | Magic | Dimensions | Status |
 |---|---|---|---|
-| Flat default | `SEKIRW01` (also legacy `JANOSW03`) | input 2420, L1 256, L2 32 | The only family with a distributed artifact. |
+| Flat default | `SEKIRW01` (also legacy `JANOSW03`) | input 2420, L1 256, L2 32 | Historical optional 0.3.38 artifact. |
 | King-relative B-small | `SEKIRW02` | input 20564, L1 256, L2 32 | Experimental; no released weight. |
 | Flat width diagnostics | `SEKIRW01` | `nnue_l1_128` / `nnue_l1_384` and `nnue_l2_16` / `nnue_l2_64` | Unreleased experiment builds; a file must match the exact selected dimensions. |
 

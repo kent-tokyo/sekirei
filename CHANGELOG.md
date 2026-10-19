@@ -6,7 +6,12 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+
+- Prepare the qualified `nn_r6` native optional release asset, with a pinned
+  archive/model checksum, CC BY 4.0 notice, 1T/4T material-gate scope and
+  explicit `FV_SCALE=24` loading instructions. Publication is planned for
+  the proposed next patch; the default evaluator remains material.
 
 ## [0.4.4] – 2026-10-17
 
