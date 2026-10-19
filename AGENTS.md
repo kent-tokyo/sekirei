@@ -91,6 +91,8 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-19: Prepare qualified nn_r6 for the next release as a separate optional native NNUE asset; bind hashes, license and evidence, confirm release-build compatibility, and keep publication and default adoption separate.
+
 * 2026-10-19: Persist NNUE job termination evidence with an independent observer, distinguishing observed exit codes/signals from unknown underlying causes.
 
 * 2026-10-19: Make NNUE qualification progress on the shared Mac despite routine OS activity; separate resource scheduling from game/evaluator integrity and preregister revised trial rules without changing past verdicts.

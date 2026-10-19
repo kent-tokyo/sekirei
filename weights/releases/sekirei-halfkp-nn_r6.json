@@ -1,0 +1,101 @@
+{
+  "schema": "sekirei.nnue-release-plan.v1",
+  "model_id": "sekirei-halfkp-nn_r6",
+  "status": "planned_unpublished",
+  "intended_release": "0.4.5",
+  "availability": "optional_github_release_asset",
+  "embedded_in_crates_or_executable": false,
+  "default_evaluator": false,
+  "asset": {
+    "name": "sekirei-halfkp-r6-v0.4.5.bin.xz",
+    "sha256": "92e2b2ce67f5829b17752d4dba37cc278d7ae96e4e25d880fc68f7f9552ec38f",
+    "bytes": 20847532,
+    "compression": "xz",
+    "uncompressed_name": "sekirei-halfkp-r6-v0.4.5.bin",
+    "uncompressed_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469"
+  },
+  "artifact": {
+    "path": "weights/nn_r6.bin",
+    "sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+    "bytes": 64216957,
+    "format": "HalfKP(Friend) 256x2-32-32",
+    "version_word": "0x7AF32F16",
+    "architecture_descriptor": "Sekirei HalfKP 256x2-32-32 own training (19804530 positions, lam 1.0)",
+    "fv_scale": 24,
+    "nnue_output": "absolute"
+  },
+  "license": {
+    "spdx": "CC-BY-4.0",
+    "attribution": "Sekirei project (kent-tokyo), https://github.com/kent-tokyo/sekirei",
+    "notice_path": "NNUE-LICENSE.md"
+  },
+  "qualification": {
+    "engine_commit": "311ff1221064e5807d045bcf2c71badff0442671",
+    "engine_sha256": "1c40c8b221becc47a9f4b3ad6c38297ad8a5fa897494635ac325fb198a3f31ee",
+    "opening_corpus_sha256": "6b3d7440291fd2cc96b8b81f5767452ba956cf5e8f348fafcb638fddb4f720fa",
+    "byoyomi_ms": 1000,
+    "conditions": [
+      {
+        "threads": 1,
+        "games": 76,
+        "wins": 64,
+        "draws": 0,
+        "losses": 12,
+        "verdict": "PASS",
+        "sprt": {
+          "method": "paired-trinomial",
+          "elo0": 0,
+          "elo1": 20,
+          "alpha": 0.05,
+          "beta": 0.05,
+          "require_complete_pairs": true,
+          "analyzed_pairs": 38,
+          "llr": 2.945103,
+          "lower_bound": -2.944439,
+          "upper_bound": 2.944439
+        }
+      },
+      {
+        "threads": 4,
+        "games": 70,
+        "wins": 61,
+        "draws": 1,
+        "losses": 8,
+        "verdict": "PASS",
+        "sprt": {
+          "method": "paired-trinomial",
+          "elo0": 0,
+          "elo1": 20,
+          "alpha": 0.05,
+          "beta": 0.05,
+          "require_complete_pairs": true,
+          "analyzed_pairs": 35,
+          "llr": 3.04724,
+          "lower_bound": -2.944439,
+          "upper_bound": 2.944439
+        }
+      }
+    ],
+    "protocol_sha256": "2bc055c29b0f70a03a39a6d5b816a4cefc03a599de3fc6281a18bf162a35fff3",
+    "operational_recovery_sha256": "894da9bf66b3685ccbdc171eea7ee1049ebc24be10c90fa5709cac05a64d2147"
+  },
+  "release_requirements": [
+    "Retain and verify this exact archive, model card, license and evidence.",
+    "Confirm load/operating scale on the actual release source; preserve the original fixed-source strength scope.",
+    "Record the archive name, SHA-256 and size in the release manifest and verify the uploaded bytes.",
+    "Do not treat compatibility smoke as a new strength gate or claim WASM/mobile qualification."
+  ],
+  "compatibility_only": {
+    "source_commit": "c3f335848a700a32717debedc406fe3107651df5",
+    "report": {
+      "path": "nn_r6-main-compatibility.json",
+      "sha256": "02859bbd7a1debae87f4ac92e00a448a6454ddf9cb5aea37c7cc19473f44a0c8"
+    },
+    "positions": 12,
+    "depth": 10,
+    "all_identical": true,
+    "four_thread_load_smoke": true,
+    "fresh_strength_gate": false,
+    "actual_release_tag_check_required": true
+  }
+}

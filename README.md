@@ -43,8 +43,10 @@ Set `EvalFile` and `FV_SCALE=24` before `isready`; `NnueOutput` does not
 apply to HalfKP. External HalfKP 256x2-32-32 files use `FV_SCALE` and remain
 subject to their own licenses.
 [NNUE weights](docs/nnue_weights.md) records supported formats, checksums, and
-the evidence boundary. `nn_r6` passed its recorded one-thread material gate,
-but has no four-thread current-engine qualification and remains non-default.
+the evidence boundary. `nn_r6` passed recorded fixed-source native 1T/4T
+material gates and is distributed as an [optional release asset](weights/releases/README.md)
+with `FV_SCALE=24`. It is not selected by default; those gates are neither an
+external rating nor a current-release strength claim.
 
 ## Components
 

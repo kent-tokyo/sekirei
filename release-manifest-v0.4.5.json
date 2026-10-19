@@ -52,10 +52,14 @@
     "uncompressed_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
     "uncompressed_size": 64216957,
     "model_card": "weights/sekirei-halfkp-r6-v0.4.5.json",
-    "model_card_sha256": "47500a61e26a9dbdca1b74447a5e21c4e5c1f7c73e8b5ae09918a46916476042",
+    "model_card_sha256": "da882eb080ef52aca212e967b55d38985282a32e8e43bcc88c20c7f108c2e9aa",
+    "qualification_record": "weights/releases/sekirei-halfkp-nn_r6.json",
+    "qualification_record_sha256": "f9c073b125c5eccaa6e028f3478a3e05b94c7d2fc4081f28d77a6c896cf4a9b3",
+    "compatibility_receipt": "weights/releases/nn_r6-main-compatibility.json",
+    "compatibility_receipt_sha256": "02859bbd7a1debae87f4ac92e00a448a6454ddf9cb5aea37c7cc19473f44a0c8",
     "license": "CC-BY-4.0",
     "default_evaluator": false,
-    "qualification": "Recorded material-only 1T gate PASS on engine 06490fc; no current-v0.4.5 4T qualification or default-adoption decision."
+    "qualification": "Recorded fixed-source material-only gates PASS at 1T (76 games, LLR 2.945103) and 4T (70 games, LLR 3.047240) on engine 311ff12; no current-v0.4.5 strength or default-adoption decision."
   },
   "internal_measurement": {
     "spec_top_n": 0,
@@ -64,7 +68,7 @@
     "status": "release_validation",
     "strength_claim": false,
     "evaluator": "material-only native USI smoke; nn_r6 is separately distributed as an explicit experimental opt-in asset",
-    "results": "The default evaluator and ordinary search policy are unchanged. nn_r6 is verified to load with FV_SCALE=24, but this release does not treat its older one-thread gate as a v0.4.5 or four-thread strength decision."
+    "results": "The default evaluator and ordinary search policy are unchanged. nn_r6 is verified to load with FV_SCALE=24; its recorded fixed-source 1T/4T gates are not treated as a v0.4.5 strength decision."
   },
   "external_opponents": {
     "status": "excluded_from_release_evidence",
@@ -72,7 +76,7 @@
   },
   "known_limitations": [
     "nn_r6 is optional and experimental; it is not selected by default.",
-    "nn_r6 has no current-v0.4.5 four-thread qualification, external comparison, or WebAssembly/mobile-quality result.",
+    "nn_r6 has no current-v0.4.5 strength gate, external comparison, or WebAssembly/mobile-quality result.",
     "New search and Lazy SMP policies without an independent H1 remain disabled by default.",
     "The qualified PGO throughput results apply only to their recorded Apple M4 configurations; ordinary release builds do not embed those profiles.",
     "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",

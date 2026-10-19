@@ -43,9 +43,10 @@ GUIでは`isready`より前に`EvalFile`と`FV_SCALE=24`を設定します。Hal
 `NnueOutput`は使いません。
 外部HalfKP 256x2-32-32では`FV_SCALE`を使い、そのファイルのライセンスに
 従ってください。対応形式、SHA-256、測定範囲は
-[NNUE重み](docs/nnue_weights.md)にまとめています。`nn_r6`は記録済みの1スレッド
-material gateには合格していますが、4スレッドの現行エンジン適格性は未確認であり、
-既定評価器にはしません。
+[NNUE重み](docs/nnue_weights.md)にまとめています。`nn_r6`は記録済みの固定ソース
+におけるネイティブ1T・4Tのmaterial gateに合格しており、
+[`FV_SCALE=24`の任意添付ファイル](weights/releases/README.md)として配布します。
+ただし既定評価器にはせず、外部レートや今回のリリースでの棋力向上を示すものでもありません。
 
 ## 構成
 

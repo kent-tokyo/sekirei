@@ -21,24 +21,33 @@ gate, external rating, or comparison with another engine.
 Without `EvalFile` or a command-line checkpoint, Sekirei uses its material
 fallback. It does not silently select or substitute a model.
 
-## Experimental `nn_r6` release asset
+## Qualified optional `nn_r6`
 
-The v0.4.5 GitHub Release includes `nn_r6`, an optional
-HalfKP(Friend) 256x2-32-32 weight. It uses `FV_SCALE=24`, is licensed under
-CC BY 4.0, and is not included in any crate or selected automatically.
+The v0.4.5 GitHub Release distributes `nn_r6` as a separate optional
+HalfKP(Friend) 256x2-32-32 asset. It uses `FV_SCALE=24`, is CC BY 4.0, and is
+neither embedded in a crate nor selected automatically.
 
-The retained owner record attests a whole-game hold-out, hashed training-shard
-manifest, and byte-identical uninterrupted/checkpoint-resume export. Its
-recorded material-only gate on engine `06490fc` passed at one thread and one
-second per move: 66 games, 60 wins, 0 draws, 6 losses, LLR 3.039. This is a
-local, colour-swapped SPRT result, not an external rating or a default-choice
-decision. The exact identity, archive hashes, and exclusions are in the
-[`nn_r6` release card](../weights/sekirei-halfkp-r6-v0.4.5.json) and its
-[gate record](experiments/nnue_r6_material_gate_main06490fc/README.md).
+On fixed source `311ff1221064e5807d045bcf2c71badff0442671`, `nn_r6` passed
+one-second material-only paired-trinomial gates at 1T (64-0-12, 76 games,
+LLR 2.945103) and 4T (61-1-8, 70 games, LLR 3.047240). The
+[release evidence](../weights/releases/README.md) and
+[compatibility receipt](../weights/releases/nn_r6-main-compatibility.json)
+bind the conditions and hashes. The actual v0.4.5 build is load-smoked with
+the same file and scale; that compatibility check does not extend the older
+strength result.
 
-`nn_r6` does **not** have a current 4-thread qualification, current-v0.4.5
-strength gate, external comparison, or WebAssembly/mobile-quality result.
-It is therefore an experimental opt-in download, not a recommended default.
+The retained owner record also attests a whole-game hold-out, hashed training
+shards, and byte-identical uninterrupted/checkpoint-resume export. See the
+[`nn_r6` release card](../weights/sekirei-halfkp-r6-v0.4.5.json) for the
+artifact identity. These native fixed-condition gates are not an external
+rating, a default-choice decision, or a WebAssembly/mobile qualification.
+
+## Historical `nn_r3` candidate
+
+`nn_r3` is a historical in-house HalfKP 256x2-32-32 candidate used with
+`FV_SCALE=24`. It was trained for one epoch from `nn_r2` on gen33--40
+self-play. Its recorded candidate comparison does not establish current-main
+compatibility, an external rating, or a default-adoption decision.
 
 ## Loading a weight
 
@@ -58,7 +67,7 @@ silently.
 
 | Build family | Magic | Dimensions | Status |
 |---|---|---|---|
-| Flat default | `SEKIRW01` (also legacy `JANOSW03`) | input 2420, L1 256, L2 32 | The only family with a distributed artifact. |
+| Flat default | `SEKIRW01` (also legacy `JANOSW03`) | input 2420, L1 256, L2 32 | Historical optional 0.3.38 artifact. |
 | King-relative B-small | `SEKIRW02` | input 20564, L1 256, L2 32 | Experimental; no released weight. |
 | Flat width diagnostics | `SEKIRW01` | `nnue_l1_128` / `nnue_l1_384` and `nnue_l2_16` / `nnue_l2_64` | Unreleased experiment builds; a file must match the exact selected dimensions. |
 

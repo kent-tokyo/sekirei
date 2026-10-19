@@ -30,7 +30,7 @@
     "uninterrupted_export": "BYTE_IDENTICAL",
     "checkpoint_resume_export": "BYTE_IDENTICAL"
   },
-  "recorded_one_thread_material_gate": {
+  "recorded_v0_4_3_one_thread_material_gate": {
     "engine_commit": "06490fce15115d51763f342036d6c8910d3ebcf7",
     "engine_id": "0.4.3",
     "engine_sha256": "f8be10e3e1bdd17eeefd600f2f16fbeb56d35c34825221f0d667cdaf62ca6697",
@@ -53,6 +53,35 @@
       "verdict": "PASS"
     }
   },
+  "recorded_fixed_source_native_material_gates": {
+    "engine_commit": "311ff1221064e5807d045bcf2c71badff0442671",
+    "engine_sha256": "1c40c8b221becc47a9f4b3ad6c38297ad8a5fa897494635ac325fb198a3f31ee",
+    "opening_corpus_sha256": "6b3d7440291fd2cc96b8b81f5767452ba956cf5e8f348fafcb638fddb4f720fa",
+    "byoyomi_ms": 1000,
+    "conditions": [
+      {
+        "threads": 1,
+        "games": 76,
+        "wins": 64,
+        "draws": 0,
+        "losses": 12,
+        "llr": 2.945103,
+        "upper_bound": 2.944439,
+        "verdict": "PASS"
+      },
+      {
+        "threads": 4,
+        "games": 70,
+        "wins": 61,
+        "draws": 1,
+        "losses": 8,
+        "llr": 3.04724,
+        "upper_bound": 2.944439,
+        "verdict": "PASS"
+      }
+    ],
+    "evidence": "weights/releases/sekirei-halfkp-nn_r6.json"
+  },
   "distribution": {
     "availability": "github_release_asset",
     "experimental_opt_in": true,
@@ -61,9 +90,8 @@
   },
   "evidence_gaps": [
     "current_v0.4.5_one_thread_strength_gate",
-    "current_v0.4.5_four_thread_qualification",
     "external_comparison",
     "webassembly_mobile_quality"
   ],
-  "scope": "Optional experimental artifact only. The recorded one-thread material gate is not an external rating, a four-thread result, or a default-adoption decision."
+  "scope": "Optional experimental artifact only. The recorded fixed-source 1T/4T material gates are not an external rating, a current-v0.4.5 strength result, or a default-adoption decision."
 }

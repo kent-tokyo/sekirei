@@ -18,9 +18,9 @@ This release makes no general playing-strength claim.
 ### Added
 
 - Publish `nn_r6` as a GitHub Release asset for explicit opt-in use with
-  `FV_SCALE=24`. Its recorded one-thread material gate passed; four-thread
-  current-engine qualification is still absent, so it is neither default nor
-  recommended as a general replacement for material evaluation.
+  `FV_SCALE=24`, with recorded fixed-source 1T/4T material-gate results and
+  an actual-release load check. It is neither default nor a general
+  replacement recommendation for material evaluation.
 
 ## [0.4.4] – 2026-10-17
 
