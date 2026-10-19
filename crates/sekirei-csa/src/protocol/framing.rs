@@ -1,6 +1,8 @@
 //! Bounded, timeout-tolerant CSA line framing.
 
 use std::io::{self, BufRead, BufReader, Read};
+use std::net::TcpStream;
+use std::time::{Duration, Instant};
 
 pub(super) const MAX_CSA_LINE_BYTES: usize = 64 * 1024;
 
@@ -22,8 +24,27 @@ impl<R: Read> CsaLineReader<R> {
     }
 
     pub(super) fn read_line(&mut self) -> io::Result<Option<String>> {
+        self.read_line_until(None)
+    }
+
+    pub(super) fn pending_bytes(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Keep the same partial-line buffer across soft socket timeouts, while
+    /// enforcing one absolute deadline even if fragments keep arriving.
+    pub(super) fn read_line_until(
+        &mut self,
+        deadline: Option<Instant>,
+    ) -> io::Result<Option<String>> {
         let mut consecutive_partial_timeouts = 0u8;
         loop {
+            if deadline.is_some_and(|limit| Instant::now() >= limit) {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "CSA line receive deadline exceeded",
+                ));
+            }
             let available = match self.inner.fill_buf() {
                 Ok(bytes) => bytes,
                 Err(error)
@@ -101,6 +122,12 @@ impl<R: Read> CsaLineReader<R> {
             }
             self.inner.consume(consumed);
         }
+    }
+}
+
+impl CsaLineReader<TcpStream> {
+    pub(super) fn set_read_timeout(&self, timeout: Duration) -> io::Result<()> {
+        self.inner.get_ref().set_read_timeout(Some(timeout))
     }
 }
 

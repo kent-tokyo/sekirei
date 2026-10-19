@@ -13,7 +13,7 @@ use std::io::{self, BufWriter, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sekirei_core::{
@@ -33,6 +33,40 @@ use framing::CsaLineReader;
 use time_control::{CsaTimeControlSet, ParsedTimeControl};
 
 const TOURNAMENT_MAX_PLIES: usize = 512;
+const BETWEEN_GAME_READ_TIMEOUT: Duration = Duration::from_secs(40 * 60);
+const DEFAULT_ACTIVE_READ_POLL: Duration = Duration::from_secs(20);
+const OWN_MOVE_ECHO_DEADLINE: Duration = Duration::from_secs(2 * 60);
+
+fn opponent_receive_deadline(main_ms: u64, period_ms: u64) -> Duration {
+    // This is a silence-detection bound, not an opponent clock adjudication.
+    // A Fischer bank can grow, so use twice the initial budget plus grace.
+    let milliseconds = main_ms
+        .saturating_mul(2)
+        .saturating_add(period_ms.saturating_mul(2))
+        .saturating_add(2 * 60_000)
+        .clamp(5 * 60_000, 40 * 60_000);
+    Duration::from_millis(milliseconds)
+}
+
+struct ActiveReceiveWindow {
+    started: Instant,
+    started_ms: u128,
+    duration: Duration,
+}
+
+impl ActiveReceiveWindow {
+    fn new(duration: Duration) -> Self {
+        Self {
+            started: Instant::now(),
+            started_ms: current_timestamp_ms(),
+            duration,
+        }
+    }
+
+    fn deadline(&self) -> Instant {
+        self.started + self.duration
+    }
+}
 
 fn parse_our_color(value: &str) -> io::Result<Color> {
     match value {
@@ -88,6 +122,10 @@ pub struct Config {
     pub initial_completed_attempts: u32,
     /// Explicit USI root moves to include in opt-in diagnostic records.
     pub root_candidates: Vec<String>,
+    /// Optional explicit hard deadline for each active-game server response.
+    pub active_receive_deadline_override: Option<Duration>,
+    /// Soft diagnostic interval while an active-game read is pending.
+    pub active_receive_poll: Duration,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,6 +165,8 @@ impl Default for Config {
             status_journal: None,
             initial_completed_attempts: 0,
             root_candidates: Vec::new(),
+            active_receive_deadline_override: None,
+            active_receive_poll: DEFAULT_ACTIVE_READ_POLL,
         }
     }
 }
@@ -207,6 +247,11 @@ struct RuntimeStatusDetails {
     last_server_received_ms: Option<u128>,
     last_our_move_sent_ms: Option<u128>,
     last_opponent_move_ms: Option<u128>,
+    active_receive_phase: Option<&'static str>,
+    active_receive_wait_started_ms: Option<u128>,
+    active_receive_idle_ms: Option<u128>,
+    active_receive_deadline_ms: Option<u128>,
+    active_receive_partial_line_bytes: Option<usize>,
     session_id: Option<String>,
     completed_attempts: u32,
     terminal_stop_reason: Option<String>,
@@ -233,6 +278,11 @@ fn write_runtime_status_snapshot(
         "last_server_received_ms": details.last_server_received_ms,
         "last_our_move_sent_ms": details.last_our_move_sent_ms,
         "last_opponent_move_ms": details.last_opponent_move_ms,
+        "active_receive_phase": details.active_receive_phase,
+        "active_receive_wait_started_ms": details.active_receive_wait_started_ms,
+        "active_receive_idle_ms": details.active_receive_idle_ms,
+        "active_receive_deadline_ms": details.active_receive_deadline_ms,
+        "active_receive_partial_line_bytes": details.active_receive_partial_line_bytes,
         "max_games": config.max_games,
         "completed_attempts": details.completed_attempts,
         "terminal_stop_reason": &details.terminal_stop_reason,
@@ -388,8 +438,9 @@ impl CsaClient {
         eprintln!("[csa] connecting to {addr}");
         write_runtime_status_progress(&config, "connecting", None, completed_attempts, None);
         let stream = TcpStream::connect(&addr)?;
-        // 40-min timeout catches dead TCP connections; longer than the 30-min between-game wait.
-        stream.set_read_timeout(Some(Duration::from_secs(40 * 60)))?;
+        // The inter-game wait may last 30 minutes. Active reads use short
+        // diagnostic ticks and a separate absolute deadline after START.
+        stream.set_read_timeout(Some(BETWEEN_GAME_READ_TIMEOUT))?;
 
         let writer = stream.try_clone()?;
         let reader = CsaLineReader::new(stream);
@@ -426,6 +477,7 @@ impl CsaClient {
                 self.stop_for_limit(*completed_attempts)?;
                 break;
             }
+            self.reader.set_read_timeout(BETWEEN_GAME_READ_TIMEOUT)?;
             self.set_status("waiting_for_game", None);
             if request_game {
                 self.request_game()?;
@@ -488,8 +540,13 @@ impl CsaClient {
     /// the session identity or bounded-run progress needed by the supervisor.
     pub fn mark_run_error(&mut self, completed_attempts: u32) {
         self.status_details.completed_attempts = completed_attempts;
-        self.status_details.terminal_stop_reason = Some("run_error".into());
-        self.set_status("client_error", Some("run_error"));
+        let reason = self
+            .status_details
+            .terminal_stop_reason
+            .clone()
+            .unwrap_or_else(|| "run_error".into());
+        self.status_details.terminal_stop_reason = Some(reason.clone());
+        self.set_status("client_error", Some(&reason));
     }
 
     /// A bounded run may reconnect only at a game boundary after a transport
@@ -597,7 +654,102 @@ impl CsaClient {
     }
 
     fn recv(&mut self) -> io::Result<String> {
-        let line = match self.reader.read_line() {
+        let received = self.reader.read_line();
+        self.process_received(received)
+    }
+
+    fn clear_active_receive_wait(&mut self) {
+        self.status_details.active_receive_phase = None;
+        self.status_details.active_receive_wait_started_ms = None;
+        self.status_details.active_receive_idle_ms = None;
+        self.status_details.active_receive_deadline_ms = None;
+        self.status_details.active_receive_partial_line_bytes = None;
+    }
+
+    fn active_receive_window(&self, default_deadline: Duration) -> ActiveReceiveWindow {
+        ActiveReceiveWindow::new(
+            self.config
+                .active_receive_deadline_override
+                .unwrap_or(default_deadline),
+        )
+    }
+
+    fn recv_active(
+        &mut self,
+        phase: &'static str,
+        window: &ActiveReceiveWindow,
+    ) -> io::Result<String> {
+        self.status_details.active_receive_phase = Some(phase);
+        self.status_details.active_receive_wait_started_ms = Some(window.started_ms);
+        self.status_details.active_receive_idle_ms = Some(window.started.elapsed().as_millis());
+        self.status_details.active_receive_deadline_ms = Some(window.duration.as_millis());
+        self.status_details.active_receive_partial_line_bytes = Some(self.reader.pending_bytes());
+        self.emit_status(Some("active_receive_wait"));
+        loop {
+            let elapsed = window.started.elapsed();
+            if elapsed >= window.duration {
+                self.status_details.active_receive_idle_ms = Some(elapsed.as_millis());
+                self.status_details.active_receive_partial_line_bytes =
+                    Some(self.reader.pending_bytes());
+                self.status_details.terminal_stop_reason = Some("active_receive_deadline".into());
+                self.set_status("connection_error", Some("active_receive_deadline"));
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!(
+                        "active-game {phase} receive deadline exceeded after {} ms",
+                        elapsed.as_millis()
+                    ),
+                ));
+            }
+            let poll = self
+                .config
+                .active_receive_poll
+                .min(window.duration - elapsed)
+                .max(Duration::from_millis(1));
+            self.reader.set_read_timeout(poll)?;
+            let received = self.reader.read_line_until(Some(window.deadline()));
+            match received {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+                    ) =>
+                {
+                    let elapsed = window.started.elapsed();
+                    self.status_details.active_receive_idle_ms = Some(elapsed.as_millis());
+                    self.status_details.active_receive_partial_line_bytes =
+                        Some(self.reader.pending_bytes());
+                    if elapsed >= window.duration {
+                        self.status_details.terminal_stop_reason =
+                            Some("active_receive_deadline".into());
+                        self.set_status("connection_error", Some("active_receive_deadline"));
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            format!(
+                                "active-game {phase} receive deadline exceeded after {} ms",
+                                elapsed.as_millis()
+                            ),
+                        ));
+                    }
+                    self.emit_status(Some("active_receive_idle"));
+                    eprintln!(
+                        "[csa] active receive idle: phase={phase} elapsed={}ms pending_line_bytes={}",
+                        elapsed.as_millis(),
+                        self.reader.pending_bytes(),
+                    );
+                }
+                result => {
+                    if result.is_ok() {
+                        self.clear_active_receive_wait();
+                    }
+                    return self.process_received(result);
+                }
+            }
+        }
+    }
+
+    fn process_received(&mut self, received: io::Result<Option<String>>) -> io::Result<String> {
+        let line = match received {
             Ok(Some(line)) => line,
             Ok(None) => {
                 self.set_status("connection_error", Some("eof"));
@@ -667,6 +819,7 @@ impl CsaClient {
         // Parse time control from Game_Summary (authoritative over game_id heuristics)
         let mut time_control = CsaTimeControlSet::default();
         let mut parsed_time_control = ParsedTimeControl::default();
+        let mut opponent_time_control = ParsedTimeControl::default();
         let mut summary_validated = false;
         let mut in_position = false;
         let mut position_lines = Vec::new();
@@ -746,6 +899,17 @@ impl CsaClient {
                     self.stop_for_protocol_error("invalid_game_summary");
                     return Ok(GameResult::Aborted);
                 }
+                opponent_time_control = match time_control
+                    .clone()
+                    .finish(our_color.expect("validated Your_Turn").flip())
+                {
+                    Ok(control) => control,
+                    Err(error) => {
+                        eprintln!("[csa] invalid opponent time control: {error}");
+                        self.stop_for_protocol_error("invalid_game_summary");
+                        return Ok(GameResult::Aborted);
+                    }
+                };
                 parsed_time_control = match std::mem::take(&mut time_control)
                     .finish(our_color.expect("validated Your_Turn"))
                 {
@@ -841,6 +1005,16 @@ impl CsaClient {
         let increment_or_byoyomi_ms: u64 = increment_ms
             .or(byoyomi_from_header)
             .unwrap_or_else(|| self.byoyomi_from_game_id());
+        let mut opponent_time_left_ms = opponent_time_control
+            .total_time_ms
+            .unwrap_or_else(|| self.initial_time_from_game_id());
+        let opponent_period_ms = opponent_time_control
+            .increment_ms
+            .or(opponent_time_control.byoyomi_ms)
+            .unwrap_or_else(|| self.byoyomi_from_game_id());
+        let opponent_fischer_increment = opponent_time_control
+            .increment_ms
+            .filter(|increment| *increment > 0);
 
         if let Some(path) = self.config.run_manifest.as_deref()
             && let Err(error) = update_run_manifest_game(
@@ -901,8 +1075,9 @@ impl CsaClient {
                         .expect("our move is guarded by the tournament ply boundary");
                     // Read T{units} from the server echo and debit our clock.
                     let mut our_move_recorded = false;
+                    let echo_window = self.active_receive_window(OWN_MOVE_ECHO_DEADLINE);
                     loop {
-                        let t_line = self.recv_time_or_move()?;
+                        let t_line = self.recv_active("own_move_echo_or_result", &echo_window)?;
                         if is_adjudication_marker(&t_line) {
                             if let Some(record) = record.as_mut() {
                                 if !our_move_recorded
@@ -1000,10 +1175,18 @@ impl CsaClient {
             } else {
                 // Opponent's turn (or post-resign drain) — wait for move or result
                 let mut awaiting_opponent_adjudication = None;
+                let opponent_window = self.active_receive_window(opponent_receive_deadline(
+                    opponent_time_left_ms,
+                    opponent_period_ms,
+                ));
                 loop {
-                    let line = match self.recv() {
+                    let line = match self.recv_active("opponent_move_or_result", &opponent_window) {
                         Ok(line) => line,
-                        Err(_) if awaiting_opponent_adjudication.is_some() => {
+                        Err(_)
+                            if awaiting_opponent_adjudication.is_some()
+                                && self.status_details.terminal_stop_reason.as_deref()
+                                    != Some("active_receive_deadline") =>
+                        {
                             self.stop_for_protocol_error(
                                 awaiting_opponent_adjudication.expect("checked above"),
                             );
@@ -1076,6 +1259,18 @@ impl CsaClient {
                                 }
                             }
                             board.do_move(m);
+                            if let Some(used_units) = parse_time_from_echo(&line) {
+                                let Some((remaining_ms, _)) = clock_after_echo(
+                                    opponent_time_left_ms,
+                                    opponent_fischer_increment,
+                                    used_units,
+                                    opponent_time_control.unit_ms,
+                                ) else {
+                                    self.stop_for_protocol_error("invalid_time_echo");
+                                    return Ok(GameResult::Aborted);
+                                };
+                                opponent_time_left_ms = remaining_ms;
+                            }
                             self.status_details.last_opponent_move_ms =
                                 Some(current_timestamp_ms());
                             self.emit_status(Some("opponent_move"));
@@ -1262,11 +1457,6 @@ impl CsaClient {
                 root_candidates,
             })
         }
-    }
-
-    /// Drain a single T{units} or server confirmation line.
-    fn recv_time_or_move(&mut self) -> io::Result<String> {
-        self.recv()
     }
 
     /// Parse initial main-time from game_id, e.g. "floodgate-600-10" → 600_000 ms.
@@ -1831,10 +2021,10 @@ mod tests {
         RecordMetadata, RootCandidateRecord, RuntimeStatusDetails, ServerLine,
         TOURNAMENT_MAX_PLIES, ThinkResult, advance_tournament_ply, bare_server_move,
         classify_server_line, clock_after_echo, csa_think_budget_ms, game_result_name, json_string,
-        parse_game_end, parse_our_color, parse_time_from_echo, pv_to_csa, root_candidates_json,
-        score_kind, update_run_manifest_game, update_run_manifest_progress,
-        write_reconnect_exhausted_progress, write_runtime_status_progress,
-        write_runtime_status_snapshot,
+        opponent_receive_deadline, parse_game_end, parse_our_color, parse_time_from_echo,
+        pv_to_csa, root_candidates_json, score_kind, update_run_manifest_game,
+        update_run_manifest_progress, write_reconnect_exhausted_progress,
+        write_runtime_status_progress, write_runtime_status_snapshot,
     };
     use sekirei_core::board::Board;
     use sekirei_core::color::Color as CoreColor;
@@ -1989,6 +2179,19 @@ mod tests {
         incomplete.apply("BEGIN Time+").unwrap();
         incomplete.apply("END Time+").unwrap();
         assert!(incomplete.finish(Color::Black).is_err());
+
+        let mut sections = CsaTimeControlSet::default();
+        for line in lines {
+            sections.apply(line).unwrap();
+        }
+        let opponent = sections.finish(Color::White).unwrap();
+        assert_eq!(
+            opponent_receive_deadline(
+                opponent.total_time_ms.unwrap(),
+                opponent.increment_ms.unwrap()
+            ),
+            Duration::from_secs(22 * 60 + 4)
+        );
     }
 
     #[test]
@@ -2220,7 +2423,7 @@ mod tests {
         client.mark_run_error(3);
         assert_eq!(
             client.status_details.terminal_stop_reason.as_deref(),
-            Some("run_error")
+            Some("post_game_reconnect_exhausted")
         );
         client.send_login().unwrap();
         let mut login = String::new();
@@ -3337,6 +3540,104 @@ mod tests {
         assert_eq!(manifest["completed_attempts"], LIMIT);
         assert_eq!(manifest["terminal_stop_reason"], "max_games_reached");
         assert_eq!(fs::read_dir(record_dir).unwrap().count(), LIMIT as usize);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn active_receive_deadline_preserves_bounded_progress_and_partial_line() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            writer.write_all(b"LOGIN: test OK\n").unwrap();
+
+            for game in 1..=2 {
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+                assert!(line.starts_with("%%GAME active-stall"));
+                if game == 2 {
+                    // A healthy between-game pause may exceed the active deadline.
+                    thread::sleep(Duration::from_millis(300));
+                }
+                let summary = format!(
+                    "Game_ID:active-stall-{game}\nYour_Turn:+\nTotal_Time:1\nByoyomi:1\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:active-stall-{game}\n"
+                );
+                writer.write_all(summary.as_bytes()).unwrap();
+                writer.flush().unwrap();
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+                assert_eq!(line.trim(), format!("AGREE:active-stall-{game}"));
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+                assert!(line.starts_with('+'));
+                if game == 1 {
+                    writer
+                        .write_all(format!("{},T0\n#WIN\n", line.trim()).as_bytes())
+                        .unwrap();
+                } else {
+                    writer
+                        .write_all(format!("{},T0\n+7776", line.trim()).as_bytes())
+                        .unwrap();
+                }
+                writer.flush().unwrap();
+            }
+            line.clear();
+            assert_eq!(reader.read_line(&mut line).unwrap(), 0);
+        });
+
+        let root = unique_test_directory("protocol-active-stall");
+        let record_dir = root.join("records");
+        fs::create_dir_all(&record_dir).unwrap();
+        let status_file = root.join("status.json");
+        let run_manifest = root.join("run-manifest.json");
+        fs::write(&run_manifest, b"{}\n").unwrap();
+        let config = Config {
+            server: "127.0.0.1".into(),
+            port,
+            user: "test".into(),
+            password: "secret".into(),
+            game_id: "active-stall".into(),
+            keep_alive: true,
+            max_games: Some(3),
+            max_depth: 1,
+            resign_score: -sekirei_core::search::MATE_SCORE,
+            record_dir: record_dir.clone(),
+            status_file: Some(status_file.clone()),
+            run_manifest: Some(run_manifest.clone()),
+            active_receive_deadline_override: Some(Duration::from_millis(150)),
+            active_receive_poll: Duration::from_millis(30),
+            ..Config::default()
+        };
+        let mut client = CsaClient::connect_with_progress(config, 0).unwrap();
+        let mut completed_attempts = 0;
+        let error = client.run(&mut completed_attempts).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(completed_attempts, 1);
+        client.mark_run_error(completed_attempts);
+        drop(client);
+        server.join().unwrap();
+
+        let status: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(status_file).unwrap()).unwrap();
+        assert_eq!(status["terminal_stop_reason"], "active_receive_deadline");
+        assert_eq!(status["active_receive_phase"], "opponent_move_or_result");
+        assert_eq!(status["active_receive_deadline_ms"], 150);
+        assert!(status["active_receive_idle_ms"].as_u64().unwrap() >= 150);
+        assert!(status["active_receive_wait_started_ms"].as_u64().is_some());
+        assert_eq!(status["active_receive_partial_line_bytes"], 5);
+        assert_eq!(status["completed_attempts"], 1);
+        assert_eq!(status["active_game_id"], "active-stall-2");
+        let manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(run_manifest).unwrap()).unwrap();
+        assert_eq!(manifest["completed_attempts"], 1);
+        assert_eq!(fs::read_dir(record_dir).unwrap().count(), 2);
         fs::remove_dir_all(root).unwrap();
     }
 

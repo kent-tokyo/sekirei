@@ -14,7 +14,7 @@ pub(super) struct ParsedTimeControl {
     pub(super) increment_ms: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct CsaTimeControl {
     unit_ms: u64,
     unit_seen: bool,
@@ -90,7 +90,7 @@ enum TimeScope {
 
 /// CSA allows one shared Time section or separate Time+ and Time- sections.
 /// Older servers also send the time fields directly in Game_Summary.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct CsaTimeControlSet {
     common: CsaTimeControl,
     black: CsaTimeControl,
