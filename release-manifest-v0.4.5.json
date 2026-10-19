@@ -1,7 +1,7 @@
 {
   "schema": "sekirei.release-manifest.v1",
   "release": "v0.4.5",
-  "commit": "6c7e194aaba6e829dea0499c8290a8f83cfeee54",
+  "commit": "801f0d157273bf54cd7a1898a8df3f657e65e5cc",
   "branch_at_release": "main",
   "candidate_state": "release preparation from the verified v0.4.5 source commit",
   "packages": {
@@ -23,9 +23,9 @@
     "sha256": "6b3be2b6ddeff3e6e24d9c2300325b7c0129de56b824b61589c81e805b4521a2"
   },
   "publish": {
-    "workflow_run": null,
+    "workflow_run": 39232500110,
     "registry": "crates.io",
-    "status": "planned",
+    "status": "verified",
     "crates": [
       "sekirei",
       "sekirei-core",
@@ -41,7 +41,7 @@
     "registry": "github-release",
     "asset": "sekirei-wasm-0.4.5.tgz",
     "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.4.5/sekirei-wasm-0.4.5.tgz",
-    "sha256": "a86b7980c1937ef17531026b4534cbd0645d4befa45b40b900a92a243af6c386",
+    "sha256": "242fe5526d90f748508704cd23d4b0a75a8668788514c1a471b70fedf296f354",
     "size": 547547,
     "npm_registry_status": "not_published"
   },
