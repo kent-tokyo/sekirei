@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Owner-side identity-only export; never discovers sources or starts a match.
 
-Only final SFEN records are accepted. Completeness/ownership is an explicit
-self-attestation, not something this tool can infer from the selected files.
+Only final SFEN records are accepted. A frozen material-opening manifest is
+also accepted after every recorded SFEN and identity is independently checked.
+Completeness/ownership is an explicit self-attestation, not something this
+tool can infer from the selected files.
 """
 from __future__ import annotations
 
@@ -21,7 +23,8 @@ from pathlib import Path
 from freeze_material_gate_openings import IDENTITY, ROLES, identity_hash
 
 MAX_RECORD_BYTES = 1024 * 1024
-FORMATS = {"sfen", "tsv", "jsonl"}
+MAX_MANIFEST_BYTES = 16 * 1024 * 1024
+FORMATS = {"sfen", "tsv", "jsonl", "opening-manifest"}
 
 
 @dataclass(frozen=True)
@@ -75,11 +78,58 @@ def _record_sfen(line: str, format_name: str, column: int) -> str:
     return record["sfen"].strip()
 
 
+def read_opening_manifest(path: Path) -> tuple[set[str], dict, SourceStamp]:
+    """Read a frozen material-opening manifest without exposing move histories."""
+    saved = _stamp(path)
+    with path.open("rb") as stream:
+        if _signature(os.fstat(stream.fileno())) != saved.signature:
+            raise ValueError("input changed before reading")
+        payload = stream.read(MAX_MANIFEST_BYTES + 1)
+        if len(payload) > MAX_MANIFEST_BYTES:
+            raise ValueError("opening manifest exceeds size limit")
+        if _signature(os.fstat(stream.fileno())) != saved.signature:
+            raise ValueError("input changed during reading")
+    try:
+        document = json.loads(
+            payload.decode("utf-8"), object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+        positions = document.get("positions") if isinstance(document, dict) else None
+        if (
+            not isinstance(document, dict)
+            or document.get("schema") != "sekirei.independent-material-openings.v1"
+            or document.get("identity_scheme") != IDENTITY
+            or not isinstance(positions, list)
+            or not positions
+        ):
+            raise ValueError("invalid opening manifest")
+        identities = set()
+        for position in positions:
+            if not isinstance(position, dict) or not isinstance(position.get("sfen"), str):
+                raise ValueError("invalid opening manifest position")
+            identity = identity_hash(position["sfen"].strip())
+            if position.get("identity_sha256") != identity:
+                raise ValueError("opening manifest identity mismatch")
+            identities.add(identity)
+    except (ValueError, KeyError, TypeError, UnicodeError, RecursionError):
+        raise ValueError("invalid opening-manifest input") from None
+    _verify_sources([saved])
+    record = {
+        "path": str(saved.resolved), "requested_path": str(saved.path),
+        "sha256": hashlib.sha256(payload).hexdigest(), "bytes": saved.signature[2],
+        "format": "opening-manifest", "records": len(positions),
+        "unique_identities": len(identities),
+    }
+    return identities, record, saved
+
+
 def read_source(path: Path, format_name: str, *, column: int = 0,
                 header: bool = False) -> tuple[set[str], dict, SourceStamp]:
     """Hash the exact parsed stream. No positions or labels enter the result."""
     if format_name not in FORMATS or not 0 <= column <= 63 or (header and format_name != "tsv"):
         raise ValueError("invalid input format or TSV configuration")
+    if format_name == "opening-manifest":
+        return read_opening_manifest(path)
     saved = _stamp(path)
     digest = hashlib.sha256()
     identities: set[str] = set()
@@ -193,7 +243,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--role", choices=sorted(ROLES), required=True)
     parser.add_argument("--input", nargs=2, action="append", metavar=("FORMAT", "PATH"), required=True,
-                        help="repeat for explicit sfen, tsv or jsonl inputs; final SFEN only")
+                        help="repeat for explicit sfen, tsv, jsonl or frozen opening-manifest inputs")
     parser.add_argument("--tsv-sfen-column", type=int, default=0)
     parser.add_argument("--tsv-header", action="store_true", help="require sfen in the selected header column")
     parser.add_argument("--attest-complete-for-scope", action="store_true")
