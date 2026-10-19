@@ -151,7 +151,11 @@ candidate into a strength claim.
 
 Each gate condition declares `threads`, `byoyomi_ms`, `games`, `verdict`,
 and hashed `evidence` / `raw_evidence` references. `current_engine_gate` also
-pins `engine_sha256`. The evidence reference must be a UTF-8 JSON object
+pins `engine_sha256` and may pin one common `opening_corpus_sha256`. When 1T
+and 4T deliberately use separate frozen corpora, omit that common field and
+require each condition to pin its own `opening_corpus_sha256`. Either form is
+fail-closed: every evidence summary must match the applicable pinned hash. The
+evidence reference must be a UTF-8 JSON object
 (up to 1 MiB), schema `sekirei.nnue-engine-gate-evidence.v1`, containing:
 
 - Matching `engine_commit`, `engine_sha256`, `candidate_sha256`,

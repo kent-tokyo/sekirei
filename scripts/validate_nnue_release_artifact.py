@@ -202,12 +202,18 @@ def validate_gate_evidence(
     if not isinstance(report, dict):
         return [f"{field}.evidence.object"]
     raw = condition.get("raw_evidence")
+    # A release may deliberately use disjoint frozen corpora for 1T and 4T.
+    # Prefer a condition-local identity in that case; retain the gate-level
+    # field for older cards that qualified both conditions on one corpus.
+    opening_corpus_sha256 = condition.get(
+        "opening_corpus_sha256", gate.get("opening_corpus_sha256")
+    )
     expected = {
         "schema": "sekirei.nnue-engine-gate-evidence.v1",
         "engine_commit": gate.get("engine_commit"),
         "engine_sha256": gate.get("engine_sha256"),
         "candidate_sha256": artifact.get("sha256"),
-        "opening_corpus_sha256": gate.get("opening_corpus_sha256"),
+        "opening_corpus_sha256": opening_corpus_sha256,
         "raw_evidence_sha256": raw.get("sha256") if isinstance(raw, dict) else None,
         "threads": condition.get("threads"), "games": condition.get("games"),
         "byoyomi_ms": condition.get("byoyomi_ms"), "fv_scale": artifact.get("fv_scale"),
@@ -270,6 +276,11 @@ def validate_gate_condition(
         errors.append(f"{field}.games")
     if type(condition.get("byoyomi_ms")) is not int or condition["byoyomi_ms"] <= 0:
         errors.append(f"{field}.byoyomi_ms")
+    opening_corpus_sha256 = condition.get(
+        "opening_corpus_sha256", gate.get("opening_corpus_sha256")
+    )
+    if not matches_text(SHA256, opening_corpus_sha256):
+        errors.append(f"{field}.opening_corpus_sha256")
     for name in ("evidence", "raw_evidence"):
         reference_errors, path = validate_reference(condition.get(name), root, f"{field}.{name}")
         errors.extend(reference_errors)
@@ -323,12 +334,21 @@ def validate_v2(card: dict, root: Path, expected_engine_commit: str | None) -> l
             errors.append("current_engine_gate.engine_sha256")
         if gate.get("candidate_sha256") != artifact.get("sha256"):
             errors.append("current_engine_gate.candidate_sha256")
-        if not matches_text(SHA256, gate.get("opening_corpus_sha256")):
+        opening_corpus_sha256 = gate.get("opening_corpus_sha256")
+        if opening_corpus_sha256 is not None and not matches_text(
+            SHA256, opening_corpus_sha256
+        ):
             errors.append("current_engine_gate.opening_corpus_sha256")
         conditions = gate.get("conditions")
         if not isinstance(conditions, list):
             errors.append("current_engine_gate.conditions")
         else:
+            if opening_corpus_sha256 is None and any(
+                not isinstance(condition, dict)
+                or not matches_text(SHA256, condition.get("opening_corpus_sha256"))
+                for condition in conditions
+            ):
+                errors.append("current_engine_gate.opening_corpus_sha256")
             for index, condition in enumerate(conditions):
                 errors.extend(validate_gate_condition(condition, root, index, gate, artifact))
             threads = {

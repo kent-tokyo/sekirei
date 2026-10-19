@@ -150,6 +150,35 @@ class ReleaseArtifactTests(unittest.TestCase):
             document = v2_card(root)
             self.assertEqual(ARTIFACT.validate(document, root, "2" * 40), [])
 
+    def test_v2_accepts_distinct_frozen_corpora_per_thread_condition(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = v2_card(root)
+            gate = document["current_engine_gate"]
+            del gate["opening_corpus_sha256"]
+            for condition, corpus_sha256 in zip(
+                gate["conditions"], ("3" * 64, "5" * 64), strict=True
+            ):
+                condition["opening_corpus_sha256"] = corpus_sha256
+                reference = condition["evidence"]
+                report = json.loads((root / reference["path"]).read_text())
+                report["opening_corpus_sha256"] = corpus_sha256
+                condition["evidence"] = write_reference(
+                    root, reference["path"], json.dumps(report).encode()
+                )
+            self.assertEqual(ARTIFACT.validate(document, root, "2" * 40), [])
+
+    def test_v2_rejects_missing_common_and_condition_corpus_identities(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = v2_card(root)
+            del document["current_engine_gate"]["opening_corpus_sha256"]
+            errors = ARTIFACT.validate(document, root, "2" * 40)
+            self.assertIn("current_engine_gate.opening_corpus_sha256", errors)
+            self.assertIn(
+                "current_engine_gate.conditions[0].opening_corpus_sha256", errors
+            )
+
     def test_v2_rejects_non_string_identity_and_version_metadata(self) -> None:
         cases = [
             (("artifact", "sha256"), "artifact"),
