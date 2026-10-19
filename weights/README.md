@@ -30,8 +30,6 @@ licensed under [CC BY 4.0](../NNUE-LICENSE.md), separately from Sekirei's
 MIT OR Apache-2.0 source code. Retain the Sekirei / Kentaro Tanabe attribution
 when redistributing or adapting the artifact.
 
-## Current in-house candidate
-
 ## Experimental release asset: `nn_r6`
 
 The v0.4.5 GitHub Release also carries `sekirei-halfkp-r6-v0.4.5.bin.xz`.
@@ -45,7 +43,9 @@ evaluator. It passed its recorded one-thread material gate, but has no
 four-thread current-engine qualification. Read the
 [`nn_r6` release card](sekirei-halfkp-r6-v0.4.5.json) before use.
 
-`nn_r3` is the current local HalfKP candidate. Its exact identity and evidence
+## Historical local candidate: `nn_r3`
+
+`nn_r3` is a local HalfKP candidate. Its exact identity and evidence
 boundary are recorded in
 [`candidates/sekirei-halfkp-r3.json`](candidates/sekirei-halfkp-r3.json).
 The binary is not stored in Git, bundled, selected by default, or recommended
