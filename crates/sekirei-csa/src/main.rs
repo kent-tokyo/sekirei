@@ -22,6 +22,7 @@
 //!   --loop             reconnect after each game for continuous play
 //!   --max-games <n>    stop after n completed game attempts (requires --loop)
 //!   --completed-attempts <n> resume a bounded batch from an earlier process
+//!   --active-receive-deadline-seconds <n> override the per-response active-game silence bound
 //! ```
 
 mod moves;
@@ -343,6 +344,16 @@ fn parse_args_with_args(argv: Vec<String>) -> Result<Config, String> {
                     .parse::<u32>()
                     .map_err(|error| format!("--completed-attempts: {error}"))?;
             }
+            "--active-receive-deadline-seconds" => {
+                i += 1;
+                let seconds = arg(&argv, i)?
+                    .parse::<u64>()
+                    .map_err(|error| format!("--active-receive-deadline-seconds: {error}"))?;
+                if !(1..=40 * 60).contains(&seconds) {
+                    return Err("--active-receive-deadline-seconds must be 1..=2400".into());
+                }
+                cfg.active_receive_deadline_override = Some(Duration::from_secs(seconds));
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -440,6 +451,11 @@ impl RunManifest<'_> {
             "port": config.port,
             "record_dir": config.record_dir,
             "analysis_dir": config.analysis_dir,
+            "active_receive": {
+                "poll_seconds": config.active_receive_poll.as_secs(),
+                "deadline_override_seconds": config.active_receive_deadline_override.map(|value| value.as_secs()),
+                "default_policy": "twice_opponent_remaining_plus_twice_period_plus_120s_clamped_300s_to_2400s;own_echo_120s",
+            },
         })
     }
 }
@@ -497,6 +513,9 @@ fn print_usage() {
     eprintln!("  --loop             reconnect after each game");
     eprintln!("  --max-games <n>    stop after n game attempts (requires --loop)");
     eprintln!("  --completed-attempts <n> resume a bounded batch (requires --loop)");
+    eprintln!(
+        "  --active-receive-deadline-seconds <n> active-game response deadline override (1..=2400)"
+    );
 }
 
 #[cfg(test)]
@@ -593,6 +612,19 @@ mod tests {
             "material",
         ]);
         assert!(matches!(past_limit, Err(message) if message.contains("cannot exceed")));
+    }
+
+    #[test]
+    fn active_receive_deadline_override_is_bounded() {
+        use std::time::Duration;
+        let config = parse_args_from(["--active-receive-deadline-seconds", "90"]).unwrap();
+        assert_eq!(
+            config.active_receive_deadline_override,
+            Some(Duration::from_secs(90))
+        );
+        for value in ["0", "2401", "invalid"] {
+            assert!(parse_args_from(["--active-receive-deadline-seconds", value]).is_err());
+        }
     }
 
     #[test]

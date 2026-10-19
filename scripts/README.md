@@ -383,6 +383,15 @@ protocol, recording, and mid-game failures remain terminal. Exhausted recovery
 is recorded as `post_game_reconnect_exhausted` without discarding completed
 records. A non-zero one-shot child exit is also persisted to status and the
 run manifest; an active game is retained as an uncounted `incomplete_game`.
+During an active game, the client emits receive-idle diagnostics with the
+expected response, elapsed wait and buffered partial-line byte count. Its
+absolute response deadline uses the opponent's advertised time control and
+remaining time inferred from received move echoes. Our move echo has a
+2-minute deadline. `--active-receive-deadline-seconds` can
+override it for a controlled run. Between games the 40-minute read timeout
+still applies. A deadline records `active_receive_deadline` and ends the
+one-shot run with the active game incomplete; it does not declare a CSA result
+or retry that game.
 The supervisor records event and log write failures with their errno in the
 one-shot receipt and on stderr. It emits `logging_failed` while the child is
 running. If a child log fails, it still drains the
