@@ -32,6 +32,8 @@ Results are local diagnostics, not playing-strength claims. The script only
 starts the external engine as a separate process. Pass ``--result-json`` to
 write a versioned, atomic wrapper verdict after its streamed counts have been
 reconciled with the runner's raw JSON, JSONL, and kifu artifacts.
+Use ``--supervised`` for a one-shot gate whose outer process writes a terminal
+failure receipt if this wrapper or its match child disappears unexpectedly.
 """
 
 from __future__ import annotations
@@ -671,6 +673,10 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         help="atomically write the versioned machine-readable gate result",
     )
     parser.add_argument(
+        "--supervised", action="store_true",
+        help="run one fresh gate under a durable, fail-closed parent supervisor",
+    )
+    parser.add_argument(
         "--gate-observation-declaration",
         help=(
             "prospective GateObservation declaration JSON; requires --result-json and is "
@@ -705,6 +711,8 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         parser.error("--nodes-limit must be non-negative")
     if args.gate_observation_declaration and not args.result_json:
         parser.error("--gate-observation-declaration requires --result-json")
+    if args.supervised and not args.result_json:
+        parser.error("--supervised requires --result-json")
     if args.paired_sprt:
         if not args.sprt:
             parser.error("--paired-sprt requires --sprt")
@@ -750,6 +758,9 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
 
 def main() -> int:
     args, material_only, sprt = parse_args()
+    if args.supervised:
+        from ab_match_supervisor import supervise
+        return supervise(args, sys.argv[1:])
     out = Path(args.out_dir)
     evaluator_binding = None
     yaneuraou_pinned_inputs = None
@@ -835,6 +846,8 @@ def main() -> int:
     # Rayon sizes its pool at startup. A later USI Threads option cannot grow
     # a pool that this process environment already capped at one.
     env = dict(os.environ, RAYON_NUM_THREADS=str(max(args.threads_a, args.threads_b, 1)))
+    if env.get("SEKIREI_AB_SUPERVISOR_CHANNEL"):
+        env["SEKIREI_AB_WRAPPER_PID"] = str(os.getpid())
     log_path = out / f"{args.name}.log"
     raw_json_path = out / f"{args.name}.json"
     wins = losses = draws = 0
@@ -848,8 +861,15 @@ def main() -> int:
     start = time.monotonic()
     try:
         with open(log_path, "w", encoding="utf-8") as log:
+            launch_command = command
+            if os.environ.get("SEKIREI_AB_SUPERVISOR_CHANNEL"):
+                launch_command = [
+                    sys.executable,
+                    str(Path(__file__).with_name("ab_match_runner_shim.py")),
+                    *command,
+                ]
             proc = subprocess.Popen(
-                command,
+                launch_command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
