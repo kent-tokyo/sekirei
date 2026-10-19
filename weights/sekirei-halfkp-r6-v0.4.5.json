@@ -1,0 +1,69 @@
+{
+  "schema": "sekirei.nnue-experimental-release-card.v1",
+  "model_id": "sekirei-halfkp-nn_r6",
+  "release_version": "0.4.5",
+  "artifact": {
+    "release_asset": "sekirei-halfkp-r6-v0.4.5.bin.xz",
+    "compression": "xz",
+    "compressed_sha256": "92e2b2ce67f5829b17752d4dba37cc278d7ae96e4e25d880fc68f7f9552ec38f",
+    "filename_after_decompression": "sekirei-halfkp-r6-v0.4.5.bin",
+    "sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+    "bytes": 64216957,
+    "format": "HalfKP(Friend) 256x2-32-32",
+    "version_word": "0x7AF32F16",
+    "architecture_descriptor": "Sekirei HalfKP 256x2-32-32 own training (19804530 positions, lam 1.0)",
+    "fv_scale": 24
+  },
+  "license": {
+    "spdx": "CC-BY-4.0",
+    "attribution": "Sekirei project (kent-tokyo), https://github.com/kent-tokyo/sekirei",
+    "notice": "NNUE-LICENSE.md"
+  },
+  "training": {
+    "external_teacher_used": false,
+    "teacher": "nn_r4 (Sekirei self-play)",
+    "source_generations": "gen50-gen65",
+    "positions": 20007580,
+    "train_positions": 19804530,
+    "training_shard_manifest_sha256": "e916768450de96e6562a691e08cb4a5278de76ec1b8ab38d0bf243ec4e0661a6",
+    "whole_game_holdout_manifest_sha256": "926a63e2e23fc9cbede19278a1ee388bb7d3879cf1deebde3953516985e0a9d8",
+    "uninterrupted_export": "BYTE_IDENTICAL",
+    "checkpoint_resume_export": "BYTE_IDENTICAL"
+  },
+  "recorded_one_thread_material_gate": {
+    "engine_commit": "06490fce15115d51763f342036d6c8910d3ebcf7",
+    "engine_id": "0.4.3",
+    "engine_sha256": "f8be10e3e1bdd17eeefd600f2f16fbeb56d35c34825221f0d667cdaf62ca6697",
+    "opening_corpus_sha256": "a1bbe55e6969937e80708cd2dadbf52490370713a9f8c937fdfca9ad510f291b",
+    "raw_archive_sha256": "6c0e46912847912661abe9dd1962abb532d495480d6774d961b3ad5230268584",
+    "threads": 1,
+    "byoyomi_ms": 1000,
+    "games": 66,
+    "wins": 60,
+    "draws": 0,
+    "losses": 6,
+    "sprt": {
+      "method": "paired-trinomial",
+      "elo0": 0,
+      "elo1": 20,
+      "alpha": 0.05,
+      "beta": 0.05,
+      "llr": 3.038519,
+      "upper_bound": 2.944439,
+      "verdict": "PASS"
+    }
+  },
+  "distribution": {
+    "availability": "github_release_asset",
+    "experimental_opt_in": true,
+    "default_evaluator": false,
+    "recommended_default": false
+  },
+  "evidence_gaps": [
+    "current_v0.4.5_one_thread_strength_gate",
+    "current_v0.4.5_four_thread_qualification",
+    "external_comparison",
+    "webassembly_mobile_quality"
+  ],
+  "scope": "Optional experimental artifact only. The recorded one-thread material gate is not an external rating, a four-thread result, or a default-adoption decision."
+}

@@ -8,6 +8,20 @@ preserves older per-change notes.
 
 No changes yet.
 
+## [0.4.5] – 2026-10-19
+
+Version 0.4.5 publishes the optional in-house `nn_r6` HalfKP artifact with a
+hash, CC BY 4.0 terms, training provenance, and its recorded qualification
+scope. The default material evaluator and ordinary search policy are unchanged.
+This release makes no general playing-strength claim.
+
+### Added
+
+- Publish `nn_r6` as a GitHub Release asset for explicit opt-in use with
+  `FV_SCALE=24`. Its recorded one-thread material gate passed; four-thread
+  current-engine qualification is still absent, so it is neither default nor
+  recommended as a general replacement for material evaluation.
+
 ## [0.4.4] – 2026-10-17
 
 Version 0.4.4 fixes an aspiration-window boundary and strengthens the

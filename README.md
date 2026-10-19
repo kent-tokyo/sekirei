@@ -3,16 +3,16 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.4.4-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.4.4)
+[![Release](https://img.shields.io/badge/release-v0.4.5-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.4.5)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.4.4` fixes an
-aspiration-window search boundary and strengthens reproducible PGO and CPU-pilot
-evidence. The default search policy and evaluator are unchanged, so this
-release does not claim a general playing-strength gain.
+Sekirei is an experimental Pure Rust shogi engine. Release `0.4.5` ships the
+optional `nn_r6` HalfKP artifact with its provenance and qualification scope.
+The default search policy and material evaluator are unchanged; `nn_r6` is an
+experimental opt-in asset, not a default or a general playing-strength claim.
 
 ## Quick start
 
@@ -30,19 +30,21 @@ cargo run --release -p sekirei
 ```
 
 Register `sekirei` in a USI-compatible GUI. Without `EvalFile`, the engine
-uses material evaluation. The optional 0.3.38 checkpoint remains available
-for compatibility and experiments:
+uses material evaluation. The optional `nn_r6` HalfKP artifact is attached to
+the release for one-thread experiments. Verify and decompress it before use:
 
 ```bash
-sekirei /path/to/sekirei-nnue-v0.3.38.bin
+shasum -a 256 sekirei-halfkp-r6-v0.4.5.bin.xz
+xz -d sekirei-halfkp-r6-v0.4.5.bin.xz
+sekirei /path/to/sekirei-halfkp-r6-v0.4.5.bin
 ```
 
-Set `EvalFile` and `NnueOutput=absolute` before `isready`. External HalfKP
-256x2-32-32 files use `FV_SCALE` and remain subject to their own licenses.
+Set `EvalFile` and `FV_SCALE=24` before `isready`; `NnueOutput` does not
+apply to HalfKP. External HalfKP 256x2-32-32 files use `FV_SCALE` and remain
+subject to their own licenses.
 [NNUE weights](docs/nnue_weights.md) records supported formats, checksums, and
-the evidence boundary. In-house NNUE candidates remain unbundled and
-non-default until their frozen provenance and current-main qualification are
-complete.
+the evidence boundary. `nn_r6` passed its recorded one-thread material gate,
+but has no four-thread current-engine qualification and remains non-default.
 
 ## Components
 
@@ -69,9 +71,9 @@ deterministic diagnostics, use `Threads=1` and `SpecTopN=0`.
 [`sekirei-wasm`](crates/sekirei-wasm/README.md) provides SFEN parsing, legal
 moves, validated move application, bounded one-worker search with an optional
 caller-supplied evaluator, up to four MultiPV lines, and bounded shortest-mate
-analysis. The prebuilt v0.4.4 ES-module
+analysis. The prebuilt v0.4.5 ES-module
 package is attached to the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.4.4/sekirei-wasm-0.4.4.tgz).
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.4.5/sekirei-wasm-0.4.5.tgz).
 
 ## Build and verify
 

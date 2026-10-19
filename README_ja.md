@@ -3,15 +3,16 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.4.4-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.4.4)
+[![Release](https://img.shields.io/badge/release-v0.4.5-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.4.5)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.4.4`では、
-aspiration windowの探索境界を修正し、再現可能なPGOとCPU pilotの証跡を強化します。
-既定の探索方針と評価器は変更しておらず、一般的な棋力向上は主張しません。
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.4.5`では、
+任意利用のHalfKP重み`nn_r6`を来歴・適格性の範囲とともに配布します。既定の探索方針と
+駒得評価器は変更していません。`nn_r6`は実験用の任意資産であり、既定採用や一般的な
+棋力向上を意味しません。
 
 ## まず動かす
 
@@ -29,17 +30,22 @@ cargo run --release -p sekirei
 ```
 
 生成された`sekirei`をUSI対応GUIへ登録します。`EvalFile`を指定しない場合は
-駒得評価を使います。0.3.38用NNUEは互換性確認と実験用に残しています。
+駒得評価を使います。リリース添付の`nn_r6`は1スレッドの実験用に使えます。使用前に
+チェックサムを確認して展開してください。
 
 ```bash
-sekirei /path/to/sekirei-nnue-v0.3.38.bin
+shasum -a 256 sekirei-halfkp-r6-v0.4.5.bin.xz
+xz -d sekirei-halfkp-r6-v0.4.5.bin.xz
+sekirei /path/to/sekirei-halfkp-r6-v0.4.5.bin
 ```
 
-GUIでは`isready`より前に`EvalFile`と`NnueOutput=absolute`を設定します。
+GUIでは`isready`より前に`EvalFile`と`FV_SCALE=24`を設定します。HalfKPでは
+`NnueOutput`は使いません。
 外部HalfKP 256x2-32-32では`FV_SCALE`を使い、そのファイルのライセンスに
 従ってください。対応形式、SHA-256、測定範囲は
-[NNUE重み](docs/nnue_weights.md)にまとめています。自前NNUE候補は、凍結した来歴と
-現行mainでの適格性確認が済むまで、同梱せず、既定評価器にもしていません。
+[NNUE重み](docs/nnue_weights.md)にまとめています。`nn_r6`は記録済みの1スレッド
+material gateには合格していますが、4スレッドの現行エンジン適格性は未確認であり、
+既定評価器にはしません。
 
 ## 構成
 
@@ -64,8 +70,8 @@ USIの`usi`で全オプションを確認できます。`SearchMode=Auto`は1ワ
 
 [`sekirei-wasm`](crates/sekirei-wasm/README.md)は、SFEN解析、合法手、
 検証付き着手、呼出側が渡す任意評価器を使う上限付き1ワーカー探索、最大4本の
-MultiPV、最短詰み解析を提供します。ビルド済みのv0.4.4 ESモジュールパッケージは
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.4.4/sekirei-wasm-0.4.4.tgz)
+MultiPV、最短詰み解析を提供します。ビルド済みのv0.4.5 ESモジュールパッケージは
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.4.5/sekirei-wasm-0.4.5.tgz)
 から取得できます。
 
 ## ビルドと検証

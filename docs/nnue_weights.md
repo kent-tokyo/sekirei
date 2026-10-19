@@ -21,30 +21,24 @@ gate, external rating, or comparison with another engine.
 Without `EvalFile` or a command-line checkpoint, Sekirei uses its material
 fallback. It does not silently select or substitute a model.
 
-## Current local candidate
+## Experimental `nn_r6` release asset
 
-The latest in-house candidate is `nn_r3`, a HalfKP 256x2-32-32 network used
-with `FV_SCALE=24`. It was trained for one epoch from `nn_r2` on the fresh
-gen33--40 self-play slice (156,107 games and 10,312,658 positions), generated
-by Sekirei v0.3.67/v0.3.68 without an external teacher. In the recorded private
-comparison it scored 260 wins, 2 draws, and 218 losses against `nn_r2`
-(estimated +30 Elo, interval +1 to +60).
+The v0.4.5 GitHub Release includes `nn_r6`, an optional
+HalfKP(Friend) 256x2-32-32 weight. It uses `FV_SCALE=24`, is licensed under
+CC BY 4.0, and is not included in any crate or selected automatically.
 
-The candidate also passed two preregistered colour-swapped material-evaluator
-gates on the pinned v0.3.68 engine. At 500 ms per move it scored 63-0-9 and
-crossed the SPRT upper bound after 36 pairs; at 1 second it scored 79-0-9 and
-crossed after 44 pairs. Both used one thread, no opening book, Hash 64,
-`SpecTopN=0`, and the exact candidate SHA-256 recorded below. The normalized
-results and provenance are in the
-[`nn_r3` material-gate record](experiments/nnue_r3_material_gate_v0.3.68/README.md).
+The retained owner record attests a whole-game hold-out, hashed training-shard
+manifest, and byte-identical uninterrupted/checkpoint-resume export. Its
+recorded material-only gate on engine `06490fc` passed at one thread and one
+second per move: 66 games, 60 wins, 0 draws, 6 losses, LLR 3.039. This is a
+local, colour-swapped SPRT result, not an external rating or a default-choice
+decision. The exact identity, archive hashes, and exclusions are in the
+[`nn_r6` release card](../weights/sekirei-halfkp-r6-v0.4.5.json) and its
+[gate record](experiments/nnue_r6_material_gate_main06490fc/README.md).
 
-This establishes an advantage over material evaluation only under those local
-v0.3.68 conditions. It is not a current-main compatibility gate, external
-rating, or default-adoption decision. Raw match archives, dataset shard hashes,
-and a fresh whole-game hold-out manifest remain outside the repository.
-Therefore `nn_r3` is not bundled, is not the default, and is not yet a
-distributed recommendation. The exact SHA-256 and remaining gaps are in the
-[`nn_r3` candidate card](../weights/candidates/sekirei-halfkp-r3.json).
+`nn_r6` does **not** have a current 4-thread qualification, current-v0.4.5
+strength gate, external comparison, or WebAssembly/mobile-quality result.
+It is therefore an experimental opt-in download, not a recommended default.
 
 ## Loading a weight
 
@@ -135,7 +129,7 @@ strength gate status:  not run | PASS | FAIL | INCONCLUSIVE
 license:               <explicit artifact license>
 ```
 
-For a HalfKP release candidate, use the fail-closed
+For a HalfKP artifact proposed as a recommended release candidate, use the fail-closed
 `sekirei.nnue-model-card.v2` contract checked by
 `scripts/validate_nnue_release_artifact.py`. In addition to the fields above,
 it requires hashed training-shard and whole-game hold-out manifests, exact raw
@@ -185,6 +179,11 @@ python3 scripts/validate_nnue_release_artifact.py model-card.json \
 
 All referenced files must remain inside the bundle root; absolute paths,
 parent-directory escapes, missing files, and hash mismatches fail validation.
+
+An experimental opt-in asset may be distributed with a release only when its
+card explicitly records every missing v2 condition. It must remain
+non-default and may not be described as a recommended checkpoint until its
+complete v2 bundle validates against the engine commit being released.
 
 Training can use a separately operated external teacher, but its license and
 the dataset terms must be assessed by the person distributing the resulting
