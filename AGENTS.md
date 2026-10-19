@@ -91,6 +91,8 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-19: Transfer `nn_r6` evidence production to Codex. Generate and qualify only from an isolated worktree and dedicated evidence output; preserve the candidate identity, use material-only colour-reversed current-source gates, and do not alter unrelated Claude training work or hold-outs.
+
 * 2026-10-19: Prepare qualified nn_r6 for the next release as a separate optional native NNUE asset; bind hashes, license and evidence, confirm release-build compatibility, and keep publication and default adoption separate.
 
 * 2026-10-19: Persist NNUE job termination evidence with an independent observer, distinguishing observed exit codes/signals from unknown underlying causes.

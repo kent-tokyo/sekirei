@@ -32,6 +32,7 @@ def _inputs(args) -> dict[str, object]:
         "match_binary": args.match_binary,
         "openings": args.openings,
         "evaluator": None if args.evalfile.lower() in {"none", "material"} else args.evalfile,
+        "candidate_evaluator": getattr(args, "candidate_evalfile", None),
         "openings_manifest": args.openings_manifest,
         "gate_observation_declaration": args.gate_observation_declaration,
         "wrapper": Path(__file__).with_name("run_ab_match.py"),
