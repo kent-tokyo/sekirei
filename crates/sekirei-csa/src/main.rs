@@ -11,6 +11,7 @@
 //!   --game <id>        (default: floodgate-300-10F)
 //!   --hash <MB>        hash table size (default: 256)
 //!   --weights <file>   NNUE weight file
+//!   --fv-scale <n>     HalfKP output divisor (1..=128, default: 16)
 //!   --record-dir <dir> local CSA record directory (default: data/floodgate)
 //!   --analysis-dir <dir> optional per-game search JSONL directory
 //!   --root-candidates <moves> comma-separated USI root moves for diagnostics
@@ -52,6 +53,8 @@ fn run() -> i32 {
         std::process::exit(64);
     });
 
+    sekirei_core::halfkp::set_fv_scale(config.fv_scale).expect("FV_SCALE was validated");
+    eprintln!("[csa] FV_SCALE {}", sekirei_core::halfkp::fv_scale());
     if config.evaluation == EvaluationMode::Nnue {
         let path = config.weights_path.as_deref().expect("NNUE path validated");
         match sekirei_core::nnue::load_evaluator(path) {
@@ -283,6 +286,16 @@ fn parse_args_with_args(argv: Vec<String>) -> Result<Config, String> {
                 cfg.evaluation = EvaluationMode::Nnue;
                 evaluation_explicit = true;
             }
+            "--fv-scale" => {
+                i += 1;
+                let scale = arg(&argv, i)?
+                    .parse::<i32>()
+                    .map_err(|_| "--fv-scale must be in 1..=128".to_string())?;
+                if !(1..=128).contains(&scale) {
+                    return Err("--fv-scale must be in 1..=128".into());
+                }
+                cfg.fv_scale = scale;
+            }
             "--eval" => {
                 i += 1;
                 evaluation_explicit = true;
@@ -414,6 +427,7 @@ struct RunManifest<'a> {
     binary: &'a std::path::Path,
     binary_bytes: u64,
     weights_active: bool,
+    fv_scale: i32,
 }
 
 impl RunManifest<'_> {
@@ -431,6 +445,7 @@ impl RunManifest<'_> {
                 "sha256": "deferred_to_finalize_csa_run_manifest",
             },
             "evaluation": config.evaluation.as_str(),
+            "fv_scale": self.fv_scale,
             "weights": {
                 "path": config.weights_path,
                 "active": self.weights_active,
@@ -470,6 +485,7 @@ fn write_run_manifest(
         binary: &binary,
         binary_bytes: std::fs::metadata(&binary)?.len(),
         weights_active: sekirei_core::nnue::weights_active() || sekirei_core::halfkp::is_active(),
+        fv_scale: sekirei_core::halfkp::fv_scale(),
     };
     let document = manifest.to_json();
     if let Some(parent) = path.parent()
@@ -501,6 +517,7 @@ fn print_usage() {
     eprintln!("  --game <id>        game ID (default: floodgate-300-10F)");
     eprintln!("  --hash <MB>        hash table MB (default: 256)");
     eprintln!("  --weights <file>   NNUE weight file");
+    eprintln!("  --fv-scale <n>     HalfKP output divisor (1..=128, default: 16)");
     eprintln!("  --eval <mode>      material or nnue (default: material)");
     eprintln!("  --record-dir <dir> local CSA record directory (default: data/floodgate)");
     eprintln!("  --analysis-dir <dir> per-game search summary JSONL (disabled by default)");
@@ -544,6 +561,7 @@ mod tests {
         assert!(text.contains("\"hash_mb\": 64"));
         assert!(text.contains("\"max_depth\": 7"));
         assert!(text.contains("\"resign_score_cp\": -1234"));
+        assert!(text.contains("\"fv_scale\": 16"));
         assert!(text.contains("\"active\": false"));
         assert!(text.contains("\"analysis_record_schema\": \"sekirei.analysis-record.v3\""));
         assert!(text.contains("\"keep_alive\": false"));
@@ -657,6 +675,20 @@ mod tests {
 
         let conflicting = parse_args_from(["--eval", "material", "--weights", "weights.bin"]);
         assert!(matches!(conflicting, Err(message) if message.contains("cannot be combined")));
+    }
+
+    #[test]
+    fn halfkp_fv_scale_defaults_to_16_and_accepts_usi_range() {
+        assert_eq!(parse_args_from([]).unwrap().fv_scale, 16);
+        for value in ["1", "24", "128"] {
+            let config = parse_args_from(["--fv-scale", value]).unwrap();
+            assert_eq!(config.fv_scale.to_string(), value);
+        }
+        for value in ["0", "129", "-1", "invalid", "2147483648"] {
+            let error = parse_args_from(["--fv-scale", value]);
+            assert!(matches!(error, Err(message) if message.contains("1..=128")));
+        }
+        assert!(parse_args_from(["--fv-scale"]).is_err());
     }
 
     #[test]
