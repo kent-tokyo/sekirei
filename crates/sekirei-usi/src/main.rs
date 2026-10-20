@@ -150,6 +150,42 @@ struct SearchResult {
     dfpn: Option<DfpnReport>,
 }
 
+impl SearchResult {
+    fn new(
+        best_move: Option<sekirei_core::mv::Move>,
+        score: i32,
+        depth: u32,
+        nodes: u64,
+        elapsed: Duration,
+        hashfull: u32,
+        pv: Vec<sekirei_core::mv::Move>,
+    ) -> Self {
+        Self {
+            best_move,
+            score,
+            depth,
+            nodes,
+            elapsed,
+            hashfull,
+            pv_list: Vec::new(),
+            pv,
+            worker_stats: Vec::new(),
+            lazy_worker_tt_reuse: Vec::new(),
+            lazy_tt_writes: None,
+            lazy_work_overlap: None,
+            lazy_root_hints: None,
+            lazy_retirement: None,
+            cooperative_root: None,
+            cooperative_root_wait: None,
+            nmp_stats: Vec::new(),
+            aspiration_stats: Vec::new(),
+            shared_mcts_stats: None,
+            root_safety: None,
+            dfpn: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DfpnReport {
     outcome: DfpnOutcome,
@@ -316,29 +352,15 @@ impl SearchBackend {
                 }
                 RepetitionOutcome::PerpetualCheck(_) => MATE_SCORE - 1,
             };
-            return SearchResult {
-                best_move: fallback_legal_move(board),
+            return SearchResult::new(
+                fallback_legal_move(board),
                 score,
-                depth: 0,
-                nodes: 0,
-                elapsed: Duration::ZERO,
-                hashfull: 0,
-                pv_list: Vec::new(),
-                pv: Vec::new(),
-                worker_stats: Vec::new(),
-                lazy_worker_tt_reuse: Vec::new(),
-                lazy_tt_writes: None,
-                lazy_work_overlap: None,
-                lazy_root_hints: None,
-                lazy_retirement: None,
-                cooperative_root: None,
-                cooperative_root_wait: None,
-                nmp_stats: Vec::new(),
-                aspiration_stats: Vec::new(),
-                shared_mcts_stats: None,
-                root_safety: None,
-                dfpn: None,
-            };
+                0,
+                0,
+                Duration::ZERO,
+                0,
+                Vec::new(),
+            );
         }
         match self {
             Self::Sequential(s) => s.searcher.new_search(),
@@ -385,18 +407,19 @@ impl SearchBackend {
                     )
                     .expect("USI generation manager must serialize Lazy SMP searches");
                 let result = info.result;
-                SearchResult {
-                    best_move: result.best_move.or_else(|| fallback_legal_move(board)),
-                    score: result.score,
-                    depth: result.depth,
-                    nodes: info.total_nodes,
+                let base = SearchResult::new(
+                    result.best_move.or_else(|| fallback_legal_move(board)),
+                    result.score,
+                    result.depth,
+                    info.total_nodes,
                     // The selected worker's duration is not the duration of
                     // the Lazy SMP group; use wall time for truthful NPS and
                     // USI timing diagnostics.
-                    elapsed: info.elapsed,
-                    hashfull: result.hashfull,
-                    pv_list: Vec::new(),
-                    pv: result.pv,
+                    info.elapsed,
+                    result.hashfull,
+                    result.pv,
+                );
+                SearchResult {
                     worker_stats: info.worker_results,
                     lazy_worker_tt_reuse,
                     lazy_tt_writes: info.tt_writes,
@@ -420,9 +443,7 @@ impl SearchBackend {
                                 .collect()
                         })
                         .unwrap_or_default(),
-                    shared_mcts_stats: None,
-                    root_safety: None,
-                    dfpn: None,
+                    ..base
                 }
             }
             Self::Dfpn(s) => {
@@ -456,32 +477,22 @@ impl SearchBackend {
                         &s.abort,
                     )
                 });
+                let base = SearchResult::new(
+                    info.best_move.or_else(|| fallback_legal_move(board)),
+                    info.score,
+                    config.max_depth,
+                    info.nodes as u64,
+                    started.elapsed(),
+                    0,
+                    info.best_move.into_iter().collect(),
+                );
                 SearchResult {
-                    best_move: info.best_move.or_else(|| fallback_legal_move(board)),
-                    score: info.score,
-                    depth: config.max_depth,
-                    nodes: info.nodes as u64,
-                    elapsed: started.elapsed(),
-                    hashfull: 0,
-                    pv_list: Vec::new(),
-                    pv: info.best_move.into_iter().collect(),
-                    worker_stats: Vec::new(),
-                    lazy_worker_tt_reuse: Vec::new(),
-                    lazy_tt_writes: None,
-                    lazy_work_overlap: None,
-                    lazy_root_hints: None,
-                    lazy_retirement: None,
-                    cooperative_root: None,
-                    cooperative_root_wait: None,
-                    nmp_stats: Vec::new(),
-                    aspiration_stats: Vec::new(),
                     shared_mcts_stats: Some((
                         info.simulations,
                         info.nodes,
                         info.transposition_hits,
                     )),
-                    root_safety: None,
-                    dfpn: None,
+                    ..base
                 }
             }
         }
@@ -489,54 +500,30 @@ impl SearchBackend {
 }
 
 fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
-    SearchResult {
-        best_move: info.best_move,
-        score: info.score,
-        depth: info.depth,
-        nodes: info.nodes,
-        elapsed: info.elapsed,
-        hashfull: info.hashfull,
-        pv_list: Vec::new(),
-        pv: info.pv,
-        worker_stats: Vec::new(),
-        lazy_worker_tt_reuse: Vec::new(),
-        lazy_tt_writes: None,
-        lazy_work_overlap: None,
-        lazy_root_hints: None,
-        lazy_retirement: None,
-        cooperative_root: None,
-        cooperative_root_wait: None,
-        nmp_stats: Vec::new(),
-        aspiration_stats: Vec::new(),
-        shared_mcts_stats: None,
-        root_safety: None,
-        dfpn: None,
-    }
+    SearchResult::new(
+        info.best_move,
+        info.score,
+        info.depth,
+        info.nodes,
+        info.elapsed,
+        info.hashfull,
+        info.pv,
+    )
 }
 
 fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
+    let base = SearchResult::new(
+        info.best_move,
+        info.score,
+        info.depth,
+        info.nodes,
+        info.elapsed,
+        info.hashfull,
+        info.pv,
+    );
     SearchResult {
-        best_move: info.best_move,
-        score: info.score,
-        depth: info.depth,
-        nodes: info.nodes,
-        elapsed: info.elapsed,
-        hashfull: info.hashfull,
         pv_list: info.pv_list,
-        pv: info.pv,
-        worker_stats: Vec::new(),
-        lazy_worker_tt_reuse: Vec::new(),
-        lazy_tt_writes: None,
-        lazy_work_overlap: None,
-        lazy_root_hints: None,
-        lazy_retirement: None,
-        cooperative_root: None,
-        cooperative_root_wait: None,
-        nmp_stats: Vec::new(),
-        aspiration_stats: Vec::new(),
-        shared_mcts_stats: None,
-        root_safety: None,
-        dfpn: None,
+        ..base
     }
 }
 
@@ -547,42 +534,32 @@ fn normalize_dfpn_result(
     elapsed: Duration,
 ) -> SearchResult {
     let proof_move = result.best_move;
-    SearchResult {
-        best_move: proof_move.or_else(|| fallback_legal_move(board)),
+    let base = SearchResult::new(
+        proof_move.or_else(|| fallback_legal_move(board)),
         // Only the dedicated DFPN renderer consumes this value. It emits
         // `mate +` for a proof with unknown distance and omits `score` for
         // bounded disproofs and incomplete searches.
-        score: if result.outcome == DfpnOutcome::Proven {
+        if result.outcome == DfpnOutcome::Proven {
             MATE_SCORE - 1
         } else {
             0
         },
         // DFPN is not iterative deepening. The requested boundary is kept in
         // `DfpnReport` instead of being advertised as a completed depth.
-        depth: 0,
-        nodes: result.nodes,
+        0,
+        result.nodes,
         elapsed,
-        hashfull: 0,
-        pv_list: Vec::new(),
-        pv: proof_move.into_iter().collect(),
-        worker_stats: Vec::new(),
-        lazy_worker_tt_reuse: Vec::new(),
-        lazy_tt_writes: None,
-        lazy_work_overlap: None,
-        lazy_root_hints: None,
-        lazy_retirement: None,
-        cooperative_root: None,
-        cooperative_root_wait: None,
-        nmp_stats: Vec::new(),
-        aspiration_stats: Vec::new(),
-        shared_mcts_stats: None,
-        root_safety: None,
+        0,
+        proof_move.into_iter().collect(),
+    );
+    SearchResult {
         dfpn: Some(DfpnReport {
             outcome: result.outcome,
             aborted: result.aborted,
             limit_depth,
             best_move_from_proof: proof_move.is_some(),
         }),
+        ..base
     }
 }
 

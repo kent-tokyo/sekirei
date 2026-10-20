@@ -17,6 +17,8 @@ preserves older per-change notes.
   manifest edits without changing the search policy or manifest format.
 - Archive a run-specific historical gate script and retain cleanup protection
   for shell and Python references under `scripts/`.
+- Move CSA protocol tests and match-runner gate/summarize logic into dedicated
+  modules, and share empty USI search-result diagnostics across backends.
 
 ## [0.5.1] – 2026-10-20
 
