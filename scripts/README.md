@@ -50,13 +50,6 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 | `validate_nnue_cpu_pilot.py` | Validates a frozen, short AWS CPU-pilot plan only after a colour-reversed material gate, complete candidate/data/resume evidence, and an observed CPU-dominant bottleneck. It does not provision cloud resources. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
 | `run_ab_match.py` | Fixed-protocol local A/B, paired SPRT, or node-limited YaneuraOu measurement. It hashes inputs and fails closed on incomplete or inconsistent JSONL, kifu, snapshots, or result sidecars. `--supervised --result-json PATH` adds a one-shot parent that records a terminal error if the wrapper or match child exits unexpectedly. Material-only, one thread and `SpecTopN=0` are the defaults. |
-
-For a frozen HalfKP candidate versus its incumbent, combine
-`--candidate-evalfile NEW --baseline-evalfile BEST --evalfile none` with
-`--openings-manifest` and `--result-json`. Both engine binaries must have the
-same SHA, both weights must differ, and both exact loader acknowledgements
-are required. Evaluator checks and durable paired-SPRT replay both run before
-a verdict is accepted.
 | `launch_floodgate_once.py` | Starts one rendered bounded Floodgate LaunchAgent without combining `RunAtLoad=true` and `kickstart`; refuses registered labels and records the single-run acceptance receipt. |
 | `nps_threads.py` | Thread-scaling diagnostic for NPS, completed depth, best-move stability and optional Lazy SMP/TT/root-hint counters. `--summary-json` binds TT reuse, sampled overlap, discarded root work and worker-node balance for 4T/8T diagnosis. Counter-enabled runs are separate from speed runs; no output qualifies a speed or Elo claim. It completes new-game readiness before setting the position because some engines reset their board on `isready`. |
 | `paired_search_diagnostics.py` | Fresh-process A/B/B/A comparison for one search factor. Separates deterministic signatures, counter-free timing and opt-in parallel diagnostics; it does not estimate Elo. |
@@ -65,6 +58,13 @@ a verdict is accepted.
 | `validate_paired_pv.py` | Freezes the Rust legal-move tool and replays every recorded PV, checking its bestmove prefix and each legal transition. Fails on incomplete runs or illegal PVs. This is a same-rules contract check, not an independent oracle or a proof of mate scores. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
 | `check_rust_coverage.sh` | Runs the default workspace, opening-book tests, isolated tunable-search contracts, a bounded trainer smoke, and native WASM API contracts under `cargo-llvm-cov`; emits LCOV/JSON and fails below the documented 98% engine/library line-coverage contract. |
+
+For a frozen HalfKP candidate versus its incumbent, combine
+`--candidate-evalfile NEW --baseline-evalfile BEST --evalfile none` with
+`--openings-manifest` and `--result-json`. Both engine binaries must have the
+same SHA, both weights must differ, and both exact loader acknowledgements
+are required. Evaluator checks and durable paired-SPRT replay both run before
+a verdict is accepted.
 
 The supervised gate requires a fresh output namespace. Its attempt directory
 remains after completion and prevents accidental replay. On interruption, the
