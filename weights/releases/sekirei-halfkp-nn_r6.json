@@ -1,7 +1,7 @@
 {
   "schema": "sekirei.nnue-release-plan.v1",
   "model_id": "sekirei-halfkp-nn-r6",
-  "status": "release_asset_prepared",
+  "status": "published_optional_asset",
   "intended_release": "0.5.0",
   "availability": "optional_github_release_asset",
   "embedded_in_crates_or_executable": false,

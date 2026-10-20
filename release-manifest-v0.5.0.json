@@ -3,7 +3,7 @@
   "release": "v0.5.0",
   "commit": "a60be2cdf2f17a2c8bfb9980536f452e8c19958e",
   "branch_at_release": "main",
-  "candidate_state": "release preparation from the v0.5.0 source commit",
+  "candidate_state": "released from the verified release-preparation commit",
   "packages": {
     "sekirei": "0.5.0",
     "sekirei-core": "0.5.0",
@@ -23,9 +23,9 @@
     "sha256": "9a6a13e6baf624e9726e05e6d58aedfed16dc5cbe9a2a0c96046f2ab78e51fc3"
   },
   "publish": {
-    "workflow_run": null,
+    "workflow_run": "39379313109",
     "registry": "crates.io",
-    "status": "planned",
+    "status": "verified",
     "crates": [
       "sekirei",
       "sekirei-core",
@@ -46,7 +46,7 @@
     "npm_registry_status": "not_published"
   },
   "nnue_artifact": {
-    "status": "planned_optional_github_release_asset",
+    "status": "published_optional_github_release_asset",
     "model_id": "sekirei-halfkp-nn-r6",
     "default_evaluator": false,
     "license": "CC-BY-4.0",
