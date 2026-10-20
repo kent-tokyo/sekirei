@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_ab_match import (  # noqa: E402
     classify_terminal_status,
     main,
+    parse_args,
     paired_outcome,
     replay_durable_sprt,
     runner_identity,
@@ -29,6 +30,7 @@ from run_ab_match import (  # noqa: E402
     sprt_llr,
     terminate_match_process_group,
     validate_candidate_material_evidence,
+    validate_candidate_baseline_evidence,
     validate_raw_match_evidence,
     yaneuraou_options,
 )
@@ -283,6 +285,155 @@ class SprtTest(unittest.TestCase):
             with self.assertRaises(SystemExit) as stopped:
                 main()
         self.assertEqual(stopped.exception.code, 2)
+
+    def run_dual_gate_fixture(self, directory, *, material=False, mutate_baseline=False,
+                              tampered_pairs=False, matching_pairs=False, different_engine=False):
+        root = Path(directory)
+        candidate, baseline, engine, runner = [root / name for name in
+                                               ("candidate.bin", "baseline.bin", "engine", "match")]
+        for path, content in ((candidate, b"candidate"), (baseline, b"baseline"),
+                              (engine, b"engine"), (runner, b"runner")):
+            path.write_bytes(content)
+        engine_b = engine
+        if different_engine:
+            engine_b = root / "other-engine"
+            engine_b.write_bytes(b"different binary")
+        openings = root / "openings.usi"
+        openings.write_text("startpos\n", encoding="utf-8")
+        out = root / "output"
+        out.mkdir()
+        candidate_options = {"EvalFile": str(candidate.resolve()), "FV_SCALE": "24",
+                             "NnueOutput": "absolute"}
+        baseline_options = {} if material else dict(candidate_options, EvalFile=str(baseline.resolve()))
+        raw = {"engine1_options": candidate_options, "engine2_options": baseline_options,
+               "engine1_command": str(engine), "engine2_command": str(engine_b),
+               "engine1_eval_file_acknowledgement": f"info string NNUE weights loaded from {candidate.resolve()}",
+               "engine2_eval_file_acknowledgement": None if material else f"info string NNUE weights loaded from {baseline.resolve()}"}
+        (out / "ab.json").write_text(json.dumps(raw))
+        if tampered_pairs:
+            # Same aggregate scores, different colour-pair assignments.
+            outcomes = (["candidate_win", "candidate_win", "baseline_win", "baseline_win"] if matching_pairs
+                        else ["candidate_win", "baseline_win", "candidate_win", "baseline_win"])
+            (out / "ab.jsonl").write_text("".join(json.dumps({"id": f"pos{i//2}_pair0", "result": x}) + "\n"
+                                                    for i, x in enumerate(outcomes)))
+        argv = ["run_ab_match.py", "selfplay", "--engine-a", str(engine), "--engine-b", str(engine_b),
+                "--match-binary", str(runner), "--candidate-evalfile", str(candidate),
+                "--openings", str(openings), "--openings-manifest", str(root / "manifest.json"),
+                "--out-dir", str(out), "--result-json", str(root / "result.json"), "--games", "4" if tampered_pairs else "2"]
+        if not material:
+            argv += ["--baseline-evalfile", str(baseline)]
+        if tampered_pairs:
+            argv += ["--sprt", "0,20", "--paired-sprt", "--games-per-position", "4"]
+        process = _FakeMatchProcess(
+            ["→ Engine1 Win\n", "→ Engine1 Win\n", "→ Engine2 Win\n", "→ Engine2 Win\n"]
+            if tampered_pairs else ["→ Draw\n"] * 2,
+            before_yield=(lambda *_: baseline.write_bytes(b"changed")) if mutate_baseline else None)
+        snapshot = {"sha256": "1" * 64,
+                    "match_binary_sha256": hashlib.sha256(runner.read_bytes()).hexdigest()}
+        with patch.object(sys, "argv", argv), patch("run_ab_match.validate_corpus", return_value=snapshot), \
+             patch("run_ab_match.subprocess.Popen", return_value=process) as popen, \
+             patch("run_ab_match.runner_identity", return_value={}), patch("sys.stdout", new_callable=io.StringIO):
+            code = main()
+        return code, json.loads((root / "result.json").read_text()) if (root / "result.json").exists() else None, popen
+
+    def test_dual_halfkp_gate_binds_both_weights_and_absolute_modes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            code, result, popen = self.run_dual_gate_fixture(directory)
+            self.assertEqual(code, 0)
+            command = popen.call_args.args[0]
+            for side, name in ((1, "candidate.bin"), (2, "baseline.bin")):
+                options = [command[i+1] for i, value in enumerate(command[:-1]) if value == f"--engine-option{side}"]
+                self.assertIn(f"EvalFile={(Path(directory)/name).resolve()}", options)
+                self.assertIn("FV_SCALE=24", options)
+                self.assertIn("NnueOutput=absolute", options)
+            evaluation = result["evidence"]["evaluation"]
+            self.assertEqual(evaluation["mode"], "candidate-halfkp-vs-halfkp")
+            self.assertEqual(evaluation["baseline"], "halfkp")
+            self.assertEqual(evaluation["baseline_file"]["sha256"], hashlib.sha256(b"baseline").hexdigest())
+            pinned = result["evidence"]["pinned_inputs_before_match"]
+            self.assertIn(evaluation["baseline_file"], pinned)
+
+    def test_dual_halfkp_gate_rejects_baseline_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            code, result, _ = self.run_dual_gate_fixture(directory, mutate_baseline=True)
+            self.assertNotEqual(code, 0)
+            self.assertEqual(result["status"], "error")
+            self.assertIn("inputs changed", result["evidence"]["process_error"])
+
+    def test_dual_halfkp_gate_requires_same_fixed_engine_binary(self):
+        with tempfile.TemporaryDirectory() as directory, patch("sys.stderr", new_callable=io.StringIO):
+            code, result, popen = self.run_dual_gate_fixture(directory, different_engine=True)
+            self.assertEqual(code, 2)
+            self.assertIsNone(result)
+            popen.assert_not_called()
+
+    def test_evaluator_gates_also_replay_durable_paired_sprt(self):
+        self.replay.side_effect = replay_durable_sprt
+        for material in (False, True):
+            with self.subTest(material=material), tempfile.TemporaryDirectory() as directory:
+                code, result, _ = self.run_dual_gate_fixture(directory, material=material, tampered_pairs=True)
+                self.assertNotEqual(code, 0)
+                self.assertEqual(result["status"], "error")
+                self.assertIn("durable SPRT replay disagrees", result["evidence"]["process_error"])
+        self.assertEqual(self.replay.call_count, 2)
+
+    def test_evaluator_gates_accept_matching_durable_paired_sprt(self):
+        self.replay.side_effect = replay_durable_sprt
+        for material in (False, True):
+            with self.subTest(material=material), tempfile.TemporaryDirectory() as directory:
+                code, result, _ = self.run_dual_gate_fixture(directory, material=material, tampered_pairs=True, matching_pairs=True)
+                self.assertEqual(code, 0)
+                self.assertEqual(result["status"], "inconclusive")
+                self.assertIsNone(result["evidence"]["process_error"])
+        self.assertEqual(self.replay.call_count, 2)
+
+    def test_dual_halfkp_evidence_rejects_each_wrong_arm_option_or_ack(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "raw.json"
+            weights = ("/candidate.bin", "/baseline.bin")
+            raw = {}
+            for side, weight in enumerate(weights, 1):
+                raw[f"engine{side}_options"] = {"EvalFile": weight, "FV_SCALE": "24", "NnueOutput": "absolute"}
+                raw[f"engine{side}_eval_file_acknowledgement"] = f"info string NNUE weights loaded from {weight}"
+                raw[f"engine{side}_command"] = "/engine"
+            path.write_text(json.dumps(raw))
+            self.assertIsNone(validate_candidate_baseline_evidence(path, *weights, 24, ("/engine", "/engine")))
+            for side in (1, 2):
+                for field, value in (("EvalFile", weights[2-side]), ("FV_SCALE", "16"), ("NnueOutput", "residual-material")):
+                    altered = json.loads(json.dumps(raw))
+                    altered[f"engine{side}_options"][field] = value
+                    path.write_text(json.dumps(altered))
+                    self.assertIsNotNone(validate_candidate_baseline_evidence(path, *weights, 24))
+                for field in (f"engine{side}_eval_file_acknowledgement", f"engine{side}_command"):
+                    altered = dict(raw, **{field: None})
+                    path.write_text(json.dumps(altered))
+                    self.assertIsNotNone(validate_candidate_baseline_evidence(path, *weights, 24, ("/engine", "/engine")))
+
+    def test_dual_halfkp_cli_rejects_invalid_combinations_and_side_overrides(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate, baseline = root / "candidate", root / "baseline"
+            candidate.write_bytes(b"candidate"); baseline.write_bytes(b"baseline")
+            required = ["selfplay", "--engine-a", "engine", "--engine-b", "engine", "--candidate-evalfile", str(candidate),
+                        "--baseline-evalfile", str(baseline), "--openings-manifest", "manifest", "--result-json", str(root / "result")]
+            cases = [
+                ["selfplay", "--engine-a", "engine", "--engine-b", "engine", "--baseline-evalfile", str(baseline)],
+                ["yaneuraou", "--engine-a", "engine", "--yaneuraou", "engine", "--evalfile", "shared", "--candidate-evalfile", str(candidate), "--baseline-evalfile", str(baseline)],
+                required + ["--evalfile", "shared"],
+                required[:required.index("--openings-manifest")] + ["--result-json", str(root / "result")],
+                required + ["--baseline-evalfile", str(root / "missing")],
+                required + ["--candidate-evalfile", str(root / "missing")],
+                required + ["--baseline-evalfile", str(candidate)],
+            ]
+            clone = root / "same-content"; clone.write_bytes(candidate.read_bytes())
+            cases.append(required + ["--baseline-evalfile", str(clone)])
+            for side in ("a", "b"):
+                for option in ("EvalFile=other", "FV_SCALE=16", "NnueOutput=residual-material"):
+                    cases.append(required + [f"--option-{side}", option])
+            for argv in cases:
+                with self.subTest(argv=argv), patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit) as error:
+                    parse_args(argv)
+                self.assertEqual(error.exception.code, 2)
 
     def test_bounds_match_wald_for_five_percent_errors(self):
         lower, upper = sprt_bounds()
