@@ -391,7 +391,7 @@ expected response, elapsed wait and buffered partial-line byte count. Its
 absolute response deadline uses the opponent's advertised time control and
 remaining time inferred from received move echoes. Our move echo has a
 2-minute deadline. `--active-receive-deadline-seconds` can
-override it for a controlled run. Between games the 40-minute read timeout
+override it for a controlled run. Between games the 70-minute read timeout
 still applies. A waiting-state `WouldBlock` or `TimedOut` read records
 `between_game_receive_timeout` with the raw error kind/errno, time since the
 last server line, and buffered partial-line size. It ends the bounded run

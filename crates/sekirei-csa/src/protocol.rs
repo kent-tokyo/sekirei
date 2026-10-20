@@ -33,7 +33,9 @@ use framing::CsaLineReader;
 use time_control::{CsaTimeControlSet, ParsedTimeControl};
 
 const TOURNAMENT_MAX_PLIES: usize = 512;
-const BETWEEN_GAME_READ_TIMEOUT: Duration = Duration::from_secs(40 * 60);
+// Floodgate pairs at :00 and :30. Span two slots even when the first is skipped,
+// then allow ten minutes for a delayed server response before stopping the run.
+const BETWEEN_GAME_READ_TIMEOUT: Duration = Duration::from_secs(70 * 60);
 const DEFAULT_ACTIVE_READ_POLL: Duration = Duration::from_secs(20);
 const OWN_MOVE_ECHO_DEADLINE: Duration = Duration::from_secs(2 * 60);
 
@@ -446,7 +448,7 @@ impl CsaClient {
         eprintln!("[csa] connecting to {addr}");
         write_runtime_status_progress(&config, "connecting", None, completed_attempts, None);
         let stream = TcpStream::connect(&addr)?;
-        // The inter-game wait may last 30 minutes. Active reads use short
+        // The inter-game wait may span a skipped pairing slot. Active reads use short
         // diagnostic ticks and a separate absolute deadline after START.
         stream.set_read_timeout(Some(BETWEEN_GAME_READ_TIMEOUT))?;
 
