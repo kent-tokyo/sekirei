@@ -443,6 +443,7 @@ jobs:
             scripts/test_validate_nnue_release_artifact.py \
             scripts/test_nnue_gate_host.py \
             scripts/test_run_observed_process.py \
+            scripts/test_run_halfkp_pilot.py \
             scripts/test_validate_nnue_candidate_card.py
       - name: Search diagnostic tooling tests
         run: |

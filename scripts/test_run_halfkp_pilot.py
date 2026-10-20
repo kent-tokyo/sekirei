@@ -3,9 +3,11 @@
 import json
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_halfkp_pilot as pilot
 from split_gensfen_by_game import load_records, connected_games
 
