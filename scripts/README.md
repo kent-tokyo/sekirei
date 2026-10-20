@@ -354,7 +354,7 @@ requires input hashes, fresh outputs and known identity-only exclusions,
 removes whole games touching known holdouts, normalizes SFEN move counters
 before game-level splitting, and records durable progress or a terminal
 failure. Each phase waits for three host samples with at most 400% total CPU.
-Generation requires 3 GiB free, data preparation/training 2 GiB, packing
+Generation/data preparation/training require 2 GiB free, packing
 1.5 GiB, and export loading 768 MiB; 128 MiB is physically reserved for
 emergency exit records. Large exclusion sets live only in a separate preparation
 process after generation. A trained output remains unqualified until a separate independent

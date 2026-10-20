@@ -218,7 +218,7 @@ def run_locked(plan_path):
                 time.sleep(5)
         state['status']=previous_status
         snapshot()
-    def command(argv, name, timeout, min_free=3072, stop_file=None):
+    def command(argv, name, timeout, min_free=2048, stop_file=None):
         nonlocal proc, stop_requested
         pins()
         capacity(name,min_free)
