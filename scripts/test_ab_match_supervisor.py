@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Process-level regression tests for the one-shot A/B gate supervisor."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,9 +10,12 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 
 ROOT = Path(__file__).resolve().parent
+
+from ab_match_supervisor import _inputs  # noqa: E402
 
 FAKE_MATCH = r'''#!/usr/bin/env python3
 import json
@@ -156,6 +160,22 @@ class SupervisorTest(unittest.TestCase):
         self.assertEqual(receipt["status"], "completed")
         self.assertTrue(receipt["evidence"]["complete"])
         self.assertEqual(receipt["result"]["games_played"], 1)
+
+    def test_supervisor_pins_both_dual_evaluator_files(self):
+        evaluator_a = self.base / "nn_r6.bin"
+        evaluator_b = self.base / "nn_r4.bin"
+        evaluator_a.write_bytes(b"r6")
+        evaluator_b.write_bytes(b"r4")
+        args = SimpleNamespace(
+            mode="selfplay", engine_a=str(self.engine), engine_b=str(self.engine),
+            yaneuraou=None, match_binary=str(self.match), openings=str(self.openings),
+            evalfile="none", candidate_evalfile=None, evalfile_a=str(evaluator_a),
+            evalfile_b=str(evaluator_b), openings_manifest=None,
+            gate_observation_declaration=None, option_a=[], option_b=[],
+        )
+        inputs = _inputs(args)
+        self.assertEqual(inputs["evaluator_a"]["sha256"], hashlib.sha256(b"r6").hexdigest())
+        self.assertEqual(inputs["evaluator_b"]["sha256"], hashlib.sha256(b"r4").hexdigest())
 
 
 if __name__ == "__main__":

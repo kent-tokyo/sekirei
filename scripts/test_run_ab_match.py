@@ -29,6 +29,7 @@ from run_ab_match import (  # noqa: E402
     sprt_llr,
     terminate_match_process_group,
     validate_candidate_material_evidence,
+    validate_dual_evaluator_evidence,
     validate_raw_match_evidence,
     yaneuraou_options,
 )
@@ -268,6 +269,73 @@ class SprtTest(unittest.TestCase):
         self.assertIn("NnueOutput=absolute", engine1_options)
         self.assertFalse(any(option.startswith(("EvalFile=", "FV_SCALE=", "NnueOutput=")) for option in engine2_options))
         self.assertEqual(result["evidence"]["evaluation"]["mode"], "candidate-halfkp-vs-material")
+
+    def test_dual_evaluator_evidence_requires_two_exact_weight_loads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            raw_path = Path(directory) / "match.json"
+            evaluator_a = str((Path(directory) / "nn_r6.bin").resolve())
+            evaluator_b = str((Path(directory) / "nn_r4.bin").resolve())
+            raw_path.write_text(
+                json.dumps(
+                    {
+                        "engine1_options": {"EvalFile": evaluator_a, "FV_SCALE": "24", "NnueOutput": "absolute"},
+                        "engine2_options": {"EvalFile": evaluator_b, "FV_SCALE": "24", "NnueOutput": "absolute"},
+                        "engine1_eval_file_acknowledgement": f"info string NNUE weights loaded from {evaluator_a}",
+                        "engine2_eval_file_acknowledgement": f"info string NNUE weights loaded from {evaluator_b}",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertIsNone(validate_dual_evaluator_evidence(raw_path, evaluator_a, evaluator_b, 24))
+            raw = json.loads(raw_path.read_text(encoding="utf-8"))
+            raw["engine2_eval_file_acknowledgement"] = None
+            raw_path.write_text(json.dumps(raw), encoding="utf-8")
+            self.assertIn(
+                "engine B evaluator load acknowledgement",
+                validate_dual_evaluator_evidence(raw_path, evaluator_a, evaluator_b, 24),
+            )
+
+    def test_dual_evaluator_gate_pins_both_evaluators(self):
+        process = _FakeMatchProcess(["→ Draw\n"])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            evaluator_a, evaluator_b = root / "nn_r6.bin", root / "nn_r4.bin"
+            engine, runner, openings = root / "sekirei", root / "sekirei-match", root / "openings.usi"
+            for path, content in ((evaluator_a, b"r6"), (evaluator_b, b"r4"), (engine, b"engine"), (runner, b"runner")):
+                path.write_bytes(content)
+            openings.write_text("startpos\n", encoding="utf-8")
+            snapshot = {
+                "sha256": "1" * 64,
+                "match_binary_sha256": hashlib.sha256(runner.read_bytes()).hexdigest(),
+            }
+            result_path = root / "result.json"
+            argv = [
+                "run_ab_match.py", "selfplay", "--engine-a", str(engine), "--engine-b", str(engine),
+                "--match-binary", str(runner), "--openings", str(openings),
+                "--openings-manifest", str(root / "manifest.json"),
+                "--evalfile-a", str(evaluator_a), "--evalfile-b", str(evaluator_b), "--games", "1",
+                "--out-dir", str(root / "match-output"), "--result-json", str(result_path),
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.validate_corpus", side_effect=[snapshot, snapshot]
+            ), patch(
+                "run_ab_match.subprocess.Popen", return_value=process
+            ) as popen, patch(
+                "run_ab_match.validate_dual_evaluator_evidence", return_value=None
+            ), patch("run_ab_match.runner_identity", return_value={}), patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(main(), 0)
+            result = json.loads(result_path.read_text())
+        command = popen.call_args.args[0]
+        options_a = [command[index + 1] for index, item in enumerate(command[:-1]) if item == "--engine-option1"]
+        options_b = [command[index + 1] for index, item in enumerate(command[:-1]) if item == "--engine-option2"]
+        self.assertIn(f"EvalFile={evaluator_a.resolve()}", options_a)
+        self.assertIn(f"EvalFile={evaluator_b.resolve()}", options_b)
+        self.assertIn("NnueOutput=absolute", options_a)
+        self.assertIn("NnueOutput=absolute", options_b)
+        self.assertEqual(result["evidence"]["evaluation"]["mode"], "halfkp-vs-halfkp")
+        self.assertEqual(result["configuration"]["fv_scale"], 24)
+        self.assertEqual(result["evidence"]["evaluation"]["files"]["a"]["sha256"], hashlib.sha256(b"r6").hexdigest())
+        self.assertEqual(len(result["evidence"]["pinned_inputs_before_match"]), 7)
 
     def test_candidate_material_gate_rejects_evaluator_side_overrides(self):
         argv = [

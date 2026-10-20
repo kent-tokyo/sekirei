@@ -170,9 +170,10 @@ all full histories passed the real runner validator. This smoke is diagnostic
 only, with no independence qualification. See [validation.json](validation.json).
 Coverage was not remeasured locally.
 
-No independent 400-opening corpus is frozen: complete owner exclusion scopes
-are unavailable. An existing legacy gate process was present and was not
-interrupted; no second match was started. Disk space fluctuated below 512 MiB,
-then recovered for bounded tests. Only this task's unused duplicate example
-build outputs were removed; frozen smoke tools/raw/logs were retained. No new
-depth, Elo, H1 or adoption result follows from this preparation.
+No independent 400-opening corpus is frozen yet. The r6 qualification now
+provides complete, owner-attested identity-only manifests for diagnostic,
+previous-strength-gate and NNUE hold-out scopes; their resolved paths and
+hashes must be revalidated immediately before freezing a new corpus. An
+existing external match is active, so no second CPU-bound match or generation
+is started until it reaches a terminal state. No new depth, Elo, H1 or
+adoption result follows from this preparation.

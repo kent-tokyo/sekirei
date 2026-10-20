@@ -5,6 +5,8 @@ Wraps ``sekirei-match`` with the settings used for local search diagnostics.
 The defaults are one search thread per engine, ``SpecTopN=0``, no opening
 book, material-only evaluation, and colour-paired opening positions. Pass an
 explicit ``--evalfile`` only when both sides should use the same HalfKP file.
+``--evalfile-a`` and ``--evalfile-b`` instead bind two distinct, explicit
+HalfKP files to a self-play comparison and record both load acknowledgements.
 For an independently frozen candidate-versus-material gate, use
 ``--candidate-evalfile`` with ``--openings-manifest``.  That mode pins a
 HalfKP evaluator to engine A only, keeps engine B material-only, and verifies
@@ -641,6 +643,45 @@ def validate_candidate_material_evidence(
     return None
 
 
+def validate_dual_evaluator_evidence(
+    raw_json_path: Path, evalfile_a: str, evalfile_b: str, fv_scale: int
+) -> str | None:
+    """Verify both self-play arms loaded their separately declared weights.
+
+    A same-binary NNUE comparison is meaningful only when the runner's option
+    snapshot and startup acknowledgements independently bind each arm.  This
+    deliberately rejects a missing acknowledgement, an accidental shared
+    weight file, or a non-absolute output mode rather than estimating a result
+    from an ambiguous match.
+    """
+    try:
+        raw = json.loads(raw_json_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return f"cannot read raw match JSON for dual evaluator validation: {type(error).__name__}: {error}"
+    if not isinstance(raw, dict):
+        return "raw match JSON must contain one object for dual evaluator validation"
+    option_sets = (raw.get("engine1_options"), raw.get("engine2_options"))
+    acknowledgements = (
+        raw.get("engine1_eval_file_acknowledgement"),
+        raw.get("engine2_eval_file_acknowledgement"),
+    )
+    for side, options, acknowledgement, evalfile in zip(
+        ("A", "B"), option_sets, acknowledgements, (evalfile_a, evalfile_b), strict=True
+    ):
+        if not isinstance(options, dict):
+            return f"raw match JSON is missing engine {side} option snapshot"
+        if options.get("EvalFile") != evalfile:
+            return f"engine {side} EvalFile does not match its declared evaluator"
+        if str(options.get("FV_SCALE")) != str(fv_scale):
+            return f"engine {side} FV_SCALE does not match the declared scale"
+        if options.get("NnueOutput") != "absolute":
+            return f"engine {side} NnueOutput is not the required absolute mode"
+        expected = f"info string NNUE weights loaded from {evalfile}"
+        if acknowledgement != expected:
+            return f"engine {side} evaluator load acknowledgement does not match the declared file"
+    return None
+
+
 def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool, SprtSpec | None]:
     """Parse and validate the complete match contract before creating outputs."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -658,6 +699,20 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         help=(
             "frozen HalfKP nn.bin used by engine A only against a material-only "
             "engine B; requires selfplay, --evalfile none, and --openings-manifest"
+        ),
+    )
+    parser.add_argument(
+        "--evalfile-a",
+        help=(
+            "frozen HalfKP nn.bin used by self-play engine A only; must be paired "
+            "with --evalfile-b and a machine-readable result"
+        ),
+    )
+    parser.add_argument(
+        "--evalfile-b",
+        help=(
+            "frozen HalfKP nn.bin used by self-play engine B only; must be paired "
+            "with --evalfile-a and a machine-readable result"
         ),
     )
     parser.add_argument("--fv-scale", type=int, default=24)
@@ -739,6 +794,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         parser.error("yaneuraou mode needs --yaneuraou")
     material_only = args.evalfile.lower() in {"none", "material"}
     candidate_material_gate = args.candidate_evalfile is not None
+    dual_evaluator_gate = args.evalfile_a is not None or args.evalfile_b is not None
     if args.mode == "yaneuraou" and material_only:
         parser.error("yaneuraou mode needs an explicit --evalfile")
     if candidate_material_gate:
@@ -752,6 +808,23 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         if not candidate_path.is_file():
             parser.error("--candidate-evalfile must name an existing regular file")
         args.candidate_evalfile = str(candidate_path)
+    if dual_evaluator_gate:
+        if args.mode != "selfplay":
+            parser.error("--evalfile-a/--evalfile-b are only supported for selfplay")
+        if candidate_material_gate:
+            parser.error("--evalfile-a/--evalfile-b cannot be combined with --candidate-evalfile")
+        if not material_only:
+            parser.error("--evalfile-a/--evalfile-b require --evalfile none or material")
+        if not args.evalfile_a or not args.evalfile_b:
+            parser.error("--evalfile-a and --evalfile-b must be supplied together")
+        if not args.result_json:
+            parser.error("--evalfile-a/--evalfile-b require --result-json")
+        paths = [Path(value).expanduser().resolve() for value in (args.evalfile_a, args.evalfile_b)]
+        if any(not path.is_file() for path in paths):
+            parser.error("--evalfile-a and --evalfile-b must name existing regular files")
+        if paths[0] == paths[1]:
+            parser.error("--evalfile-a and --evalfile-b must name distinct files")
+        args.evalfile_a, args.evalfile_b = (str(path) for path in paths)
     if args.games <= 0:
         parser.error("--games must be positive")
     if args.games_per_position is not None and args.games_per_position <= 0:
@@ -789,7 +862,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
                 parser.error("independent gate options must be single-line")
             option_name = option.partition("=")[0].strip().casefold()
             protected_options = {"evalfile"}
-            if candidate_material_gate:
+            if candidate_material_gate or dual_evaluator_gate:
                 protected_options.update({"fv_scale", "nnueoutput"})
             if option_name in protected_options:
                 parser.error("independent gates cannot override evaluator options through side options")
@@ -822,6 +895,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
 def main() -> int:
     args, material_only, sprt = parse_args()
     candidate_material_gate = args.candidate_evalfile is not None
+    dual_evaluator_gate = args.evalfile_a is not None
     if args.supervised:
         from ab_match_supervisor import supervise
         return supervise(args, sys.argv[1:])
@@ -839,6 +913,7 @@ def main() -> int:
             return 2
     corpus_evidence = None
     frozen_inputs = None
+    dual_evaluator_inputs = None
     if args.openings_manifest:
         try:
             corpus_evidence = validate_corpus(Path(args.openings_manifest), Path(args.openings))
@@ -850,6 +925,8 @@ def main() -> int:
             ]
             if candidate_material_gate:
                 independent_inputs.append(args.candidate_evalfile)
+            elif dual_evaluator_gate:
+                independent_inputs.extend((args.evalfile_a, args.evalfile_b))
             frozen_inputs = [file_identity(path) for path in independent_inputs]
             if any(not item or not item.get("exists") or not item.get("sha256") for item in frozen_inputs):
                 raise ValueError("independent corpus requires explicit existing engine and runner files")
@@ -858,6 +935,11 @@ def main() -> int:
                 raise ValueError("match binary differs from the corpus history validator")
         except (OSError, UnicodeError, KeyError, TypeError, ValueError) as error:
             print(f"invalid independent opening evidence: {error}", file=sys.stderr)
+            return 2
+    if dual_evaluator_gate:
+        dual_evaluator_inputs = [file_identity(args.evalfile_a), file_identity(args.evalfile_b)]
+        if any(not item or not item.get("exists") or not item.get("sha256") for item in dual_evaluator_inputs):
+            print("invalid dual evaluator evidence: evaluator identity is incomplete", file=sys.stderr)
             return 2
     out.mkdir(parents=True, exist_ok=True)
     engine2 = args.engine_b if args.mode == "selfplay" else args.yaneuraou
@@ -892,26 +974,36 @@ def main() -> int:
         command += ["--games-per-position", str(args.games_per_position)]
     command += sekirei_options(
         "--engine-option1",
-        args.candidate_evalfile if candidate_material_gate else None if material_only else args.evalfile,
+        (
+            args.candidate_evalfile
+            if candidate_material_gate
+            else args.evalfile_a if dual_evaluator_gate else None if material_only else args.evalfile
+        ),
         args.fv_scale,
         args.threads_a,
         args.search_mode_a,
         args.spec_top_n_a,
         args.hash,
     )
-    if candidate_material_gate:
+    if candidate_material_gate or dual_evaluator_gate:
         command += ["--engine-option1", "NnueOutput=absolute"]
     command += [arg for option in args.option_a for arg in ("--engine-option1", option)]
     if args.mode == "selfplay":
         command += sekirei_options(
             "--engine-option2",
-            None if candidate_material_gate or material_only else args.evalfile,
+            (
+                None
+                if candidate_material_gate
+                else args.evalfile_b if dual_evaluator_gate else None if material_only else args.evalfile
+            ),
             args.fv_scale,
             args.threads_b,
             args.search_mode_b,
             args.spec_top_n_b,
             args.hash,
         )
+        if dual_evaluator_gate:
+            command += ["--engine-option2", "NnueOutput=absolute"]
     else:
         command += yaneuraou_options(
             args.evalfile, args.fv_scale, args.nodes_limit, args.threads_b, args.hash
@@ -1015,59 +1107,74 @@ def main() -> int:
             # Crossing a numerical boundary is not an accepted verdict when
             # the durable observations cannot be verified.
             verdict = ""
-        elif candidate_material_gate:
-            candidate_evidence_error = validate_candidate_material_evidence(
-                raw_json_path, args.candidate_evalfile, args.fv_scale
-            )
-            if candidate_evidence_error is not None:
-                launch_error = f"EvidenceError: {candidate_evidence_error}"
+        else:
+            evaluator_evidence_error = None
+            if candidate_material_gate:
+                evaluator_evidence_error = validate_candidate_material_evidence(
+                    raw_json_path, args.candidate_evalfile, args.fv_scale
+                )
+            elif dual_evaluator_gate:
+                evaluator_evidence_error = validate_dual_evaluator_evidence(
+                    raw_json_path, args.evalfile_a, args.evalfile_b, args.fv_scale
+                )
+            if evaluator_evidence_error is not None:
+                launch_error = f"EvidenceError: {evaluator_evidence_error}"
                 if process_code in {None, 0} or terminated_for_sprt:
                     process_code = 1
                 verdict = ""
-        elif sprt is not None:
-            try:
-                durable_counts, durable_llr, durable_verdict = replay_durable_sprt(
-                    raw_json_path,
-                    sprt=sprt,
-                    paired=args.paired_sprt,
-                )
-            except (OSError, UnicodeError, json.JSONDecodeError, KeyError, ValueError) as error:
-                launch_error = (
-                    "EvidenceError: cannot replay durable SPRT observations: "
-                    f"{type(error).__name__}: {error}"
-                )
-                process_code = 1
-                verdict = ""
-            else:
-                streamed_counts = (
-                    (pair_wins, pair_losses, pair_draws)
-                    if args.paired_sprt
-                    else (wins, losses, draws)
-                )
-                streamed_llr = sprt_llr(*streamed_counts, sprt[0], sprt[1])
-                if (
-                    durable_counts != streamed_counts
-                    or not math.isclose(durable_llr, streamed_llr, rel_tol=1e-12, abs_tol=1e-12)
-                    or durable_verdict != verdict
-                ):
+            if launch_error is None and sprt is not None:
+                try:
+                    durable_counts, durable_llr, durable_verdict = replay_durable_sprt(
+                        raw_json_path,
+                        sprt=sprt,
+                        paired=args.paired_sprt,
+                    )
+                except (OSError, UnicodeError, json.JSONDecodeError, KeyError, ValueError) as error:
                     launch_error = (
-                        "EvidenceError: durable SPRT replay disagrees with stdout: "
-                        f"durable={durable_counts}/{durable_llr:+.12f}/{durable_verdict!r}, "
-                        f"streamed={streamed_counts}/{streamed_llr:+.12f}/{verdict!r}"
+                        "EvidenceError: cannot replay durable SPRT observations: "
+                        f"{type(error).__name__}: {error}"
                     )
                     process_code = 1
                     verdict = ""
+                else:
+                    streamed_counts = (
+                        (pair_wins, pair_losses, pair_draws)
+                        if args.paired_sprt
+                        else (wins, losses, draws)
+                    )
+                    streamed_llr = sprt_llr(*streamed_counts, sprt[0], sprt[1])
+                    if (
+                        durable_counts != streamed_counts
+                        or not math.isclose(durable_llr, streamed_llr, rel_tol=1e-12, abs_tol=1e-12)
+                        or durable_verdict != verdict
+                    ):
+                        launch_error = (
+                            "EvidenceError: durable SPRT replay disagrees with stdout: "
+                            f"durable={durable_counts}/{durable_llr:+.12f}/{durable_verdict!r}, "
+                            f"streamed={streamed_counts}/{streamed_llr:+.12f}/{verdict!r}"
+                        )
+                        process_code = 1
+                        verdict = ""
     if corpus_evidence is not None:
         try:
             current_corpus = validate_corpus(Path(args.openings_manifest), Path(args.openings))
             independent_inputs = [args.engine_a, engine2, *INDEPENDENT_DRIVER_FILES, args.match_binary]
             if candidate_material_gate:
                 independent_inputs.append(args.candidate_evalfile)
+            elif dual_evaluator_gate:
+                independent_inputs.extend((args.evalfile_a, args.evalfile_b))
             current_inputs = [file_identity(path) for path in independent_inputs]
             if current_corpus != corpus_evidence or current_inputs != frozen_inputs:
                 raise ValueError("independent gate inputs changed during the match")
         except (OSError, UnicodeError, KeyError, TypeError, ValueError) as error:
             launch_error = f"EvidenceError: {error}"
+            process_code = 1
+            verdict = ""
+    if dual_evaluator_inputs is not None:
+        current_evaluator_inputs = [file_identity(args.evalfile_a), file_identity(args.evalfile_b)]
+        if current_evaluator_inputs != dual_evaluator_inputs:
+            changed = "EvidenceError: dual evaluator inputs changed during the match"
+            launch_error = f"{launch_error}; {changed}" if launch_error else changed
             process_code = 1
             verdict = ""
     if evaluator_binding is not None:
@@ -1163,7 +1270,11 @@ def main() -> int:
                 "games_per_position": args.games_per_position,
                 "byoyomi_ms": args.byoyomi,
                 "nodes_limit": args.nodes_limit if args.mode == "yaneuraou" else None,
-                "fv_scale": None if material_only and not candidate_material_gate else args.fv_scale,
+                "fv_scale": (
+                    None
+                    if material_only and not candidate_material_gate and not dual_evaluator_gate
+                    else args.fv_scale
+                ),
                 "hash_mb": args.hash,
                 "threads": {"a": args.threads_a, "b": args.threads_b},
                 "search_mode": {"a": args.search_mode_a, "b": args.search_mode_b},
@@ -1216,12 +1327,25 @@ def main() -> int:
                     "mode": (
                         "candidate-halfkp-vs-material"
                         if candidate_material_gate
+                        else "halfkp-vs-halfkp"
+                        if dual_evaluator_gate
                         else "material" if material_only else "halfkp"
                     ),
                     "file": (
                         file_identity(args.candidate_evalfile)
                         if candidate_material_gate
-                        else None if material_only else file_identity(args.evalfile)
+                        else None if dual_evaluator_gate or material_only else file_identity(args.evalfile)
+                    ),
+                    **(
+                        {
+                            "files": {
+                                "a": file_identity(args.evalfile_a),
+                                "b": file_identity(args.evalfile_b),
+                            },
+                            "nnue_output": "absolute",
+                        }
+                        if dual_evaluator_gate
+                        else {}
                     ),
                     **(
                         {
