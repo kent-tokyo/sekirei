@@ -365,6 +365,84 @@ def test_one_shot_preserves_reported_run_error_terminal_reason():
         assert events[-1]["kind"] == "one_shot_complete"
 
 
+def test_one_shot_idle_timeout_keeps_enospc_evidence_and_never_replays():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        state_dir = root / "state"
+        status_file = root / "client-status.json"
+        child_runs = root / "child-runs.txt"
+        code = (
+            "import json, os, pathlib, time; "
+            f"p=pathlib.Path({str(status_file)!r}); "
+            f"runs=pathlib.Path({str(child_runs)!r}); runs.write_text('x'); "
+            "status={'schema':'sekirei.csa-runtime-status.v1',"
+            "'state':'waiting_for_game','event':None,'timestamp_ms':int(time.time()*1000),"
+            "'pid':os.getpid(),'session_id':'session-1','active_game_id':None,"
+            "'completed_attempts':3,'max_games':10,'terminal_stop_reason':None}; "
+            "p.write_text(json.dumps(status)); time.sleep(0.2); "
+            "status.update({'state':'client_error','event':'between_game_receive_timeout',"
+            "'timestamp_ms':int(time.time()*1000),"
+            "'terminal_stop_reason':'between_game_receive_timeout',"
+            "'between_game_receive_error_kind':'WouldBlock',"
+            "'between_game_receive_os_error':35,"
+            "'between_game_receive_idle_ms':2400000}); "
+            "p.write_text(json.dumps(status)); time.sleep(0.2); raise SystemExit(1)"
+        )
+        real_open = Path.open
+        real_write_json = supervisor.write_json
+
+        def fail_event_journal_after_timeout(path, *args, **kwargs):
+            if path.name == "events.jsonl" and args[:1] == ("a",) and status_file.exists():
+                try:
+                    status = json.loads(status_file.read_text())
+                except json.JSONDecodeError:
+                    status = {}
+                if status.get("terminal_stop_reason") == "between_game_receive_timeout":
+                    raise OSError(errno.ENOSPC, "injected event journal failure")
+            return real_open(path, *args, **kwargs)
+
+        def fail_state_on_transition(path, value):
+            if path.name == "state.json" and value.get("kind") == "client_status_changed":
+                raise OSError(errno.ENOSPC, "injected state failure")
+            return real_write_json(path, value)
+
+        with patch.object(Path, "open", fail_event_journal_after_timeout), \
+                patch.object(supervisor, "write_json", fail_state_on_transition):
+            result = supervisor.run(
+                [sys.executable, "-c", code], state_dir, root / "stop",
+                max_restarts=5, restart_window=60.0, restart_delay=0.0,
+                poll_seconds=0.01, client_status_file=status_file,
+                client_status_max_age=2.0, one_shot=True,
+            )
+        assert result == 0
+        completion = json.loads((state_dir / "one-shot-complete.json").read_text())
+        assert completion["terminal_reason"] == "between_game_receive_timeout"
+        assert completion["completed_attempts"] == 3
+        assert completion["max_games"] == 10
+        assert completion["child_exit_code"] == 1
+        assert completion["incomplete_game"] is None
+        assert any("events.jsonl (client_status_changed): errno=28" in error
+                   for error in completion["persistence_errors"])
+        assert any("state.json (client_status_changed): errno=28" in error
+                   for error in completion["persistence_errors"])
+        status = json.loads(status_file.read_text())
+        assert status["between_game_receive_error_kind"] == "WouldBlock"
+        assert status["between_game_receive_os_error"] == 35
+        assert status["between_game_receive_idle_ms"] == 2400000
+        assert status["active_game_id"] is None
+        assert child_runs.read_text() == "x"
+
+        with patch.object(supervisor.subprocess, "Popen",
+                          side_effect=AssertionError("child replayed")):
+            repeated = supervisor.run(
+                [sys.executable, "-c", code], state_dir, root / "stop",
+                max_restarts=5, restart_window=60.0, restart_delay=0.0,
+                poll_seconds=0.01, client_status_file=status_file, one_shot=True,
+            )
+        assert repeated == 0
+        assert child_runs.read_text() == "x"
+
+
 def test_one_shot_persists_mid_game_child_failure_without_counting_incomplete_game():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -869,6 +947,7 @@ if __name__ == "__main__":
     test_one_shot_records_interrupted_zero_game_session_and_never_respawns()
     test_one_shot_preserves_normal_max_games_terminal_reason()
     test_one_shot_preserves_reported_run_error_terminal_reason()
+    test_one_shot_idle_timeout_keeps_enospc_evidence_and_never_replays()
     test_one_shot_persists_mid_game_child_failure_without_counting_incomplete_game()
     test_one_shot_finalizes_after_exited_state_snapshot_failure()
     test_one_shot_finalizes_after_event_journal_failure()

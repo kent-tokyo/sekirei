@@ -245,6 +245,10 @@ fn current_timestamp_ms() -> u128 {
 struct RuntimeStatusDetails {
     active_game_id: Option<String>,
     last_server_received_ms: Option<u128>,
+    between_game_receive_error_kind: Option<String>,
+    between_game_receive_os_error: Option<i32>,
+    between_game_receive_idle_ms: Option<u128>,
+    between_game_receive_partial_line_bytes: Option<usize>,
     last_our_move_sent_ms: Option<u128>,
     last_opponent_move_ms: Option<u128>,
     active_receive_phase: Option<&'static str>,
@@ -276,6 +280,10 @@ fn write_runtime_status_snapshot(
         "active_game_id": &details.active_game_id,
         "session_id": &details.session_id,
         "last_server_received_ms": details.last_server_received_ms,
+        "between_game_receive_error_kind": &details.between_game_receive_error_kind,
+        "between_game_receive_os_error": details.between_game_receive_os_error,
+        "between_game_receive_idle_ms": details.between_game_receive_idle_ms,
+        "between_game_receive_partial_line_bytes": details.between_game_receive_partial_line_bytes,
         "last_our_move_sent_ms": details.last_our_move_sent_ms,
         "last_opponent_move_ms": details.last_opponent_move_ms,
         "active_receive_phase": details.active_receive_phase,
@@ -556,6 +564,8 @@ impl CsaClient {
             && self.config.max_games.is_some()
             && self.status_details.active_game_id.is_none()
             && self.status_state != "client_error"
+            && self.status_details.terminal_stop_reason.as_deref()
+                != Some("between_game_receive_timeout")
             && matches!(
                 error.kind(),
                 io::ErrorKind::UnexpectedEof
@@ -760,6 +770,36 @@ impl CsaClient {
             }
             Err(error) if error.kind() == io::ErrorKind::InvalidData => {
                 self.stop_for_protocol_error("invalid_server_line");
+                return Err(error);
+            }
+            Err(error)
+                if self.status_state == "waiting_for_game"
+                    && self.status_details.active_game_id.is_none()
+                    && matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+            {
+                let idle_ms = self
+                    .status_details
+                    .last_server_received_ms
+                    .map(|last| current_timestamp_ms().saturating_sub(last));
+                self.status_details.between_game_receive_error_kind =
+                    Some(format!("{:?}", error.kind()));
+                self.status_details.between_game_receive_os_error = error.raw_os_error();
+                self.status_details.between_game_receive_idle_ms = idle_ms;
+                self.status_details.between_game_receive_partial_line_bytes =
+                    Some(self.reader.pending_bytes());
+                self.status_details.terminal_stop_reason =
+                    Some("between_game_receive_timeout".into());
+                self.set_status("connection_error", Some("between_game_receive_timeout"));
+                eprintln!(
+                    "[csa] between-game receive timeout: kind={:?}, os_error={:?}, \
+                     idle_ms={idle_ms:?}, partial_line_bytes={}",
+                    error.kind(),
+                    error.raw_os_error(),
+                    self.reader.pending_bytes()
+                );
                 return Err(error);
             }
             Err(error) => {
@@ -2020,10 +2060,10 @@ mod tests {
         AnalysisLog, Color, Config, CsaClient, EvaluationMode, GameRecord, GameResult,
         RecordMetadata, RootCandidateRecord, RuntimeStatusDetails, ServerLine,
         TOURNAMENT_MAX_PLIES, ThinkResult, advance_tournament_ply, bare_server_move,
-        classify_server_line, clock_after_echo, csa_think_budget_ms, game_result_name, json_string,
-        opponent_receive_deadline, parse_game_end, parse_our_color, parse_time_from_echo,
-        pv_to_csa, root_candidates_json, score_kind, update_run_manifest_game,
-        update_run_manifest_progress, write_reconnect_exhausted_progress,
+        classify_server_line, clock_after_echo, csa_think_budget_ms, current_timestamp_ms,
+        game_result_name, json_string, opponent_receive_deadline, parse_game_end, parse_our_color,
+        parse_time_from_echo, pv_to_csa, root_candidates_json, score_kind,
+        update_run_manifest_game, update_run_manifest_progress, write_reconnect_exhausted_progress,
         write_runtime_status_progress, write_runtime_status_snapshot,
     };
     use sekirei_core::board::Board;
@@ -2445,6 +2485,153 @@ mod tests {
             client.recv().unwrap_err().kind(),
             io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
         ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn between_game_receive_timeout_preserves_kind_errno_and_progress() {
+        use sekirei_core::search::Searcher;
+        use sekirei_core::tt::Tt;
+
+        let root = unique_test_directory("between-game-receive-timeout");
+        fs::create_dir_all(&root).unwrap();
+        let cases = [
+            (
+                "would-block",
+                "waiting_for_game",
+                io::Error::from_raw_os_error(if cfg!(target_os = "macos") { 35 } else { 11 }),
+                "WouldBlock",
+                true,
+            ),
+            (
+                "timed-out",
+                "waiting_for_game",
+                io::Error::new(io::ErrorKind::TimedOut, "scripted timeout"),
+                "TimedOut",
+                true,
+            ),
+            (
+                "active-game",
+                "in_game",
+                io::Error::new(io::ErrorKind::WouldBlock, "scripted active receive"),
+                "WouldBlock",
+                false,
+            ),
+        ];
+        for (name, state, read_error, expected_kind, between_games) in cases {
+            let expected_os_error = read_error.raw_os_error();
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let stream = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+            let (_server, _) = listener.accept().unwrap();
+            let status_file = root.join(format!("{name}.json"));
+            let mut client = CsaClient {
+                reader: CsaLineReader::new(stream.try_clone().unwrap()),
+                writer: stream,
+                searcher: Searcher::new(Tt::new(1)),
+                config: Config {
+                    keep_alive: true,
+                    max_games: Some(10),
+                    status_file: Some(status_file.clone()),
+                    ..Config::default()
+                },
+                status_state: state,
+                status_event: None,
+                status_details: RuntimeStatusDetails {
+                    active_game_id: (state == "in_game").then(|| "active-game".into()),
+                    last_server_received_ms: Some(current_timestamp_ms().saturating_sub(2_400)),
+                    completed_attempts: 3,
+                    ..RuntimeStatusDetails::default()
+                },
+                awaiting_aborted_game_result: false,
+            };
+            let error = client.process_received(Err(read_error)).unwrap_err();
+            assert_eq!(format!("{:?}", error.kind()), expected_kind);
+            assert!(!client.can_reconnect_after_run_error(&error));
+            client.mark_run_error(3);
+            let status: serde_json::Value =
+                serde_json::from_str(&fs::read_to_string(status_file).unwrap()).unwrap();
+            assert_eq!(status["state"], "client_error");
+            assert_eq!(status["completed_attempts"], 3);
+            assert_eq!(status["max_games"], 10);
+            if between_games {
+                assert_eq!(status["event"], "between_game_receive_timeout");
+                assert_eq!(
+                    status["terminal_stop_reason"],
+                    "between_game_receive_timeout"
+                );
+                assert_eq!(status["active_game_id"], serde_json::Value::Null);
+                assert_eq!(status["between_game_receive_error_kind"], expected_kind);
+                assert_eq!(
+                    status["between_game_receive_os_error"].as_i64(),
+                    expected_os_error.map(i64::from)
+                );
+                assert!(status["between_game_receive_idle_ms"].as_u64().unwrap() >= 2_400);
+                assert_eq!(status["between_game_receive_partial_line_bytes"], 0);
+            } else {
+                assert_eq!(status["event"], "run_error");
+                assert_eq!(status["terminal_stop_reason"], "run_error");
+                assert_eq!(status["active_game_id"], "active-game");
+                assert_eq!(
+                    status["between_game_receive_error_kind"],
+                    serde_json::Value::Null
+                );
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn silent_socket_between_games_reports_timeout_without_reconnect() {
+        use sekirei_core::search::Searcher;
+        use sekirei_core::tt::Tt;
+
+        let root = unique_test_directory("silent-between-game-socket");
+        fs::create_dir_all(&root).unwrap();
+        let status_file = root.join("status.json");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let stream = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(20)))
+            .unwrap();
+        let (_silent_server, _) = listener.accept().unwrap();
+        let mut client = CsaClient {
+            reader: CsaLineReader::new(stream.try_clone().unwrap()),
+            writer: stream,
+            searcher: Searcher::new(Tt::new(1)),
+            config: Config {
+                keep_alive: true,
+                max_games: Some(10),
+                status_file: Some(status_file.clone()),
+                ..Config::default()
+            },
+            status_state: "waiting_for_game",
+            status_event: None,
+            status_details: RuntimeStatusDetails {
+                last_server_received_ms: Some(current_timestamp_ms()),
+                completed_attempts: 3,
+                ..RuntimeStatusDetails::default()
+            },
+            awaiting_aborted_game_result: false,
+        };
+        let error = client.recv().unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+        ));
+        assert!(!client.can_reconnect_after_run_error(&error));
+        client.mark_run_error(3);
+        let status: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(status_file).unwrap()).unwrap();
+        assert_eq!(
+            status["terminal_stop_reason"],
+            "between_game_receive_timeout"
+        );
+        assert_eq!(status["completed_attempts"], 3);
+        assert_eq!(status["active_game_id"], serde_json::Value::Null);
+        assert_eq!(
+            status["between_game_receive_os_error"].as_i64(),
+            error.raw_os_error().map(i64::from)
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
