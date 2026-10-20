@@ -392,9 +392,14 @@ absolute response deadline uses the opponent's advertised time control and
 remaining time inferred from received move echoes. Our move echo has a
 2-minute deadline. `--active-receive-deadline-seconds` can
 override it for a controlled run. Between games the 40-minute read timeout
-still applies. A deadline records `active_receive_deadline` and ends the
-one-shot run with the active game incomplete; it does not declare a CSA result
-or retry that game.
+still applies. A waiting-state `WouldBlock` or `TimedOut` read records
+`between_game_receive_timeout` with the raw error kind/errno, time since the
+last server line, and buffered partial-line size. It ends the bounded run
+without replay; the status and one-shot receipt retain the completed count.
+The server's silence and any link to a storage failure still need independent
+evidence. An active-game deadline records
+`active_receive_deadline` and ends the one-shot run with the active game
+incomplete; it does not declare a CSA result or retry that game.
 The supervisor records event and log write failures with their errno in the
 one-shot receipt and on stderr. It emits `logging_failed` while the child is
 running. If a child log fails, it still drains the
