@@ -1,0 +1,162 @@
+name: Publish WASM to npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing stable GitHub Release tag, e.g. v0.5.0"
+        required: true
+        default: v0.5.0
+      dry_run:
+        description: "Validate and pack without publishing"
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-wasm-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'kent-tokyo/sekirei' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: npm
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      GH_TOKEN: ${{ github.token }}
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Validate stable release and download the official asset
+        run: |
+          set -euo pipefail
+          if ! [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'Only stable vMAJOR.MINOR.PATCH releases may receive npm latest' >&2
+            exit 1
+          fi
+          if [[ "$(gh release view "$RELEASE_TAG" --json isPrerelease,isDraft --jq '.isPrerelease or .isDraft')" != false ]]; then
+            echo 'A draft or prerelease cannot receive npm latest' >&2
+            exit 1
+          fi
+          git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}" >/dev/null
+          version="${RELEASE_TAG#v}"
+          mkdir -p "$RUNNER_TEMP/npm-wasm"
+          git show "refs/tags/$RELEASE_TAG:crates/sekirei-wasm/Cargo.toml" > "$RUNNER_TEMP/npm-wasm/Cargo.toml"
+          git show "refs/tags/$RELEASE_TAG:release-manifest-$RELEASE_TAG.json" > "$RUNNER_TEMP/npm-wasm/release-manifest.json"
+          gh release download "$RELEASE_TAG" --pattern "sekirei-wasm-$version.tgz" --dir "$RUNNER_TEMP/npm-wasm"
+          gh release download "$RELEASE_TAG" --pattern "SHA256SUMS-$RELEASE_TAG.txt" --dir "$RUNNER_TEMP/npm-wasm"
+          echo "WASM_VERSION=$version" >> "$GITHUB_ENV"
+          echo "WASM_ASSET=$RUNNER_TEMP/npm-wasm/sekirei-wasm-$version.tgz" >> "$GITHUB_ENV"
+      - name: Verify release archive, checksum and tagged Cargo version
+        run: |
+          set -euo pipefail
+          python3 scripts/validate_release_manifest.py "$RUNNER_TEMP/npm-wasm/release-manifest.json"
+          python3 scripts/check_wasm_npm_distribution.py \
+            --release-archive "$WASM_ASSET" --tag "$RELEASE_TAG" \
+            --cargo-manifest "$RUNNER_TEMP/npm-wasm/Cargo.toml" \
+            --release-manifest "$RUNNER_TEMP/npm-wasm/release-manifest.json"
+          python3 - <<'PY'
+          import hashlib, os, pathlib
+          root = pathlib.Path(os.environ['RUNNER_TEMP']) / 'npm-wasm'
+          asset = pathlib.Path(os.environ['WASM_ASSET'])
+          entries = (root / f"SHA256SUMS-{os.environ['RELEASE_TAG']}.txt").read_text().splitlines()
+          matching = [line.split() for line in entries if line.split()[-1:] == [asset.name]]
+          if len(matching) != 1 or matching[0][0] != hashlib.sha256(asset.read_bytes()).hexdigest():
+              raise SystemExit('GitHub Release SHA256SUMS does not match WASM asset')
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Pin npm CLI for trusted publishing
+        run: npm install --global npm@11.21.0
+      - name: Check registry version is vacant and inspect publish payload
+        run: |
+          set -euo pipefail
+          status="$(curl --retry 3 --retry-all-errors --silent --show-error \
+            --output "$RUNNER_TEMP/npm-wasm/npm-metadata.json" --write-out '%{http_code}' \
+            https://registry.npmjs.org/sekirei-wasm)"
+          if [[ "$status" == 200 ]]; then
+            python3 - <<'PY'
+          import json, os, pathlib
+          metadata = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'npm-wasm/npm-metadata.json').read_text())
+          requested = os.environ['WASM_VERSION']
+          if requested in metadata.get('versions', {}):
+              raise SystemExit(f'sekirei-wasm@{requested} already exists; refusing to republish')
+          latest = metadata.get('dist-tags', {}).get('latest')
+          if latest:
+              try:
+                  if tuple(map(int, latest.split('.'))) > tuple(map(int, requested.split('.'))):
+                      raise SystemExit(f'latest={latest} is newer than {requested}; refusing to move latest backward')
+              except ValueError:
+                  raise SystemExit(f'unexpected registry latest tag: {latest}')
+          PY
+          elif [[ "$status" != 404 ]]; then
+            echo "npm registry metadata returned HTTP $status; vacancy is unverified" >&2
+            exit 1
+          fi
+          npm publish "$WASM_ASSET" --dry-run --tag latest --access public
+      - name: Publish exact GitHub Release archive
+        id: publish
+        if: ${{ !inputs.dry_run }}
+        run: npm publish "$WASM_ASSET" --tag latest --access public --provenance
+      - name: Verify registry files and install smoke
+        id: verify
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          spec="sekirei-wasm@$WASM_VERSION"
+          for _ in {1..12}; do
+            if npm view "$spec" dist.integrity --registry=https://registry.npmjs.org --json >/dev/null 2>&1; then
+              break
+            fi
+            sleep 10
+          done
+          mkdir -p "$RUNNER_TEMP/npm-wasm/registry" "$RUNNER_TEMP/npm-wasm/smoke"
+          npm pack "$spec" --pack-destination "$RUNNER_TEMP/npm-wasm/registry" --registry=https://registry.npmjs.org
+          python3 scripts/check_wasm_npm_distribution.py \
+            --release-archive "$WASM_ASSET" \
+            --npm-archive "$RUNNER_TEMP/npm-wasm/registry/sekirei-wasm-$WASM_VERSION.tgz" \
+            --tag "$RELEASE_TAG" --cargo-manifest "$RUNNER_TEMP/npm-wasm/Cargo.toml" \
+            --release-manifest "$RUNNER_TEMP/npm-wasm/release-manifest.json"
+          cd "$RUNNER_TEMP/npm-wasm/smoke"
+          npm init --yes >/dev/null
+          npm install --save-exact --ignore-scripts --no-audit --no-fund "$spec"
+          node "$GITHUB_WORKSPACE/scripts/smoke_wasm_npm.mjs" "$PWD" "$WASM_VERSION"
+      - name: Record npm outcome in a release manifest copy
+        if: ${{ always() && !inputs.dry_run }}
+        env:
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+        run: |
+          set -euo pipefail
+          source="$RUNNER_TEMP/npm-wasm/release-manifest.json"
+          if [[ ! -f "$source" ]]; then
+            echo 'No release manifest was fetched; no npm status artifact can be recorded.'
+            exit 0
+          fi
+          output="$RUNNER_TEMP/npm-wasm/npm-status-$RELEASE_TAG.json"
+          if [[ "$VERIFY_OUTCOME" == success ]]; then
+            integrity="$(node -e 'const p=require(process.argv[1]); console.log(p.packages["node_modules/sekirei-wasm"].integrity)' "$RUNNER_TEMP/npm-wasm/smoke/package-lock.json")"
+            python3 scripts/record_wasm_npm_status.py --manifest "$source" --output "$output" \
+              --status published --result verified --workflow-run "$GITHUB_RUN_ID" --integrity "$integrity"
+          elif [[ "$PUBLISH_OUTCOME" == failure ]]; then
+            python3 scripts/record_wasm_npm_status.py --manifest "$source" --output "$output" \
+              --status unverified --result failed --workflow-run "$GITHUB_RUN_ID"
+          else
+            python3 scripts/record_wasm_npm_status.py --manifest "$source" --output "$output" \
+              --status unverified --result unverified --workflow-run "$GITHUB_RUN_ID"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && !inputs.dry_run }}
+        with:
+          name: npm-status-${{ inputs.release_tag }}
+          path: ${{ runner.temp }}/npm-wasm/npm-status-${{ inputs.release_tag }}.json
+          if-no-files-found: warn

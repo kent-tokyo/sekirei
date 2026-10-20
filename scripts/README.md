@@ -37,6 +37,8 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 |---|---|
 | `check_release_metadata.py` | Checks all six published crates plus the WASM crate, lockfile, changelog, README, license files, tag, and release manifest. Use `--allow-planned-release-manifest` only before publication. |
 | `check_wasm_package_metadata.py` | Checks WASM package/version agreement and embedded build provenance; `--release-manifest` also compares the frozen source baseline with the release record. Archives through v0.5.0 retain their legacy metadata contract. |
+| `check_wasm_npm_distribution.py` | Verifies the tagged Cargo version and Release asset hash, required package files, and per-file SHA-256 parity with the npm download. See [npm distribution](../docs/releases/npm_wasm.md). |
+| `record_wasm_npm_status.py` | Produces a validated release-manifest copy for a verified npm publish or an unverified publish attempt. |
 | `check_public_surface.py` | Prevents internal roadmap material from entering Git and checks license references. |
 | `check_documentation_references.py` | Verifies local links in both READMEs. |
 | `validate_release_manifest.py` | Validates release-manifest schema and referenced artifacts. |

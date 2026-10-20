@@ -58,7 +58,25 @@ def validate(doc, *, allow_planned_publish=False):
         if webassembly.get("url") != expected_url: errors.append("webassembly.url")
         if not HEX64.fullmatch(webassembly.get("sha256", "")): errors.append("webassembly.sha256")
         if not isinstance(webassembly.get("size"), int) or webassembly.get("size", 0) < 1: errors.append("webassembly.size")
-        if webassembly.get("npm_registry_status") != "not_published": errors.append("webassembly.npm_registry_status")
+        npm_status = webassembly.get("npm_registry_status")
+        if npm_status not in {"not_published", "published", "unverified"}:
+            errors.append("webassembly.npm_registry_status")
+        if npm_status == "published":
+            if webassembly.get("npm_registry_version") != version:
+                errors.append("webassembly.npm_registry_version")
+            npm_integrity = webassembly.get("npm_registry_integrity")
+            if not isinstance(npm_integrity, str) or not re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", npm_integrity):
+                errors.append("webassembly.npm_registry_integrity")
+        attempt = webassembly.get("npm_publish_attempt")
+        if attempt is not None:
+            if not isinstance(attempt, dict) or attempt.get("result") not in {"verified", "failed", "unverified"}:
+                errors.append("webassembly.npm_publish_attempt.result")
+            elif not str(attempt.get("workflow_run", "")).isdigit() or int(attempt["workflow_run"]) < 1:
+                errors.append("webassembly.npm_publish_attempt.workflow_run")
+            elif npm_status == "published" and attempt["result"] != "verified":
+                errors.append("webassembly.npm_publish_attempt.status_mismatch")
+        elif npm_status == "unverified":
+            errors.append("webassembly.npm_publish_attempt")
     measurement = doc.get("internal_measurement", {})
     if not isinstance(measurement.get("spec_top_n"), int) or measurement["spec_top_n"] < 0 or not isinstance(measurement.get("threads"), int) or measurement["threads"] < 1 or not isinstance(measurement.get("parallel"), int) or measurement["parallel"] < 1 or not isinstance(measurement.get("strength_claim"), bool): errors.append("internal_measurement")
     external = doc.get("external_opponents", {})
