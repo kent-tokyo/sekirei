@@ -341,6 +341,21 @@ cargo run --release -p sekirei-core --example halfkp_pack -- \
   pack data/selfplay/validation.bin data/selfplay/validation.txt
 ```
 
+`train_halfkp.py` consumes packed shards. `--init-bin weights.bin --fv-scale 24`
+starts a fresh optimizer from an existing compatible quantized HalfKP file.
+It validates the complete layout and exact integer parameter re-export,
+rejecting values that training clamps would change. This recovers the
+quantized starting parameters, not the original float or optimizer state.
+It is exclusive with `--init` and an existing `--ckpt` resume file.
+
+`run_halfkp_pilot.py --plan /absolute/path/plan.json` runs one frozen,
+bounded generation/training pilot in that plan's dedicated directory. It
+requires input hashes, fresh outputs and known identity-only exclusions,
+removes whole games touching known holdouts, normalizes SFEN move counters
+before game-level splitting, and records durable progress or a terminal
+failure. A trained output remains unqualified until a separate independent
+strength gate; the runner neither promotes nor publishes it.
+
 `train_halfkp.py` consumes packed shards. `--init` resumes a float checkpoint;
 `--fact` folds in a king-independent factor. Inputs remain separate read-only
 memory maps and only one batch is copied at a time. Outputs are written by
