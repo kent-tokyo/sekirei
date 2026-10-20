@@ -11,6 +11,8 @@ preserves older per-change notes.
 - Move v0.4.0–v0.4.3 release notes to the archive, separate search unit tests
   from the production module, and share the DFPN/SharedMcts abort timer setup.
   Search behavior and public APIs are unchanged.
+- Archive historical benchmark reports and unused release smoke transcripts,
+  extract root-split unit tests, and share USI diagnostic-context construction.
 
 ## [0.5.1] – 2026-10-20
 

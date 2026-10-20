@@ -161,9 +161,9 @@ not prove continuous host isolation. Use a new output directory under a
 prospective protocol; this feature does not reopen or qualify previously closed studies,
 and does not replace independent match-input/exclusion requirements.
 
-Historical reports in `benchmark_reports/` apply only to their recorded host,
-revision, corpus, and operation. They are neither general speed rankings nor
-Elo claims.
+Historical [benchmark reports](../docs/experiments/benchmark_reports/README.md)
+apply only to their recorded host, revision, corpus, and operation. They are
+neither general speed rankings nor Elo claims.
 
 Example material-only tactical-line capture (repeat `--nodes` for a budget
 ladder):

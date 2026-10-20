@@ -1270,6 +1270,25 @@ fn spawn_search_thread(task: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
         .expect("failed to spawn sekirei search thread")
 }
 
+fn diagnostic_context(
+    board: &Board,
+    game_counter: u64,
+    last_position_cmd: &str,
+    weight_path: &str,
+    weight_hash: Option<u64>,
+    threads: u32,
+) -> DiagCtx {
+    DiagCtx {
+        game_counter,
+        last_position_cmd: last_position_cmd.to_owned(),
+        weight_path: weight_path.to_owned(),
+        weight_hash,
+        threads,
+        board_hash_at_search_start: board.hash(),
+        accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
+    }
+}
+
 fn main() {
     if let Some(arg) = std::env::args().nth(1)
         && matches!(arg.as_str(), "--version" | "-V")
@@ -1959,17 +1978,14 @@ fn main() {
                         invariant::assert_legal_bestmove(
                             &board,
                             mv,
-                            &DiagCtx {
+                            &diagnostic_context(
+                                &board,
                                 game_counter,
-                                last_position_cmd: last_position_cmd.clone(),
-                                weight_path: weight_path.clone(),
+                                &last_position_cmd,
+                                &weight_path,
                                 weight_hash,
                                 threads,
-                                board_hash_at_search_start: board.hash(),
-                                accumulator_hash_at_search_start: invariant::hash_accumulator(
-                                    &board.acc,
-                                ),
-                            },
+                            ),
                         );
                         println!("bestmove {}", move_to_usi(mv));
                         stdout.lock().flush().ok();
@@ -1986,17 +2002,14 @@ fn main() {
                     invariant::assert_legal_bestmove(
                         &board,
                         mv,
-                        &DiagCtx {
+                        &diagnostic_context(
+                            &board,
                             game_counter,
-                            last_position_cmd: last_position_cmd.clone(),
-                            weight_path: weight_path.clone(),
+                            &last_position_cmd,
+                            &weight_path,
                             weight_hash,
                             threads,
-                            board_hash_at_search_start: board.hash(),
-                            accumulator_hash_at_search_start: invariant::hash_accumulator(
-                                &board.acc,
-                            ),
-                        },
+                        ),
                     );
                     println!("bestmove {}", move_to_usi(mv));
                     stdout.lock().flush().ok();
@@ -2021,15 +2034,14 @@ fn main() {
                 let suppress2 = Arc::clone(&suppress_bm);
                 let ponder_result2 = Arc::clone(&ponder_result);
                 let search_generation2 = Arc::clone(&search_generation);
-                let diag_ctx = DiagCtx {
+                let diag_ctx = diagnostic_context(
+                    &board,
                     game_counter,
-                    last_position_cmd: last_position_cmd.clone(),
-                    weight_path: weight_path.clone(),
+                    &last_position_cmd,
+                    &weight_path,
                     weight_hash,
                     threads,
-                    board_hash_at_search_start: board.hash(),
-                    accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
-                };
+                );
 
                 search_handle = Some(spawn_search_thread(move || {
                     let info = searcher2.search(&mut board2, config, &position_history2);
@@ -2061,15 +2073,14 @@ fn main() {
                         .expect("ponder result lock poisoned")
                         .take()
                 {
-                    let diag_ctx = DiagCtx {
+                    let diag_ctx = diagnostic_context(
+                        &board,
                         game_counter,
-                        last_position_cmd: last_position_cmd.clone(),
-                        weight_path: weight_path.clone(),
+                        &last_position_cmd,
+                        &weight_path,
                         weight_hash,
                         threads,
-                        board_hash_at_search_start: board.hash(),
-                        accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
-                    };
+                    );
                     emit_search_result(&searcher, &mut board, info, &diag_ctx);
                 }
             }
@@ -2091,15 +2102,14 @@ fn main() {
                         .take()
                 {
                     ponder_go_args = None;
-                    let diag_ctx = DiagCtx {
+                    let diag_ctx = diagnostic_context(
+                        &board,
                         game_counter,
-                        last_position_cmd: last_position_cmd.clone(),
-                        weight_path: weight_path.clone(),
+                        &last_position_cmd,
+                        &weight_path,
                         weight_hash,
                         threads,
-                        board_hash_at_search_start: board.hash(),
-                        accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
-                    };
+                    );
                     emit_search_result(&searcher, &mut board, info, &diag_ctx);
                     continue;
                 }
@@ -2121,15 +2131,14 @@ fn main() {
                     let suppress2 = Arc::clone(&suppress_bm);
                     let generation = search_generation.fetch_add(1, Ordering::AcqRel) + 1;
                     let search_generation2 = Arc::clone(&search_generation);
-                    let diag_ctx = DiagCtx {
+                    let diag_ctx = diagnostic_context(
+                        &board,
                         game_counter,
-                        last_position_cmd: last_position_cmd.clone(),
-                        weight_path: weight_path.clone(),
+                        &last_position_cmd,
+                        &weight_path,
                         weight_hash,
                         threads,
-                        board_hash_at_search_start: board.hash(),
-                        accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
-                    };
+                    );
                     search_handle = Some(spawn_search_thread(move || {
                         let info = searcher2.search(&mut board2, config, &position_history2);
                         if search_generation2.load(Ordering::Acquire) != generation
