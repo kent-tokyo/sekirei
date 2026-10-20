@@ -21,6 +21,19 @@ function sekirwBytes() {
 async function inFreshWorker() {
   const api = await import(pkgUrl);
   api.initSync({ module: readFileSync(wasmUrl) });
+  const packageIdentity = () => {
+    const info = api.packageInfo();
+    try {
+      return Object.fromEntries([
+        'apiVersion', 'engineVersion', 'sourceCommit', 'buildCommit',
+        'sourceCommitStatus', 'provenance', 'initialEvaluatorId',
+        'initialEvaluatorVersion', 'initialEvaluatorWeightSha256',
+      ].map(key => [key, info[key]]));
+    } finally {
+      info.free();
+    }
+  };
+  const identityBefore = packageIdentity();
   const capabilities = api.searchCapabilities();
   try {
     assert.deepEqual(capabilities.supportedEvaluatorFormats, [
@@ -49,6 +62,7 @@ async function inFreshWorker() {
     } finally {
       loaded.free();
     }
+    assert.deepEqual(packageIdentity(), identityBefore);
 
     const analysis = api.analyzePosition(api.startSfen(), 1, 10_000);
     const reply = api.computerMove(api.startSfen(), 1, 10_000);

@@ -5,10 +5,11 @@ static browser client. It is separate from the native USI binary.
 
 ## Install
 
-The prebuilt vX.Y.Z ES-module package is published with the
-GitHub Release:
+Install the prebuilt vX.Y.Z ES-module package from npm, or pin the matching
+GitHub Release archive:
 
 ```sh
+npm install sekirei-wasm@X.Y.Z
 npm install https://github.com/kent-tokyo/sekirei/releases/download/vX.Y.Z/sekirei-wasm-X.Y.Z.tgz
 ```
 
@@ -41,10 +42,16 @@ import init, {
   analyzePosition,
   analyzePositionMultiPv,
   loadEvaluator,
+  packageInfo,
   searchCapabilities,
 } from "./pkg/sekirei_wasm.js";
 
 await init();
+const packageBuild = packageInfo();
+console.log(packageBuild.apiVersion, packageBuild.engineVersion);
+console.log(packageBuild.provenance, packageBuild.sourceCommitStatus);
+console.log(packageBuild.sourceCommit, packageBuild.buildCommit);
+packageBuild.free();
 const capabilities = searchCapabilities();
 console.log(capabilities.effectiveWorkers); // 1
 // Optional, one-shot evaluator loading. Run this before creating any board.
@@ -99,6 +106,30 @@ console.log(
 
 Rejected input throws an object with stable `code` and human-readable
 `message` fields.
+
+## Package provenance before search
+
+Call `packageInfo()` immediately after `init()`, before creating a board,
+searching, or calling `loadEvaluator`. The returned object is immutable; call
+`free()` after reading it. Its generated TypeScript getters are:
+
+| Field | Contract |
+| --- | --- |
+| `apiVersion`, `engineVersion` | Analysis schema `4` and Cargo package version |
+| `provenance` | `release` for a clean version tag with a verified release manifest, `candidate` for another clean committed checkout, `local` when source identity cannot be verified |
+| `sourceCommitStatus` | `known` or `unknown` |
+| `sourceCommit` | 40-character SHA when known; `undefined` for local unknown builds. For a release this is the frozen source baseline declared by its release manifest; for a candidate it equals `buildCommit` |
+| `buildCommit` | 40-character SHA of the clean checkout actually built; `undefined` for local unknown builds |
+| `initialEvaluatorId`, `initialEvaluatorVersion`, `initialEvaluatorWeightSha256` | `material`, `material-v1`, and `undefined` |
+
+The release preparation commit may be newer than the manifest's frozen source
+baseline. Both commits are exposed so callers can compare the manifest and
+identify the actual checkout separately. Loading evaluator bytes does not
+change package provenance; analysis results report the evaluator actually used.
+Use the package identity, evaluator identity, search limits, and a hash of the
+downloaded package or WASM bytes in cache keys. Version and source commits
+alone do not prove identical distributed bytes or playing strength. The WASM
+module does not self-report its own file hash.
 
 ## Position evaluation contract
 

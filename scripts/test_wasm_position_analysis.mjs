@@ -4,10 +4,35 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   initSync, analyzePosition, analyzePositionMultiPv, computerMove, applyMove, legalMoves, startSfen,
-  searchCapabilities,
+  packageInfo, searchCapabilities,
 } from '../crates/sekirei-wasm/pkg/sekirei_wasm.js';
 
 const wasmInstance = initSync({ module: readFileSync(new URL('../crates/sekirei-wasm/pkg/sekirei_wasm_bg.wasm', import.meta.url)) });
+
+const metadata = JSON.parse(readFileSync(new URL('../crates/sekirei-wasm/pkg/package.json', import.meta.url), 'utf8'));
+const identity = packageInfo(); // This must work before board creation, search, or evaluator loading.
+try {
+  for (const key of [
+    'apiVersion', 'engineVersion', 'sourceCommit', 'buildCommit',
+    'sourceCommitStatus', 'provenance', 'initialEvaluatorId',
+    'initialEvaluatorVersion', 'initialEvaluatorWeightSha256',
+  ]) {
+    assert.equal(identity[key], metadata.sekireiBuild[key] ?? undefined, key);
+  }
+  assert.equal(identity.initialEvaluatorId, 'material');
+  assert.equal(identity.initialEvaluatorVersion, 'material-v1');
+  assert.equal(identity.initialEvaluatorWeightSha256, undefined);
+  if (identity.sourceCommitStatus === 'known') {
+    assert.match(identity.sourceCommit, /^[0-9a-f]{40}$/);
+    assert.match(identity.buildCommit, /^[0-9a-f]{40}$/);
+  } else {
+    assert.equal(identity.sourceCommit, undefined);
+    assert.equal(identity.buildCommit, undefined);
+    assert.equal(identity.provenance, 'local');
+  }
+} finally {
+  identity.free();
+}
 
 const capabilities = searchCapabilities();
 try {
@@ -91,7 +116,6 @@ for (const [side, sign] of [['b', 1], ['w', -1]]) {
     assert.equal(reply.evaluatorId, 'material');
     assert.equal(reply.evaluatorVersion, 'material-v1');
     assert.equal(reply.evaluatorWeightSha256, undefined);
-    const metadata = JSON.parse(readFileSync(new URL('../crates/sekirei-wasm/pkg/package.json', import.meta.url), 'utf8'));
     assert.equal(result.engineVersion, metadata.version);
     assert.equal(result.apiVersion, 4);
     assert.equal(result.pvSource, 'completed_iteration');

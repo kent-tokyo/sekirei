@@ -42,6 +42,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -57,7 +59,7 @@ jobs:
       - name: Browser package
         run: python3 scripts/build_wasm_package.py
       - name: WASM package metadata tests
-        run: python3 -m unittest scripts/test_check_wasm_package_metadata.py
+        run: python3 -m unittest scripts/test_build_wasm_package.py scripts/test_check_wasm_package_metadata.py
       - name: Package contract
         run: |
           test -f crates/sekirei-wasm/pkg/sekirei_wasm_bg.wasm
@@ -81,6 +83,12 @@ jobs:
           grep -Fq 'export class MultiPvCandidateAnalysis' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'export class MultiPvPositionAnalysis' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'export function loadEvaluator' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'export function packageInfo' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'export class PackageInfo' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq "readonly sourceCommitStatus: 'known' | 'unknown';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly sourceCommit: string | undefined;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly buildCommit: string | undefined;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq "readonly provenance: 'release' | 'candidate' | 'local';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq "readonly kind: 'cp' | 'mate' | 'terminal' | 'unknown';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly scoreCp: number | undefined;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq "readonly scorePerspective: 'sideToMove';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
