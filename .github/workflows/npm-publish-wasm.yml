@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Existing stable GitHub Release tag, e.g. v0.5.0"
+        description: "Existing stable GitHub Release tag, e.g. v0.5.1"
         required: true
-        default: v0.5.0
+        default: v0.5.1
       dry_run:
         description: "Validate and pack without publishing"
         type: boolean
@@ -41,12 +41,17 @@ jobs:
             echo 'Only stable vMAJOR.MINOR.PATCH releases may receive npm latest' >&2
             exit 1
           fi
+          version="${RELEASE_TAG#v}"
+          IFS=. read -r major minor patch <<< "$version"
+          if (( major == 0 && (minor < 5 || (minor == 5 && patch < 1)) )); then
+            echo 'npm distribution starts with v0.5.1, whose README includes both install routes' >&2
+            exit 1
+          fi
           if [[ "$(gh release view "$RELEASE_TAG" --json isPrerelease,isDraft --jq '.isPrerelease or .isDraft')" != false ]]; then
             echo 'A draft or prerelease cannot receive npm latest' >&2
             exit 1
           fi
           git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}" >/dev/null
-          version="${RELEASE_TAG#v}"
           mkdir -p "$RUNNER_TEMP/npm-wasm"
           git show "refs/tags/$RELEASE_TAG:crates/sekirei-wasm/Cargo.toml" > "$RUNNER_TEMP/npm-wasm/Cargo.toml"
           git show "refs/tags/$RELEASE_TAG:release-manifest-$RELEASE_TAG.json" > "$RUNNER_TEMP/npm-wasm/tag-manifest.json"
