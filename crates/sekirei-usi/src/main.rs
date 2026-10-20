@@ -184,6 +184,29 @@ struct SharedMctsBackend {
     abort: Arc<AtomicBool>,
 }
 
+fn run_with_abort_deadline<T>(
+    abort: &Arc<AtomicBool>,
+    limit: Option<Duration>,
+    task: impl FnOnce() -> T,
+) -> T {
+    let timer = limit.map(|limit| {
+        let abort = Arc::clone(abort);
+        let (cancel_tx, cancel_rx) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            if cancel_rx.recv_timeout(limit).is_err() {
+                abort.store(true, Ordering::Relaxed);
+            }
+        });
+        (cancel_tx, handle)
+    });
+    let result = task();
+    if let Some((cancel_tx, handle)) = timer {
+        let _ = cancel_tx.send(());
+        let _ = handle.join();
+    }
+    result
+}
+
 impl SearchBackend {
     fn speculative(hash_mb: usize, spec_top_n: usize) -> Self {
         if spec_top_n == 0 {
@@ -404,58 +427,35 @@ impl SearchBackend {
             }
             Self::Dfpn(s) => {
                 let started = Instant::now();
-                let timer = config.time_limit.map(|limit| {
-                    let abort = Arc::clone(&s.abort);
-                    let (cancel_tx, cancel_rx) = mpsc::channel();
-                    let handle = std::thread::spawn(move || {
-                        if cancel_rx.recv_timeout(limit).is_err() {
-                            abort.store(true, Ordering::Relaxed);
-                        }
-                    });
-                    (cancel_tx, handle)
+                let result = run_with_abort_deadline(&s.abort, config.time_limit, || {
+                    s.solver.solve_with_abort(
+                        board,
+                        DfpnConfig {
+                            max_depth: config.max_depth.min(u16::MAX as u32) as u16,
+                            node_limit: config.node_limit.unwrap_or(100_000),
+                            ..DfpnConfig::default()
+                        },
+                        &s.abort,
+                    )
                 });
-                let result = s.solver.solve_with_abort(
-                    board,
-                    DfpnConfig {
-                        max_depth: config.max_depth.min(u16::MAX as u32) as u16,
-                        node_limit: config.node_limit.unwrap_or(100_000),
-                        ..DfpnConfig::default()
-                    },
-                    &s.abort,
-                );
-                if let Some((cancel_tx, handle)) = timer {
-                    let _ = cancel_tx.send(());
-                    let _ = handle.join();
-                }
                 normalize_dfpn_result(board, config.max_depth, result, started.elapsed())
             }
             Self::SharedMcts(s) => {
                 let started = Instant::now();
-                let timer = config.time_limit.map(|limit| {
-                    let abort = Arc::clone(&s.abort);
-                    let (cancel_tx, cancel_rx) = mpsc::channel();
-                    let handle = std::thread::spawn(move || {
-                        if cancel_rx.recv_timeout(limit).is_err() {
-                            abort.store(true, Ordering::Relaxed);
-                        }
-                    });
-                    (cancel_tx, handle)
+                let info = run_with_abort_deadline(&s.abort, config.time_limit, || {
+                    s.searcher.search_with_abort(
+                        board,
+                        SharedTreeMctsConfig {
+                            simulations: config.node_limit.unwrap_or(128).min(u32::MAX as u64)
+                                as u32,
+                            max_depth: config.max_depth.min(u16::MAX as u32) as u16,
+                            share_transpositions: true,
+                        },
+                        &sekirei_core::mcts::UniformPolicy,
+                        &MaterialValue,
+                        &s.abort,
+                    )
                 });
-                let info = s.searcher.search_with_abort(
-                    board,
-                    SharedTreeMctsConfig {
-                        simulations: config.node_limit.unwrap_or(128).min(u32::MAX as u64) as u32,
-                        max_depth: config.max_depth.min(u16::MAX as u32) as u16,
-                        share_transpositions: true,
-                    },
-                    &sekirei_core::mcts::UniformPolicy,
-                    &MaterialValue,
-                    &s.abort,
-                );
-                if let Some((cancel_tx, handle)) = timer {
-                    let _ = cancel_tx.send(());
-                    let _ = handle.join();
-                }
                 SearchResult {
                     best_move: info.best_move.or_else(|| fallback_legal_move(board)),
                     score: info.score,
