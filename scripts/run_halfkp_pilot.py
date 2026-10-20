@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import fcntl
+import errno
+import math
 import hashlib
 import json
 import os
@@ -114,6 +116,58 @@ def validate_plan(plan):
     require(0 < plan['max_wall_hours'] <= 72, 'unbounded run wall cap')
 
 
+def save_with_reserve(path, value, reserve):
+    try:
+        save(path, value)
+    except OSError as error:
+        if error.errno != errno.ENOSPC or not reserve.exists():
+            raise
+        reserve.unlink()
+        save(path, value)
+
+
+def allocate_reserve(path, mib=128):
+    try:
+        with path.open('xb') as stream:
+            block = bytes(1048576)
+            for _ in range(mib):
+                stream.write(block)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
+def prepare_data(plan, base):
+    excluded, exclusion_records = load_exclusions([Path(x) for x in plan['exclusions']])
+    for manifest in plan['spent_manifests']:
+        data = json.loads(Path(manifest).read_text())
+        require(data['identity_scheme'] == 'sha256-canonical-sfen-board-side-hands-v1', 'spent identity scheme')
+        require(data.get('schema') == 'sekirei.independent-material-openings.v1' and data.get('status') == 'complete', 'spent manifest schema')
+        require(data['positions'] and all(isinstance(x.get('identity_sha256'),str) and
+                re.fullmatch(r'[0-9a-f]{64}',x['identity_sha256']) for x in data['positions']), 'malformed spent identities')
+        excluded.update(x['identity_sha256'] for x in data['positions'])
+    receipt = json.loads((base/'generation-receipt.json').read_text())
+    raw = [Path(x['path']) for x in receipt]
+    for x in receipt:
+        require(sha(x['path']) == x['sha256'], 'raw shard changed before preparation')
+    selected = prepare_rows(raw,excluded,base/'eligible.txt',plan['generation']['min_training_ply'])
+    ids = selected.pop('identities')
+    save(base/'known-exclusion-audit.json',dict(selected,known_exclusion_count=len(excluded),
+         known_manifest_scope_only=True,exclusions=exclusion_records))
+    save(base/'pilot-data-exclusion.json',{'schema':'sekirei.opening-identity-exclusions.v1',
+         'identity_scheme':'sha256-canonical-sfen-board-side-hands-v1','role':'nnue-holdouts',
+         'complete_for_scope':True,'scope':'All retained positions of this one fresh pilot, train AND validation; no assertion about unreceived historical sets.',
+         'identities':ids,'sources':[ref(base/'eligible.txt')]})
+    split=split_files([base/'eligible.txt'],base/'train.txt',base/'val.txt',base/'split.json',
+                      plan['training']['validation_ratio'],plan['training']['seed'],64)
+    require(split['train']['positions'] >= 4096 and split['validation']['positions'] >= 256,
+            'insufficient whole-game train/validation data')
+    for x in receipt:
+        require(sha(x['path']) == x['sha256'], 'raw shard changed during preparation')
+
+
 def run(plan_path):
     base = plan_path.resolve().parent
     with (base/'run.lock').open('a') as lock:
@@ -131,6 +185,7 @@ def run_locked(plan_path):
     started = time.monotonic()
     proc = None
     stop_requested = False
+    reserve = base/'emergency-reserve.bin'
     def pins():
         require(sha(plan_path) == state['plan']['sha256'], 'frozen plan changed')
         for x in plan['bound_inputs']:
@@ -138,11 +193,38 @@ def run_locked(plan_path):
     def snapshot():
         state['updated_at'] = now()
         state['free_mib'] = shutil.disk_usage(base).free // 1048576
-        save(base/'status.json',state)
-    def command(argv, name, timeout, min_free=768, stop_file=None):
+        save_with_reserve(base/'status.json',state,reserve)
+    def capacity(name, minimum):
+        previous_status=state['status']
+        stable=0
+        while stable < 3:
+            snapshot()
+            r=subprocess.run(['/bin/ps','-Ao','pcpu='],capture_output=True,text=True,timeout=10)
+            try:
+                values=[float(x) for x in r.stdout.split()]
+                cpu=sum(values)
+                good=r.returncode==0 and values and all(math.isfinite(x) and x>=0 for x in values)
+            except ValueError:
+                cpu=None;good=False
+            if not good:
+                cpu=None
+            admitted=bool(good and cpu<=400 and state['free_mib']>=minimum)
+            stable=stable+1 if admitted else 0
+            state.update(status='WAITING_RESOURCES',pending_phase=name,host_total_cpu_percent=cpu,
+                         stable_samples=stable,minimum_free_mib=minimum)
+            snapshot()
+            require(time.monotonic()-started < plan['max_wall_hours']*3600,'capacity wait wall limit')
+            if stable<3:
+                time.sleep(5)
+        state['status']=previous_status
+        snapshot()
+    def command(argv, name, timeout, min_free=3072, stop_file=None):
         nonlocal proc, stop_requested
         pins()
-        require(shutil.disk_usage(base).free // 1048576 >= min_free, 'insufficient output capacity')
+        capacity(name,min_free)
+        if not reserve.exists():
+            allocate_reserve(reserve)
+            capacity(name,min_free)
         state['command'] = argv
         state['active_log'] = name
         with (base/(name+'.stdout')).open('x') as out, (base/(name+'.stderr')).open('x') as err:
@@ -155,6 +237,9 @@ def run_locked(plan_path):
             phase_started = time.monotonic()
             while proc.poll() is None:
                 snapshot()
+                if state['free_mib'] < 768:
+                    reserve.unlink(missing_ok=True)
+                    require(stop_file is not None,'low output capacity during child phase')
                 if stop_file and state['free_mib'] < 768 and not stop_requested:
                     Path(stop_file).touch(exist_ok=False)
                     stop_requested = True
@@ -175,16 +260,6 @@ def run_locked(plan_path):
     try:
         snapshot(); pins(); validate_plan(plan)
         require(plan['baseline_sha256'] == sha(plan['baseline']), 'wrong nn_r6')
-        excluded, exclusion_records = load_exclusions([Path(x) for x in plan['exclusions']])
-        # Additional already-spent gate roots are identity-only inputs.
-        for manifest in plan['spent_manifests']:
-            data = json.loads(Path(manifest).read_text())
-            require(data['identity_scheme'] == 'sha256-canonical-sfen-board-side-hands-v1', 'spent identity scheme')
-            require(data.get('schema') == 'sekirei.independent-material-openings.v1' and data.get('status') == 'complete', 'spent manifest schema')
-            require(data['positions'] and all(isinstance(x.get('identity_sha256'),str) and
-                    re.fullmatch(r'[0-9a-f]{64}',x['identity_sha256']) for x in data['positions']),
-                    'malformed spent identities')
-            excluded.update(x['identity_sha256'] for x in data['positions'])
         raw = []
         for n, seed in enumerate(plan['generation']['seeds']):
             state.update(status='GENERATING', shard=n+1, total_shards=len(plan['generation']['seeds']))
@@ -207,23 +282,13 @@ def run_locked(plan_path):
             state['generated_shards'] = [ref(x) for x in raw]
             snapshot()
         state['status']='PREPARING_DATA';snapshot()
-        filtered = base/'eligible.txt'
-        selected = prepare_rows(raw,excluded,filtered,plan['generation']['min_training_ply'])
-        ids = selected.pop('identities')
-        save(base/'known-exclusion-audit.json',dict(selected,known_exclusion_count=len(excluded),
-             known_manifest_scope_only=True,exclusions=exclusion_records))
-        holdout = {'schema':'sekirei.opening-identity-exclusions.v1','identity_scheme':
-                   'sha256-canonical-sfen-board-side-hands-v1','role':'nnue-holdouts',
-                   'complete_for_scope':True,'scope':'All retained positions of this one fresh pilot, train AND validation; no assertion about unreceived historical sets.',
-                   'identities':ids,'sources':[ref(filtered)]}
-        save(base/'pilot-data-exclusion.json',holdout)
-        split = split_files([filtered],base/'train.txt',base/'val.txt',base/'split.json',
-                            plan['training']['validation_ratio'],plan['training']['seed'],64)
-        require(split['train']['positions'] >= 4096 and split['validation']['positions'] >= 256,
-                'insufficient whole-game train/validation data')
+        save(base/'generation-receipt.json',state['generated_shards'])
+        command([sys.executable,'-u','-B',str(Path(__file__).resolve()),'--plan',str(plan_path),
+                 '--prepare-only'],'prepare-data',1800,min_free=2048)
+        split=json.loads((base/'split.json').read_text())
         for arm in ['train','val']:
             command([plan['packer'],'pack',str(base/(arm+'.bin')),str(base/(arm+'.txt'))],
-                    'pack-'+arm,300)
+                    'pack-'+arm,300,min_free=1536)
             count = split['train' if arm=='train' else 'validation']['positions']
             require((base/(arm+'.bin')).stat().st_size == count*158, 'packed row count mismatch')
         state['status']='TRAINING';snapshot()
@@ -235,16 +300,18 @@ def run_locked(plan_path):
              '--epochs','1','--batch',str(t['batch']),'--lr',str(t['lr']),
              '--lam','1.0','--scale','400','--fv-scale','24','--device','cpu',
              '--threads','1','--seed',str(t['seed']),'--log-every','10','--ckpt-every','20']
-        command(cmd,'training',6*3600,min_free=1200)
+        command(cmd,'training',6*3600,min_free=2048)
         # Load the exported file with the native inference implementation.
         command([plan['packer'],'check',str(candidate),'24',str(base/'val.txt'),'8'],
-                'export-load-check',120)
+                'export-load-check',120,min_free=768)
         state.update(status='CANDIDATE_TRAINED_AWAITING_INDEPENDENT_GATE',candidate=ref(candidate),
                      float_checkpoint=ref(base/'nn_r8c1.pt'),completed_at=now(),
                      validation_is_diagnostic_only=True,adopted=False)
         save(base/'candidate.json',dict(state,training_split=ref(base/'split.json')))
+        reserve.unlink(missing_ok=True)
         snapshot()
     except BaseException as error:
+        reserve.unlink(missing_ok=True)
         if proc is not None and proc.poll() is None:
             try:
                 os.killpg(proc.pid,signal.SIGTERM);proc.wait(timeout=20)
@@ -265,7 +332,11 @@ def interrupted(number, _frame):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--plan',type=Path,required=True)
+    parser.add_argument('--prepare-only',action='store_true')
     args = parser.parse_args()
     signal.signal(signal.SIGTERM,interrupted)
     signal.signal(signal.SIGINT,interrupted)
-    run(args.plan)
+    if args.prepare_only:
+        prepare_data(json.loads(args.plan.read_text()),args.plan.resolve().parent)
+    else:
+        run(args.plan)

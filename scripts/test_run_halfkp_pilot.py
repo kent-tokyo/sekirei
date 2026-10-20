@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Integrity tests for the bounded own-NNUE pilot before any real training."""
 import json
+import errno
 from pathlib import Path
 import tempfile
 import sys
@@ -65,6 +66,35 @@ class PilotIntegrityTest(unittest.TestCase):
                     pilot.validate_generated_ids(source,7,2)
             source.write_text(row(A,1,'0000000000000007-0000000000000001'))
             self.assertEqual(pilot.validate_generated_ids(source,7,2),1)
+
+    def test_disk_full_status_write_releases_reserve_before_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp);reserve=p/'reserve';reserve.write_bytes(b'allocated')
+            calls=[]
+            def fake_save(path,value):
+                calls.append(reserve.exists())
+                if len(calls)==1:
+                    raise OSError(errno.ENOSPC,'disk full')
+            with patch.object(pilot,'save',side_effect=fake_save):
+                pilot.save_with_reserve(p/'status.json',{'status':'failure'},reserve)
+            self.assertEqual(calls,[True,False])
+
+    def test_partial_reserve_allocation_failure_removes_only_reserve(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp);reserve=p/'reserve';keep=p/'evidence';keep.write_text('preserve')
+            with patch.object(pilot.os,'fsync',side_effect=OSError(errno.ENOSPC,'disk full')):
+                with self.assertRaises(OSError):
+                    pilot.allocate_reserve(reserve,mib=1)
+            self.assertFalse(reserve.exists())
+            self.assertEqual(keep.read_text(),'preserve')
+
+    def test_non_capacity_io_error_does_not_consume_reserve(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp);reserve=p/'reserve';reserve.write_text('keep')
+            with patch.object(pilot,'save',side_effect=PermissionError(errno.EACCES,'denied')):
+                with self.assertRaises(PermissionError):
+                    pilot.save_with_reserve(p/'status',{},reserve)
+            self.assertTrue(reserve.exists())
 
     def test_pin_failure_records_terminal_reason_without_starting_child(self):
         with tempfile.TemporaryDirectory() as tmp:
