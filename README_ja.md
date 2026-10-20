@@ -3,16 +3,16 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.4.5-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.4.5)
+[![Release](https://img.shields.io/badge/release-v0.5.0-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.0)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.4.5`では、
-任意利用のHalfKP重み`nn_r6`を来歴・適格性の範囲とともに配布します。既定の探索方針と
-駒得評価器は変更していません。`nn_r6`は実験用の任意資産であり、既定採用や一般的な
-棋力向上を意味しません。
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.5.0`では、
+機械検証できる来歴・ゲート証跡を備えた任意利用のHalfKP重み`nn_r6`を配布します。
+既定の探索方針と駒得評価器は変更していません。`nn_r6`は任意資産であり、既定採用や
+一般的な棋力向上を意味しません。
 
 ## まず動かす
 
@@ -32,10 +32,10 @@ cargo run --release -p sekirei
 生成された`sekirei`をUSI対応GUIへ登録します。`EvalFile`を指定しない場合は
 駒得評価を使います。外部HalfKP 256x2-32-32では`FV_SCALE`を使い、そのファイルのライセンスに
 従ってください。対応形式、SHA-256、測定範囲は
-[NNUE重み](docs/nnue_weights.md)にまとめています。`nn_r6`は記録済みの固定ソース
-におけるネイティブ1T・4Tのmaterial gateに合格していますが、公開artifactの証跡が
-strict validatorを通るまで配布しません。既定評価器にはせず、外部レートや今回の
-リリースでの棋力向上を示すものでもありません。
+[NNUE重み](docs/nnue_weights.md)にまとめています。`nn_r6`は固定したソースで
+独立した先後反転1T・4Tのmaterial gateに合格し、公開する証跡束もstrict validatorを
+通過しています。既定評価器にはせず、外部レートや今回のリリース全般での棋力向上を
+示すものでもありません。
 
 ## 構成
 
@@ -60,8 +60,8 @@ USIの`usi`で全オプションを確認できます。`SearchMode=Auto`は1ワ
 
 [`sekirei-wasm`](crates/sekirei-wasm/README.md)は、SFEN解析、合法手、
 検証付き着手、呼出側が渡す任意評価器を使う上限付き1ワーカー探索、最大4本の
-MultiPV、最短詰み解析を提供します。ビルド済みのv0.4.5 ESモジュールパッケージは
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.4.5/sekirei-wasm-0.4.5.tgz)
+MultiPV、最短詰み解析を提供します。ビルド済みのv0.5.0 ESモジュールパッケージは
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.0/sekirei-wasm-0.5.0.tgz)
 から取得できます。
 
 ## ビルドと検証

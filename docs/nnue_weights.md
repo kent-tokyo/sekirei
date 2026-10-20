@@ -21,28 +21,23 @@ gate, external rating, or comparison with another engine.
 Without `EvalFile` or a command-line checkpoint, Sekirei uses its material
 fallback. It does not silently select or substitute a model.
 
-## Unpublished `nn_r6` candidate
+## Optional `nn_r6` artifact
 
-`nn_r6` is an unpublished HalfKP(Friend) 256x2-32-32 candidate. It uses
+`nn_r6` is an optional HalfKP(Friend) 256x2-32-32 artifact. It uses
 `FV_SCALE=24`, is not embedded in a crate, and is not selected automatically.
 
-On fixed source `311ff1221064e5807d045bcf2c71badff0442671`, `nn_r6` passed
-one-second material-only paired-trinomial gates at 1T (64-0-12, 76 games,
-LLR 2.945103) and 4T (61-1-8, 70 games, LLR 3.047240). The
-[release evidence](../weights/releases/README.md) and
-[compatibility receipt](../weights/releases/nn_r6-main-compatibility.json)
-bind the conditions and hashes. The actual v0.4.5 build is load-smoked with
-the same file and scale; that compatibility check does not extend the older
-strength result.
+The v0.5.0 evidence bundle is bound to source commit
+`a60be2cdf2f17a2c8bfb9980536f452e8c19958e`. It passed independent,
+colour-reversed one-second material-only paired-trinomial gates: 1T
+57-1-4 over 62 games (LLR 3.023878) and 4T 59-0-5 over 64 games (LLR
+3.032299). Its model card, redacted training and whole-game hold-out
+manifests, and raw gate evidence pass
+`validate_nnue_release_artifact.py` against that exact commit.
 
-The retained owner record also attests a whole-game hold-out, hashed training
-shards, and byte-identical uninterrupted/checkpoint-resume export. The
-current public evidence does not yet form a card accepted by
-`validate_nnue_release_artifact.py`, so no r6 model file is attached to this
-release. The [evidence intake contract](../weights/releases/README.md#evidence-intake-for-nn_r6)
-lists the redacted attestations and fresh current-source 1T/4T gates required
-before that can change. These native fixed-condition gates are not an external
-rating, a default-choice decision, or a WebAssembly/mobile qualification.
+These native fixed-condition gates are not an external rating, a default-choice
+decision, or a WebAssembly/mobile qualification. Verify the release-asset
+checksum and the CC BY 4.0 terms before use. The [weight card](../weights/sekirei-halfkp-r6-v0.5.0.json)
+names both v0.5.0 release assets and their checksums.
 
 ## Historical `nn_r3` candidate
 

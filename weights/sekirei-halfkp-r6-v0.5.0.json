@@ -1,0 +1,72 @@
+{
+  "schema": "sekirei.nnue-release-card.v2",
+  "model_id": "sekirei-halfkp-nn-r6",
+  "release_version": "0.5.0",
+  "artifact": {
+    "release_asset": "sekirei-halfkp-r6-v0.5.0.bin.xz",
+    "compression": "xz",
+    "compressed_sha256": "01623e1146293a3aa30a299d250865750d7b166a416cc46f2d1b8db3a48cbb8f",
+    "compressed_bytes": 20944020,
+    "filename_after_decompression": "sekirei-halfkp-r6-v0.5.0.bin",
+    "sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+    "bytes": 64216957,
+    "format": "HalfKP(Friend) 256x2-32-32",
+    "version_word": "0x7AF32F16",
+    "architecture_descriptor": "Sekirei HalfKP 256x2-32-32 own training (19804530 positions, lam 1.0)",
+    "fv_scale": 24,
+    "nnue_output": "absolute"
+  },
+  "evidence_bundle": {
+    "release_asset": "sekirei-halfkp-r6-v0.5.0-bundle.tar.xz",
+    "sha256": "b9e8c05a5a277e52c742a0461d26714a276c5d23b03ca264072aa3f6855a026c",
+    "bytes": 27549968,
+    "validator": "scripts/validate_nnue_release_artifact.py",
+    "validator_result": "valid against a60be2cdf2f17a2c8bfb9980536f452e8c19958e"
+  },
+  "license": {
+    "spdx": "CC-BY-4.0",
+    "attribution": "Sekirei project (kent-tokyo), https://github.com/kent-tokyo/sekirei",
+    "notice": "NNUE-LICENSE.md"
+  },
+  "qualification": {
+    "engine_commit": "a60be2cdf2f17a2c8bfb9980536f452e8c19958e",
+    "engine_sha256": "9183e9c56fab7a9824e846f4cef18993159d5aa8e3f380d0860ccf9cad51b765",
+    "baseline": "material-only",
+    "byoyomi_ms": 1000,
+    "hash_mib": 64,
+    "spec_top_n": 0,
+    "conditions": [
+      {
+        "threads": 1,
+        "search_mode": "Speculative",
+        "games": 62,
+        "wins": 57,
+        "draws": 1,
+        "losses": 4,
+        "opening_corpus_sha256": "468a5064cba95225577b910b9de2d9317c2b7cff392b99223f55d7dd31c80a21",
+        "llr": 3.0238784550266913,
+        "upper_bound": 2.9444389791664403,
+        "verdict": "PASS"
+      },
+      {
+        "threads": 4,
+        "search_mode": "LazySMP",
+        "games": 64,
+        "wins": 59,
+        "draws": 0,
+        "losses": 5,
+        "opening_corpus_sha256": "e4b8ec402a55a97c3dcd43e88ba7d9435799b235258866bf892383d4139bf178",
+        "llr": 3.0322987218861215,
+        "upper_bound": 2.9444389791664403,
+        "verdict": "PASS"
+      }
+    ]
+  },
+  "distribution": {
+    "availability": "github_release_asset",
+    "experimental_opt_in": true,
+    "default_evaluator": false,
+    "recommended_default": false
+  },
+  "scope": "Optional artifact only. The material gates are not an external rating, a general v0.5.0 strength claim, or a WebAssembly/mobile qualification."
+}

@@ -3,16 +3,16 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.4.5-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.4.5)
+[![Release](https://img.shields.io/badge/release-v0.5.0-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.0)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.4.5` ships the
-optional `nn_r6` HalfKP artifact with its provenance and qualification scope.
-The default search policy and material evaluator are unchanged; `nn_r6` is an
-experimental opt-in asset, not a default or a general playing-strength claim.
+Sekirei is an experimental Pure Rust shogi engine. Release `0.5.0` ships the
+optional `nn_r6` HalfKP artifact with a machine-validated provenance and gate
+bundle. The default search policy and material evaluator are unchanged;
+`nn_r6` is an opt-in asset, not a default or a general playing-strength claim.
 
 ## Quick start
 
@@ -33,10 +33,10 @@ Register `sekirei` in a USI-compatible GUI. Without `EvalFile`, the engine
 uses material evaluation. External HalfKP 256x2-32-32 files use `FV_SCALE`
 and remain subject to their own licenses.
 [NNUE weights](docs/nnue_weights.md) records supported formats, checksums, and
-the evidence boundary. `nn_r6` passed recorded fixed-source native 1T/4T
-material gates, but its public artifact remains blocked until its evidence
-bundle passes the release-artifact validator. It is not selected by default;
-those gates are neither an external rating nor a current-release strength
+the evidence boundary. `nn_r6` passed independent colour-reversed material
+gates at 1T and 4T on a pinned source commit, and its released evidence bundle
+passes the strict artifact validator. It is not selected by default; those
+gates are neither an external rating nor a general current-release strength
 claim.
 
 ## Components
@@ -64,9 +64,9 @@ deterministic diagnostics, use `Threads=1` and `SpecTopN=0`.
 [`sekirei-wasm`](crates/sekirei-wasm/README.md) provides SFEN parsing, legal
 moves, validated move application, bounded one-worker search with an optional
 caller-supplied evaluator, up to four MultiPV lines, and bounded shortest-mate
-analysis. The prebuilt v0.4.5 ES-module
+analysis. The prebuilt v0.5.0 ES-module
 package is attached to the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.4.5/sekirei-wasm-0.4.5.tgz).
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.0/sekirei-wasm-0.5.0.tgz).
 
 ## Build and verify
 

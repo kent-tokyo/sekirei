@@ -1,0 +1,82 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.5.0",
+  "commit": "a60be2cdf2f17a2c8bfb9980536f452e8c19958e",
+  "branch_at_release": "main",
+  "candidate_state": "release preparation from the v0.5.0 source commit",
+  "packages": {
+    "sekirei": "0.5.0",
+    "sekirei-core": "0.5.0",
+    "sekirei-bench": "0.5.0",
+    "sekirei-csa": "0.5.0",
+    "sekirei-match-runner": "0.5.0",
+    "sekirei-train": "0.5.0"
+  },
+  "dependencies": {
+    "lineprior": "0.12.6",
+    "shogiesa-core": "0.11.6",
+    "veridict": "0.19.5"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "9a6a13e6baf624e9726e05e6d58aedfed16dc5cbe9a2a0c96046f2ab78e51fc3"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.5.0",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.5.0.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.5.0/sekirei-wasm-0.5.0.tgz",
+    "sha256": "5af2fa676b8a46ff082ca78fb0f050f32a562e6ff94b29d318b80140d53b7444",
+    "size": 547546,
+    "npm_registry_status": "not_published"
+  },
+  "nnue_artifact": {
+    "status": "planned_optional_github_release_asset",
+    "model_id": "sekirei-halfkp-nn-r6",
+    "default_evaluator": false,
+    "license": "CC-BY-4.0",
+    "weight_asset": "sekirei-halfkp-r6-v0.5.0.bin.xz",
+    "evidence_asset": "sekirei-halfkp-r6-v0.5.0-bundle.tar.xz",
+    "weight_asset_sha256": "01623e1146293a3aa30a299d250865750d7b166a416cc46f2d1b8db3a48cbb8f",
+    "weight_asset_size": 20944020,
+    "evidence_asset_sha256": "b9e8c05a5a277e52c742a0461d26714a276c5d23b03ca264072aa3f6855a026c",
+    "evidence_asset_size": 27549968,
+    "candidate_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+    "qualification_engine_commit": "a60be2cdf2f17a2c8bfb9980536f452e8c19958e",
+    "qualification_scope": "Independent colour-reversed material-only 1T and 4T paired-trinomial gates; not an external rating, a default-adoption decision, or a WebAssembly/mobile qualification."
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only native USI smoke",
+    "results": "The default material evaluator and ordinary search policy are unchanged. nn_r6 is an optional, non-default release asset qualified on the pinned source commit."
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.5.0."
+  },
+  "known_limitations": [
+    "nn_r6 is optional and not selected by default; it has no external-rating or WebAssembly/mobile-quality qualification.",
+    "The qualified PGO throughput results apply only to their recorded Apple M4 configurations; ordinary release builds do not embed those profiles.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry."
+  ]
+}

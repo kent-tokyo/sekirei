@@ -8,6 +8,21 @@ preserves older per-change notes.
 
 No changes yet.
 
+## [0.5.0] – 2026-10-20
+
+Version 0.5.0 releases the optional in-house `nn_r6` HalfKP artifact with a
+strictly validated provenance and material-gate bundle. The default material
+evaluator and ordinary search policy are unchanged; this is not a general
+playing-strength claim.
+
+### Added
+
+- Publish `nn_r6` as a CC BY 4.0 GitHub Release asset, with a model card,
+  redacted training and whole-game hold-out manifests, and independent 1T/4T
+  colour-reversed material-gate evidence tied to the pinned source commit.
+- Retain fail-closed gate supervision, frozen opening-manifest binding, and
+  bounded CSA receive diagnostics in the release line.
+
 ## [0.4.5] – 2026-10-19
 
 Version 0.4.5 records fail-closed release evidence for the in-house `nn_r6`
