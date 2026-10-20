@@ -56,9 +56,44 @@ def validate(doc, *, allow_planned_publish=False):
         if webassembly.get("registry") != "github-release": errors.append("webassembly.registry")
         if webassembly.get("asset") != expected_asset: errors.append("webassembly.asset")
         if webassembly.get("url") != expected_url: errors.append("webassembly.url")
-        if not HEX64.fullmatch(webassembly.get("sha256", "")): errors.append("webassembly.sha256")
-        if not isinstance(webassembly.get("size"), int) or webassembly.get("size", 0) < 1: errors.append("webassembly.size")
-        if webassembly.get("npm_registry_status") != "not_published": errors.append("webassembly.npm_registry_status")
+        wasm_state = webassembly.get("status")
+        if release_tuple is not None and release_tuple >= (0, 5, 1):
+            if wasm_state not in {"planned", "verified"}:
+                errors.append("webassembly.status")
+        elif wasm_state not in {None, "verified"}:
+            errors.append("webassembly.status")
+        if wasm_state == "planned":
+            if not allow_planned_publish:
+                errors.append("webassembly.status")
+            if "sha256" in webassembly:
+                errors.append("webassembly.sha256")
+            if "size" in webassembly:
+                errors.append("webassembly.size")
+        else:
+            wasm_sha = webassembly.get("sha256")
+            if not isinstance(wasm_sha, str) or not HEX64.fullmatch(wasm_sha): errors.append("webassembly.sha256")
+            if not isinstance(webassembly.get("size"), int) or webassembly.get("size", 0) < 1: errors.append("webassembly.size")
+        npm_status = webassembly.get("npm_registry_status")
+        if npm_status not in {"not_published", "published", "unverified"}:
+            errors.append("webassembly.npm_registry_status")
+        if npm_status == "published":
+            if wasm_state == "planned":
+                errors.append("webassembly.npm_before_release_verification")
+            if webassembly.get("npm_registry_version") != version:
+                errors.append("webassembly.npm_registry_version")
+            npm_integrity = webassembly.get("npm_registry_integrity")
+            if not isinstance(npm_integrity, str) or not re.fullmatch(r"sha512-[A-Za-z0-9+/]+={0,2}", npm_integrity):
+                errors.append("webassembly.npm_registry_integrity")
+        attempt = webassembly.get("npm_publish_attempt")
+        if attempt is not None:
+            if not isinstance(attempt, dict) or attempt.get("result") not in {"verified", "failed", "unverified"}:
+                errors.append("webassembly.npm_publish_attempt.result")
+            elif not str(attempt.get("workflow_run", "")).isdigit() or int(attempt["workflow_run"]) < 1:
+                errors.append("webassembly.npm_publish_attempt.workflow_run")
+            elif npm_status == "published" and attempt["result"] != "verified":
+                errors.append("webassembly.npm_publish_attempt.status_mismatch")
+        elif npm_status == "unverified":
+            errors.append("webassembly.npm_publish_attempt")
     measurement = doc.get("internal_measurement", {})
     if not isinstance(measurement.get("spec_top_n"), int) or measurement["spec_top_n"] < 0 or not isinstance(measurement.get("threads"), int) or measurement["threads"] < 1 or not isinstance(measurement.get("parallel"), int) or measurement["parallel"] < 1 or not isinstance(measurement.get("strength_claim"), bool): errors.append("internal_measurement")
     external = doc.get("external_opponents", {})

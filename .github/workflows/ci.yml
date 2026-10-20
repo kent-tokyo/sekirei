@@ -203,6 +203,9 @@ jobs:
         run: |
           python3 scripts/test_release_manifest.py
           python3 scripts/test_check_release_manifest_layout.py
+          python3 scripts/test_check_wasm_npm_distribution.py
+          python3 scripts/test_record_wasm_npm_status.py
+          python3 scripts/test_wasm_release_lifecycle.py
           python3 scripts/check_release_manifest_layout.py
           python3 scripts/validate_release_manifest.py scripts/fixtures/release_manifest_diagnostic_v1.json
           python3 scripts/attach_candidate_readiness.py \
