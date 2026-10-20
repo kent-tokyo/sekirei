@@ -325,6 +325,97 @@ pub(crate) fn see_swap(board: &Board, m: Move) -> i32 {
     see_exchange(board, m)
 }
 
+// The attack-shape union `gold_like` is deliberately not a value group:
+// tokin/promoted lance/promoted knight cost 600, promoted silver 640, gold 680.
+// One list drives both the unrolled probes and the compile-time value checks.
+#[cfg(any(feature = "see_lva_groups", test))]
+macro_rules! see_lva_group_list {
+    ($visit:ident) => {
+        $visit!(
+            [Ou],
+            [Fu],
+            [Kyou],
+            [Kei],
+            [Tokin, Narikyo, Narikei],
+            [Gin, Narigin],
+            [Kin],
+            [Kaku],
+            [Hisha],
+            [Uma],
+            [Ryu]
+        )
+    };
+}
+
+#[cfg(any(feature = "see_lva_groups", test))]
+const _: () = {
+    macro_rules! kind_groups {
+        ($( [$($kind:ident),+] ),+) => {
+            [$( &[$(PieceKind::$kind),+] as &[PieceKind] ),+]
+        };
+    }
+    let groups: [&[PieceKind]; 11] = see_lva_group_list!(kind_groups);
+    let mut seen = 0u32;
+    let mut group = 0;
+    while group < groups.len() {
+        let value = crate::eval::PIECE_VALUE[groups[group][0].index()];
+        if group > 0 {
+            assert!(crate::eval::PIECE_VALUE[groups[group - 1][0].index()] < value);
+        }
+        let mut member = 0;
+        while member < groups[group].len() {
+            let kind = groups[group][member];
+            let bit = 1u32 << kind.index();
+            assert!(seen & bit == 0);
+            assert!(crate::eval::PIECE_VALUE[kind.index()] == value);
+            seen |= bit;
+            member += 1;
+        }
+        group += 1;
+    }
+    assert!(seen == (1u32 << PieceKind::COUNT) - 1);
+};
+
+/// Pick exactly the scalar scan's minimum `(piece value, square index)`.
+/// Only multi-attacker sets inspect value groups; empty/single sets retain
+/// a direct mailbox path. The exchange loop owns king legality and occupancy.
+#[cfg(any(feature = "see_lva_groups", test))]
+#[inline]
+fn least_attacker_grouped(
+    board: &Board,
+    side: Color,
+    attackers: Bitboard,
+) -> Option<(Square, i32, PieceKind)> {
+    let mut remaining = attackers;
+    let first = remaining.pop_lsb()?;
+    if remaining.is_empty() {
+        return board.piece_at(first).map(|piece| {
+            (
+                first,
+                crate::eval::PIECE_VALUE[piece.kind.index()],
+                piece.kind,
+            )
+        });
+    }
+    macro_rules! probe_groups {
+        ($( [$($kind:ident),+] ),+) => {
+            $(
+                {
+                    let mut candidates = attackers
+                        & (Bitboard::EMPTY $(| board.pieces(side, PieceKind::$kind))+);
+                    if let Some(square) = candidates.pop_lsb() {
+                        return board.piece_at(square).map(|piece| {
+                            (square, crate::eval::PIECE_VALUE[piece.kind.index()], piece.kind)
+                        });
+                    }
+                }
+            )+
+        };
+    }
+    see_lva_group_list!(probe_groups);
+    None
+}
+
 /// Static exchange evaluation of any move, including quiet moves and drops:
 /// the moved or dropped piece stands on `m.to` and the opponent may start
 /// capturing it. A quiet move that cannot be won scores 0 (or its promotion
@@ -349,17 +440,23 @@ pub(crate) fn see_exchange(board: &Board, m: Move) -> i32 {
     let mut depth = 0;
     loop {
         let attackers = attackers_to_square(board, to, side, occupied) & occupied;
-        let mut remaining = attackers;
-        let mut least: Option<(Square, i32, PieceKind)> = None;
-        while let Some(sq) = remaining.pop_lsb() {
-            let Some(piece) = board.piece_at(sq) else {
-                continue;
-            };
-            let v = value(piece.kind);
-            if least.is_none_or(|(_, best, _)| v < best) {
-                least = Some((sq, v, piece.kind));
+        #[cfg(feature = "see_lva_groups")]
+        let least = least_attacker_grouped(board, side, attackers);
+        #[cfg(not(feature = "see_lva_groups"))]
+        let least = {
+            let mut remaining = attackers;
+            let mut least: Option<(Square, i32, PieceKind)> = None;
+            while let Some(sq) = remaining.pop_lsb() {
+                let Some(piece) = board.piece_at(sq) else {
+                    continue;
+                };
+                let v = value(piece.kind);
+                if least.is_none_or(|(_, best, _)| v < best) {
+                    least = Some((sq, v, piece.kind));
+                }
             }
-        }
+            least
+        };
         let Some((sq, v, kind)) = least else { break };
         let after = occupied.and_not(Bitboard::from_square(sq));
         if kind == PieceKind::Ou
@@ -381,6 +478,259 @@ pub(crate) fn see_exchange(board: &Board, m: Move) -> i32 {
         depth -= 1;
     }
     gain[0]
+}
+
+#[cfg(test)]
+mod see_lva_groups_tests {
+    use super::*;
+    use crate::eval::PIECE_VALUE;
+    use crate::piece::Piece;
+
+    // Frozen pre-candidate implementation: independent selector, exchange
+    // progression and back propagation, rather than a call through the feature.
+    fn scalar_exchange_oracle(board: &Board, m: Move) -> i32 {
+        use crate::eval::PIECE_VALUE;
+        let value = |kind: PieceKind| PIECE_VALUE[kind.index()];
+        let to = m.to;
+        let mut gain = [0i32; 40];
+        let mut on_square = value(m.piece_kind);
+        gain[0] = board.piece_at(to).map_or(0, |victim| value(victim.kind));
+        if m.promote {
+            let promoted = value(m.piece_kind.promoted());
+            gain[0] += promoted - on_square;
+            on_square = promoted;
+        }
+        let mut occupied = match m.from {
+            Some(from) => board.occ().and_not(Bitboard::from_square(from)),
+            None => board.occ(),
+        };
+        let mut side = board.side_to_move.flip();
+        let mut depth = 0;
+        loop {
+            let attackers = attackers_to_square(board, to, side, occupied) & occupied;
+            let mut remaining = attackers;
+            let mut least: Option<(Square, i32, PieceKind)> = None;
+            while let Some(sq) = remaining.pop_lsb() {
+                let Some(piece) = board.piece_at(sq) else {
+                    continue;
+                };
+                let v = value(piece.kind);
+                if least.is_none_or(|(_, best, _)| v < best) {
+                    least = Some((sq, v, piece.kind));
+                }
+            }
+            let Some((sq, v, kind)) = least else { break };
+            let after = occupied.and_not(Bitboard::from_square(sq));
+            if kind == PieceKind::Ou
+                && !(attackers_to_square(board, to, side.flip(), after) & after).is_empty()
+            {
+                break;
+            }
+            depth += 1;
+            if depth == gain.len() {
+                break;
+            }
+            gain[depth] = on_square - gain[depth - 1];
+            on_square = v;
+            occupied = after;
+            side = side.flip();
+        }
+        while depth > 0 {
+            gain[depth - 1] = -(-gain[depth - 1]).max(gain[depth]);
+            depth -= 1;
+        }
+        gain[0]
+    }
+
+    fn scalar_attacker(board: &Board, attackers: Bitboard) -> Option<(Square, i32, PieceKind)> {
+        let mut remaining = attackers;
+        let mut least = None;
+        while let Some(square) = remaining.pop_lsb() {
+            let Some(piece) = board.piece_at(square) else {
+                continue;
+            };
+            let value = PIECE_VALUE[piece.kind.index()];
+            if least.is_none_or(|(_, best, _)| value < best) {
+                least = Some((square, value, piece.kind));
+            }
+        }
+        least
+    }
+
+    #[test]
+    fn grouped_selection_matches_every_kind_subset_and_square_tie() {
+        // All 2^14 subsets include empty, single, same-value and mixed-value
+        // sets. Two permutations prevent kind order from masking square ties.
+        for color in [Color::Black, Color::White] {
+            for offset in [0usize, 17] {
+                let mut board = Board::empty();
+                let mut squares = [Square::from_index(0); PieceKind::COUNT];
+                for (index, square) in squares.iter_mut().enumerate() {
+                    *square = Square::from_index(((index * 23 + offset) % 81) as u8);
+                    board.setup_piece(
+                        *square,
+                        Piece::new(color, PieceKind::from_u8(index as u8).unwrap()),
+                    );
+                }
+                for subset in 0..1u32 << PieceKind::COUNT {
+                    let mut attackers = Bitboard::EMPTY;
+                    for (index, &square) in squares.iter().enumerate() {
+                        if subset & (1 << index) != 0 {
+                            attackers |= Bitboard::from_square(square);
+                        }
+                    }
+                    assert_eq!(
+                        least_attacker_grouped(&board, color, attackers),
+                        scalar_attacker(&board, attackers),
+                        "{color:?} offset={offset} subset={subset:#x}"
+                    );
+                }
+            }
+        }
+    }
+
+    fn orient(square: Square, color: Color) -> Square {
+        if color == Color::Black {
+            square
+        } else {
+            Square::from_index(80 - square.index())
+        }
+    }
+
+    #[test]
+    fn exchange_oracle_covers_promotions_drops_and_king_stop_rule() {
+        for color in [Color::Black, Color::White] {
+            let sq = |file, rank| orient(Square::from_shogi(file, rank), color);
+            for moved_index in 0..PieceKind::COUNT {
+                let moved = PieceKind::from_u8(moved_index as u8).unwrap();
+                for victim_index in 0..PieceKind::COUNT {
+                    let victim = PieceKind::from_u8(victim_index as u8).unwrap();
+                    let mut board = Board::empty();
+                    board.side_to_move = color;
+                    board.setup_piece(sq(5, 6), Piece::new(color, moved));
+                    board.setup_piece(sq(5, 5), Piece::new(color.flip(), victim));
+                    board.setup_piece(sq(4, 4), Piece::new(color.flip(), PieceKind::Gin));
+                    board.setup_piece(sq(6, 4), Piece::new(color.flip(), PieceKind::Tokin));
+                    board.setup_piece(sq(4, 6), Piece::new(color, PieceKind::Kin));
+                    board.setup_piece(sq(5, 8), Piece::new(color, PieceKind::Hisha));
+                    for promote in [false, true] {
+                        if promote && !moved.is_promotable() {
+                            continue;
+                        }
+                        let mv = Move::normal(sq(5, 6), sq(5, 5), moved, promote);
+                        assert_eq!(
+                            see_exchange(&board, mv),
+                            scalar_exchange_oracle(&board, mv),
+                            "{color:?} {moved:?} takes {victim:?} promote={promote}"
+                        );
+                    }
+                    let drop = Move::drop(sq(5, 7), PieceKind::Gin);
+                    assert_eq!(
+                        see_exchange(&board, drop),
+                        scalar_exchange_oracle(&board, drop)
+                    );
+                }
+            }
+            // King has value zero and is selected before a silver. If that
+            // recapture is unsafe the OLD algorithm stops; it does not try silver.
+            for protected in [false, true] {
+                let mut board = Board::empty();
+                board.side_to_move = color;
+                board.setup_piece(sq(5, 6), Piece::new(color, PieceKind::Hisha));
+                board.setup_piece(sq(5, 5), Piece::new(color.flip(), PieceKind::Fu));
+                board.setup_piece(sq(5, 4), Piece::new(color.flip(), PieceKind::Ou));
+                board.setup_piece(sq(6, 4), Piece::new(color.flip(), PieceKind::Gin));
+                if protected {
+                    board.setup_piece(sq(4, 6), Piece::new(color, PieceKind::Gin));
+                }
+                let mv = Move::normal(sq(5, 6), sq(5, 5), PieceKind::Hisha, false);
+                let expected = if protected { 100 } else { -940 };
+                assert_eq!(scalar_exchange_oracle(&board, mv), expected);
+                assert_eq!(see_exchange(&board, mv), expected);
+            }
+        }
+    }
+
+    fn next_random(seed: &mut u64) -> u64 {
+        *seed ^= *seed << 13;
+        *seed ^= *seed >> 7;
+        *seed ^= *seed << 17;
+        *seed
+    }
+
+    fn legal_differential(visits: u64, all_moves: bool) -> (u64, u64, u64, u64) {
+        let mut seed = 0x243f_6a88_85a3_08d3u64;
+        let mut board = Board::startpos();
+        let (mut comparisons, mut captures, mut promotions, mut drops) = (0, 0, 0, 0);
+        let mut visited = 0;
+        while visited < visits {
+            if board.ply >= 192 {
+                board = Board::startpos();
+            }
+            let moves = MoveBuffer::legal(&mut board);
+            if moves.is_empty() {
+                board = Board::startpos();
+                continue;
+            }
+            let index = (next_random(&mut seed) as usize) % moves.len();
+            let check = |mv: Move| {
+                assert_eq!(
+                    see_exchange(&board, mv),
+                    scalar_exchange_oracle(&board, mv),
+                    "SEE differs for {mv:?} in {}",
+                    crate::sfen::board_to_sfen(&board)
+                );
+            };
+            if all_moves {
+                for &mv in moves.as_slice() {
+                    check(mv);
+                    comparisons += 1;
+                }
+            } else {
+                check(moves.as_slice()[index]);
+                comparisons += 1;
+            }
+            let mv = moves.as_slice()[index];
+            captures += u64::from(board.piece_at(mv.to).is_some());
+            promotions += u64::from(mv.promote);
+            drops += u64::from(mv.from.is_none());
+            board.do_move_for_search(mv);
+            visited += 1;
+        }
+        (comparisons, captures, promotions, drops)
+    }
+
+    #[test]
+    fn legal_playout_exact_see_differential() {
+        let (comparisons, captures, promotions, drops) = legal_differential(512, true);
+        assert!(comparisons > 512 && captures > 0 && promotions > 0 && drops > 0);
+        println!(
+            "SEE LVA legal differential: feature={} visits=512 comparisons={comparisons} captures={captures} promotions={promotions} drops={drops}",
+            cfg!(feature = "see_lva_groups")
+        );
+    }
+
+    #[test]
+    #[ignore = "isolated material-only legal-position SEE stress; explicit count for formal qualification"]
+    // Keep a runtime rejection when this ignored test is explicitly run without the feature.
+    #[allow(clippy::assertions_on_constants)]
+    fn grouped_see_10m_legal_position_differential() {
+        assert!(
+            cfg!(feature = "see_lva_groups"),
+            "stress must exercise the candidate"
+        );
+        assert!(!crate::nnue::weights_active() && !crate::halfkp::is_active());
+        let visits = std::env::var("SEKIREI_SEE_LVA_POSITIONS").map_or(1_000_000, |value| {
+            value.parse::<u64>().expect("positive visit count")
+        });
+        assert!(visits > 0);
+        let (comparisons, captures, promotions, drops) = legal_differential(visits, false);
+        assert_eq!(comparisons, visits);
+        assert!(captures > 0 && promotions > 0 && drops > 0);
+        println!(
+            "SEE LVA legal visits completed: visits={visits} comparisons={comparisons} captures={captures} promotions={promotions} drops={drops} feature=true"
+        );
+    }
 }
 
 #[cfg(test)]
