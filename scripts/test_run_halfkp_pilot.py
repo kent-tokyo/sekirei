@@ -3,6 +3,11 @@
 import json
 import copy
 import errno
+import os
+import signal
+import subprocess
+import time
+from types import SimpleNamespace
 from pathlib import Path
 import tempfile
 import sys
@@ -147,6 +152,22 @@ class PilotIntegrityTest(unittest.TestCase):
                     pilot.save_with_reserve(p/'status',{},reserve)
             self.assertTrue(reserve.exists())
 
+    def test_transient_or_malformed_cpu_observation_is_unknown(self):
+        for failure in (OSError('temporary ps failure'),subprocess.TimeoutExpired('ps',10)):
+            with self.subTest(error=failure),patch.object(pilot.subprocess,'run',side_effect=failure):
+                self.assertIsNone(pilot.observe_host_cpu())
+        for output in ('', 'nan', '-1', 'broken'):
+            with self.subTest(output=output),patch.object(pilot.subprocess,'run',
+                    return_value=SimpleNamespace(returncode=0,stdout=output)):
+                self.assertIsNone(pilot.observe_host_cpu())
+
+    def test_operator_signal_during_cpu_observation_is_not_swallowed(self):
+        def terminate(*args, **kwargs):
+            pilot.interrupted(signal.SIGTERM,None)
+        with patch.object(pilot.subprocess,'run',side_effect=terminate):
+            with self.assertRaisesRegex(pilot.PilotShutdown,'received signal'):
+                pilot.observe_host_cpu()
+
     def test_capacity_continuation_retains_prefix_with_exact_remaining_budget(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp);plan,source=continuation_fixture(p)
@@ -239,6 +260,158 @@ class PilotIntegrityTest(unittest.TestCase):
             self.assertFalse(status['adopted'])
             with self.assertRaisesRegex(ValueError,'fresh run required'):
                 pilot.run(plan)
+
+
+@unittest.skipUnless(os.name == 'posix', 'POSIX process groups required')
+class CapacityPauseProcessTest(unittest.TestCase):
+    @staticmethod
+    def launch_writer(path):
+        code = ("import os,sys,time\n"
+                "with open(sys.argv[1],'x') as f:\n"
+                " for n in range(40):\n"
+                "  f.write(str(n)+'\\n');f.flush();time.sleep(.02)\n")
+        return subprocess.Popen([sys.executable,'-u','-c',code,str(path)],
+                                start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+
+    def wait_started(self, proc, path):
+        deadline=time.monotonic()+5
+        while time.monotonic()<deadline:
+            if path.exists() and path.stat().st_size:
+                return
+            self.assertIsNone(proc.poll())
+            time.sleep(.01)
+        self.fail('test writer did not start')
+
+    def test_paused_group_stops_writing_then_continues_same_sequence_and_pid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output=Path(tmp)/'sequence';proc=self.launch_writer(output)
+            try:
+                self.wait_started(proc,output)
+                pid=proc.pid;events=[];waits=[];reserves=[]
+                def wait_capacity():
+                    deadline=time.monotonic()+3
+                    while time.monotonic()<deadline:
+                        state=subprocess.check_output(['ps','-p',str(pid),'-o','stat='],text=True)
+                        if 'T' in state:
+                            break
+                        time.sleep(.01)
+                    else:
+                        self.fail('group never stopped')
+                    before=output.read_bytes();time.sleep(.06)
+                    self.assertEqual(output.read_bytes(),before)
+                    self.assertIsNone(proc.poll());waits.append(True)
+                for _ in range(2):
+                    duration=pilot.pause_child_for_capacity(proc,wait_capacity,
+                        lambda:reserves.append(True),lambda action,seconds:events.append(action))
+                    self.assertGreaterEqual(duration,.12)
+                    self.assertEqual(proc.pid,pid)
+                self.assertEqual(proc.wait(timeout=5),0)
+                self.assertEqual(output.read_text().splitlines(),[str(n) for n in range(40)])
+                self.assertEqual(events,['paused','resumed','paused','resumed'])
+                self.assertEqual(len(waits),4);self.assertEqual(len(reserves),2)
+            finally:
+                pilot.terminate_child(proc)
+
+    def test_runner_wiring_pauses_after_capacity_drop_and_waits_through_unknown_cpu(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp).resolve();generator=root/'generator'
+            generator.write_text('#!'+sys.executable+'\nimport sys,time\n'
+                "time.sleep(.2)\nprint('eval r6 (HalfKp)',file=sys.stderr)\n"
+                "out=sys.argv[sys.argv.index('--out')+1]\n"
+                'open(out,"x").write('+repr(row(A,1,'0000000000000007-0000000000000000'))+')\n')
+            generator.chmod(0o700)
+            baseline=root/'baseline';baseline.write_text('frozen fixture evaluator')
+            trainer=root/'trainer';trainer.write_text('unused fixture trainer')
+            plan={'schema':'sekirei.own-halfkp-pilot-plan.v1',
+                  'generator':str(generator),'packer':str(generator),'trainer':str(trainer),
+                  'baseline':str(baseline),'baseline_sha256':pilot.sha(baseline),
+                  'generation':{'seeds':[7],'games_per_shard':1,'depth':1,'nodes':1,
+                      'random_plies':0,'min_training_ply':24,'max_ply':64},
+                  'training':{},'max_wall_hours':1,'exclusions':[],'spent_manifests':[],
+                  'bound_inputs':[pilot.ref(x) for x in (generator,baseline,trainer)]}
+            pilot.save(root/'plan.json',plan)
+            real_popen=subprocess.Popen;real_sleep=time.sleep;real_save=pilot.save
+            real_allocate=pilot.allocate_reserve;processes=[];drops=[];unknown=[];allocations=[]
+            def launch(argv,**kwargs):
+                proc=real_popen(argv,**kwargs)
+                if argv[0]==str(generator):
+                    processes.append(proc)
+                return proc
+            def disk(_):
+                if processes and not drops:
+                    drops.append(True);return SimpleNamespace(free=1024*1048576)
+                return SimpleNamespace(free=5000*1048576)
+            def cpu():
+                state=json.loads((root/'status.json').read_text())
+                if state.get('capacity_paused') and not unknown:
+                    unknown.append(True);return None
+                return 0.0
+            def save(path,document):
+                if Path(path).name=='generation-receipt.json':
+                    raise ValueError('fixture stops before preparation')
+                real_save(path,document)
+            def allocate(path):
+                allocations.append(True);real_allocate(path,mib=1)
+            with patch.object(pilot.subprocess,'Popen',side_effect=launch), \
+                 patch.object(pilot.shutil,'disk_usage',side_effect=disk), \
+                 patch.object(pilot,'observe_host_cpu',side_effect=cpu), \
+                 patch.object(pilot.time,'sleep',side_effect=lambda n:real_sleep(min(n,.002))), \
+                 patch.object(pilot,'allocate_reserve',side_effect=allocate), \
+                 patch.object(pilot,'save',side_effect=save):
+                with self.assertRaisesRegex(ValueError,'fixture stops before preparation'):
+                    pilot.run(root/'plan.json')
+            self.assertEqual(len(processes),1)
+            self.assertEqual(processes[0].returncode,0)
+            self.assertEqual(len(allocations),2)
+            self.assertEqual(len(unknown),1)
+            events=[json.loads(x.read_text()) for x in sorted(root.glob('capacity-event-*.json'))]
+            self.assertEqual([x['action'] for x in events],['paused','resumed'])
+            self.assertEqual({x['child_pid'] for x in events},{processes[0].pid})
+            self.assertEqual((root/'raw-00.txt').read_text(),row(A,1,'0000000000000007-0000000000000000'))
+            self.assertFalse((root/'STOP_GENERATION').exists())
+            self.assertEqual(json.loads((root/'status.json').read_text())['capacity_pause_count'],1)
+
+    def test_cancel_while_paused_terminates_child_without_relaunch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output=Path(tmp)/'sequence';proc=self.launch_writer(output)
+            try:
+                self.wait_started(proc,output)
+                def cancel():
+                    raise InterruptedError('operator stop')
+                with self.assertRaisesRegex(InterruptedError,'operator stop'):
+                    pilot.pause_child_for_capacity(proc,cancel,lambda:None,lambda *args:None)
+                self.assertIsNotNone(proc.poll())
+                self.assertNotEqual(proc.returncode,0)
+            finally:
+                pilot.terminate_child(proc)
+
+    def test_killed_paused_child_is_not_resumed_or_retried(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output=Path(tmp)/'sequence';proc=self.launch_writer(output);events=[]
+            try:
+                self.wait_started(proc,output)
+                def kill():
+                    os.killpg(proc.pid,signal.SIGKILL);proc.wait(timeout=3)
+                with self.assertRaisesRegex(ValueError,'paused child exited'):
+                    pilot.pause_child_for_capacity(proc,kill,lambda:None,
+                                                   lambda action,seconds:events.append(action))
+                self.assertEqual(events,['paused'])
+                self.assertEqual(proc.returncode,-signal.SIGKILL)
+            finally:
+                pilot.terminate_child(proc)
+
+    def test_pause_record_failure_cleans_up_stopped_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output=Path(tmp)/'sequence';proc=self.launch_writer(output)
+            try:
+                self.wait_started(proc,output)
+                def fail(*args):
+                    raise OSError(errno.ENOSPC,'record full')
+                with self.assertRaises(OSError):
+                    pilot.pause_child_for_capacity(proc,lambda:None,lambda:None,fail)
+                self.assertIsNotNone(proc.poll())
+            finally:
+                pilot.terminate_child(proc)
 
 
 if __name__=='__main__':

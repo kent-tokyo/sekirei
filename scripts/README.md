@@ -356,8 +356,16 @@ before game-level splitting, and records durable progress or a terminal
 failure. Each phase waits for three host samples with at most 400% total CPU.
 Generation/data preparation/training require 2 GiB free, packing
 1.5 GiB, and export loading 768 MiB; 128 MiB is physically reserved for
-emergency exit records. Large exclusion sets live only in a separate preparation
-process after generation. A trained output remains unqualified until a separate independent
+emergency exit records. During any active child phase, free space below
+2 GiB pauses its independent process group with `SIGSTOP`. The same process
+continues with `SIGCONT` after three stable samples at 3 GiB free and at most
+400% total CPU, reserve restoration, and input-hash checks. RNG state, optimizer,
+open files and completed games stay in place. Atomic capacity-event files and
+`PAUSED_CAPACITY` status record each pause and continuation. Paused time is
+excluded from the phase timeout; the total run cap still includes waiting.
+Cancellation terminates a stopped child; abnormal exits are never relaunched.
+Large exclusion sets live only in a separate preparation process after
+generation. A trained output remains unqualified until a separate independent
 strength gate; the runner neither promotes nor publishes it.
 
 An operator-frozen `manual_capacity_continuation` plan can carry forward
@@ -366,6 +374,18 @@ before any data preparation or training. It binds the original plan/status,
 raw shards and logs, preserves every completed game and the original total
 budget, and uses a distinct seed for the unfinished suffix. The old run stays
 untouched. This exception does not retry engine failures or statistical gates.
+
+`guard_halfkp_capacity.py --config /absolute/path/guard-config.json` adds disk
+supervision to an already running frozen pilot without changing its plan,
+controller or model. Its separate state directory records the frozen plan,
+observer/controller incarnations and a write-ahead pause journal. Below 2 GiB
+it stops the verified controller and owned child groups; after three samples
+at 3 GiB it continues those same processes. The observer stays live. Identity
+mismatches fail closed; this tool never starts a training job or retries a gate.
+The old controller's original wall-time cap continues to include this pause.
+A guard killed by the OS may leave its journaled groups stopped; a later guard
+with the same frozen configuration can reconcile them. This is distinct from
+restarting a terminated generator or trainer.
 
 `train_halfkp.py` consumes packed shards. `--init` resumes a float checkpoint;
 `--fact` folds in a king-independent factor. Inputs remain separate read-only

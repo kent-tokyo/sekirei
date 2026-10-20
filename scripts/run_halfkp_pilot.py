@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""One frozen, bounded own-HalfKP generation/train/independent-gate run.
+"""One frozen, bounded own-HalfKP generation and training pilot.
 
-Never overwrites its initial evaluator, automatically resumes an interrupted
-trial, retries an engine failure, publishes a checkpoint or changes the default.
+Capacity pressure pauses and continues the same process automatically. Never
+restarts a terminated trial, retries an engine failure, overwrites its initial
+evaluator, publishes a checkpoint or changes the default.
 An explicit, frozen capacity-continuation plan may retain completed games.
 """
 from __future__ import annotations
@@ -24,6 +25,10 @@ import time
 
 from freeze_material_gate_openings import identity_hash, canonical_identity, load_exclusions
 from split_gensfen_by_game import split_files, parse_record, validate_game_results
+
+
+class PilotShutdown(RuntimeError):
+    """Explicit termination must not be mistaken for transient OSError telemetry."""
 
 
 def require(condition, message):
@@ -251,6 +256,67 @@ def allocate_reserve(path, mib=128):
         raise
 
 
+def observe_host_cpu():
+    """Unknown/transient process sampling is a wait condition, never admission."""
+    try:
+        result = subprocess.run(['/bin/ps','-Ao','pcpu='],capture_output=True,text=True,timeout=10)
+        values = [float(x) for x in result.stdout.split()]
+        if result.returncode != 0 or not values or not all(math.isfinite(x) and x >= 0 for x in values):
+            return None
+        return sum(values)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def terminate_child(proc):
+    """Deliver termination before CONT so even a capacity-stopped child exits."""
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+        os.killpg(proc.pid, signal.SIGCONT)
+        proc.wait(timeout=20)
+    except ProcessLookupError:
+        proc.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+
+
+def pause_child_for_capacity(proc, wait_capacity, restore_reserve, record):
+    """Keep the same owned process group, RNG, optimizer and open files alive.
+
+    A failed child is never relaunched. The caller owns a Popen created with
+    start_new_session=True; an unreaped direct child cannot have its PID reused.
+    """
+    if proc.poll() is not None:
+        return 0.0
+    try:
+        require(os.getpgid(proc.pid) == proc.pid and proc.pid != os.getpgrp(),
+                'capacity pause requires an owned independent process group')
+        os.killpg(proc.pid, signal.SIGSTOP)
+    except ProcessLookupError:
+        if proc.poll() is not None:
+            return 0.0
+        raise
+    paused_at = time.monotonic()
+    try:
+        record('paused', 0.0)
+        wait_capacity()
+        require(proc.poll() is None, 'capacity-paused child exited; no retry')
+        restore_reserve()
+        # Recheck after the real reserve allocation: it consumes output space.
+        wait_capacity()
+        require(proc.poll() is None, 'capacity-paused child exited; no retry')
+        os.killpg(proc.pid, signal.SIGCONT)
+        duration = time.monotonic() - paused_at
+        record('resumed', duration)
+        return duration
+    except BaseException:
+        terminate_child(proc)
+        raise
+
+
 def prepare_data(plan, base):
     excluded, exclusion_records = load_exclusions([Path(x) for x in plan['exclusions']])
     for manifest in plan['spent_manifests']:
@@ -293,10 +359,11 @@ def run_locked(plan_path):
     require(not (base/'status.json').exists(), 'fresh run required; automatic restart forbidden')
     state = {'schema':'sekirei.own-halfkp-pilot-status.v1', 'status':'PREFLIGHT',
              'started_at':now(), 'pid':os.getpid(), 'plan':ref(plan_path),
-             'published':False, 'default_changed':False, 'best_remains':'nn_r6'}
+             'published':False, 'default_changed':False, 'best_remains':'nn_r6',
+             'automatic_capacity_resume':True, 'capacity_pause_below_mib':2048,
+             'capacity_resume_minimum_mib':3072}
     started = time.monotonic()
     proc = None
-    stop_requested = False
     reserve = base/'emergency-reserve.bin'
     def pins():
         require(sha(plan_path) == state['plan']['sha256'], 'frozen plan changed')
@@ -306,23 +373,18 @@ def run_locked(plan_path):
         state['updated_at'] = now()
         state['free_mib'] = shutil.disk_usage(base).free // 1048576
         save_with_reserve(base/'status.json',state,reserve)
-    def capacity(name, minimum):
+    def capacity(name, minimum, paused_child=None):
         previous_status=state['status']
         stable=0
         while stable < 3:
+            if paused_child is not None:
+                require(paused_child.poll() is None, 'capacity-paused child exited; no retry')
             snapshot()
-            r=subprocess.run(['/bin/ps','-Ao','pcpu='],capture_output=True,text=True,timeout=10)
-            try:
-                values=[float(x) for x in r.stdout.split()]
-                cpu=sum(values)
-                good=r.returncode==0 and values and all(math.isfinite(x) and x>=0 for x in values)
-            except ValueError:
-                cpu=None;good=False
-            if not good:
-                cpu=None
-            admitted=bool(good and cpu<=400 and state['free_mib']>=minimum)
+            cpu=observe_host_cpu()
+            admitted=cpu is not None and cpu<=400 and state['free_mib']>=minimum
             stable=stable+1 if admitted else 0
-            state.update(status='WAITING_RESOURCES',pending_phase=name,host_total_cpu_percent=cpu,
+            state.update(status='PAUSED_CAPACITY' if paused_child is not None else 'WAITING_RESOURCES',
+                         pending_phase=name,host_total_cpu_percent=cpu,
                          stable_samples=stable,minimum_free_mib=minimum)
             snapshot()
             require(time.monotonic()-started < plan['max_wall_hours']*3600,'capacity wait wall limit')
@@ -330,8 +392,8 @@ def run_locked(plan_path):
                 time.sleep(5)
         state['status']=previous_status
         snapshot()
-    def command(argv, name, timeout, min_free=2048, stop_file=None):
-        nonlocal proc, stop_requested
+    def command(argv, name, timeout, min_free=2048):
+        nonlocal proc
         pins()
         capacity(name,min_free)
         if not reserve.exists():
@@ -347,19 +409,44 @@ def run_locked(plan_path):
                                          'VECLIB_MAXIMUM_THREADS':'1','PYTHONDONTWRITEBYTECODE':'1'})
             state['child_pid'] = proc.pid
             phase_started = time.monotonic()
+            paused_seconds = 0.0
             while proc.poll() is None:
                 snapshot()
-                if state['free_mib'] < 768:
+                if state['free_mib'] < 2048:
+                    previous_status = state['status']
+                    def record_pause(action, duration):
+                        number = state.get('capacity_event_count', 0) + 1
+                        event = {'schema':'sekirei.own-halfkp-capacity-event.v1',
+                                 'at':now(), 'action':action, 'phase':name,
+                                 'child_pid':proc.pid, 'same_process_continuation':True,
+                                 'paused_seconds':duration, 'free_mib':state['free_mib']}
+                        path = base/f'capacity-event-{number:04}.json'
+                        save_with_reserve(path, event, reserve)
+                        state.update(capacity_event_count=number, last_capacity_event=ref(path),
+                                     capacity_paused=action == 'paused',
+                                     status='PAUSED_CAPACITY' if action == 'paused' else previous_status)
+                        if action == 'paused':
+                            state['capacity_pause_count'] = state.get('capacity_pause_count', 0) + 1
+                        snapshot()
+                    def restore_reserve():
+                        while not reserve.exists():
+                            try:
+                                allocate_reserve(reserve)
+                            except OSError as error:
+                                if error.errno != errno.ENOSPC:
+                                    raise
+                                capacity(name, 3072, paused_child=proc)
                     reserve.unlink(missing_ok=True)
-                    require(stop_file is not None,'low output capacity during child phase')
-                if stop_file and state['free_mib'] < 768 and not stop_requested:
-                    Path(stop_file).touch(exist_ok=False)
-                    stop_requested = True
-                    state['capacity_stop_requested'] = True
-                require(time.monotonic()-phase_started < timeout, 'phase wall limit')
+                    def wait_capacity():
+                        capacity(name, max(min_free,3072), paused_child=proc)
+                        pins()
+                    paused_seconds += pause_child_for_capacity(
+                        proc, wait_capacity, restore_reserve, record_pause)
+                    pins()
+                require(time.monotonic()-phase_started-paused_seconds < timeout, 'phase wall limit')
                 require(time.monotonic()-started < plan['max_wall_hours']*3600, 'run wall limit')
                 try:
-                    proc.wait(timeout=10)
+                    proc.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     pass
             code = proc.returncode
@@ -367,7 +454,6 @@ def run_locked(plan_path):
             proc = None
             snapshot()
             require(code == 0, 'child failed with return code ' + str(code))
-            require(not stop_requested, 'stopped between games for low output capacity')
         pins()
     try:
         snapshot(); pins(); validate_plan(plan)
@@ -385,7 +471,7 @@ def run_locked(plan_path):
                    '--random-plies',str(g['random_plies']),'--max-ply',str(g['max_ply']),
                    '--hash-mb','16','--eval',plan['baseline'],'--fv-scale','24',
                    '--stop-file',str(base/'STOP_GENERATION')]
-            command(cmd,f'generate-{n:02}',6*3600,stop_file=base/'STOP_GENERATION')
+            command(cmd,f'generate-{n:02}',6*3600)
             generation_log=(base/f'generate-{n:02}.stderr').read_text()
             require('(HalfKp)' in generation_log, 'generator evaluator mismatch')
             require(not (base/'STOP_GENERATION').exists() and 'stop file found' not in generation_log,
@@ -425,13 +511,9 @@ def run_locked(plan_path):
         snapshot()
     except BaseException as error:
         reserve.unlink(missing_ok=True)
-        if proc is not None and proc.poll() is None:
-            try:
-                os.killpg(proc.pid,signal.SIGTERM);proc.wait(timeout=20)
-            except ProcessLookupError:
-                pass
-            except subprocess.TimeoutExpired:
-                os.killpg(proc.pid,signal.SIGKILL);proc.wait()
+        if proc is not None:
+            terminate_child(proc)
+        state['capacity_paused'] = False
         state.update(status='STOPPED_NOT_QUALIFIED',error_type=type(error).__name__,error=str(error),
                      completed_at=now(),adopted=False)
         snapshot()
@@ -439,7 +521,7 @@ def run_locked(plan_path):
 
 
 def interrupted(number, _frame):
-    raise InterruptedError('received signal ' + str(number))
+    raise PilotShutdown('received signal ' + str(number))
 
 
 if __name__ == '__main__':
