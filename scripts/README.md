@@ -465,7 +465,8 @@ python3 scripts/check_release_manifest_layout.py
 Prefer one parameterized tool over near-duplicate wrappers. Retire one-off
 instrumentation only after its evidence is retained and no live workflow or
 document references it. `cleanup_runs.sh` is dry-run by default and requires
-`APPLY=1` for deletion.
+`APPLY=1` for deletion. Its protection scan includes Python and shell scripts
+under `scripts/`, including the historical single-run tools in [`archive/`](archive/README.md).
 
 ## Experiment playbooks
 

@@ -13,6 +13,10 @@ preserves older per-change notes.
   Search behavior and public APIs are unchanged.
 - Archive historical benchmark reports and unused release smoke transcripts,
   extract root-split unit tests, and share USI diagnostic-context construction.
+- Share searcher field initialization across constructors and centralize CSA run
+  manifest edits without changing the search policy or manifest format.
+- Archive a run-specific historical gate script and retain cleanup protection
+  for shell and Python references under `scripts/`.
 
 ## [0.5.1] – 2026-10-20
 
