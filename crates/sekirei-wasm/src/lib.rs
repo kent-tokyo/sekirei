@@ -39,6 +39,7 @@ const MAX_MATE_NODES: u32 = 1_000_000;
 const SEARCH_TT_MIB: usize = 4;
 const BROWSER_SEARCH_WORKERS: u32 = 1;
 const BROWSER_MAX_CANDIDATE_LINES: u32 = 4;
+const API_VERSION: u32 = 4;
 const MAX_EVALUATOR_BYTES: usize = sekirei_core::halfkp::MAX_FILE_BYTES;
 #[cfg(test)]
 const ALREADY_CHECKED_MATE_SFEN: &str = "4k4/2S3S2/3S1S3/4R4/9/9/9/9/4K4 b - 1";
@@ -176,6 +177,42 @@ impl EvaluatorMetadata {
 }
 
 static EVALUATOR_METADATA: OnceLock<EvaluatorMetadata> = OnceLock::new();
+
+fn valid_commit(commit: &str) -> bool {
+    commit.len() == 40
+        && commit
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn package_identity() -> (&'static str, Option<&'static str>, Option<&'static str>) {
+    let (Some(source), Some(build)) = (
+        option_env!("SEKIREI_WASM_SOURCE_COMMIT"),
+        option_env!("SEKIREI_WASM_BUILD_COMMIT"),
+    ) else {
+        return ("local", None, None);
+    };
+    if !valid_commit(source) || !valid_commit(build) {
+        return ("local", None, None);
+    }
+    match option_env!("SEKIREI_WASM_BUILD_PROVENANCE") {
+        Some("release") => ("release", Some(source), Some(build)),
+        Some("candidate") if source == build => ("candidate", Some(source), Some(build)),
+        _ => ("local", None, None),
+    }
+}
+
+fn source_commit() -> Option<&'static str> {
+    package_identity().1
+}
+
+fn build_commit() -> Option<&'static str> {
+    package_identity().2
+}
+
+fn build_provenance() -> &'static str {
+    package_identity().0
+}
 
 fn evaluator_metadata() -> EvaluatorMetadata {
     EVALUATOR_METADATA
@@ -968,7 +1005,7 @@ impl MultiPvPositionAnalysis {
     /// Contract schema version, separate from engine and evaluator versions.
     #[wasm_bindgen(getter, js_name = apiVersion)]
     pub fn api_version(&self) -> u32 {
-        4
+        API_VERSION
     }
 }
 
@@ -1132,7 +1169,7 @@ impl PositionAnalysis {
     /// Contract schema version, separate from engine and evaluator versions.
     #[wasm_bindgen(getter, js_name = apiVersion)]
     pub fn api_version(&self) -> u32 {
-        4
+        API_VERSION
     }
 }
 
@@ -1444,6 +1481,78 @@ pub fn search_capabilities() -> SearchCapabilities {
     SearchCapabilities
 }
 
+/// Immutable package identity, available immediately after WebAssembly initialization.
+#[wasm_bindgen]
+pub struct PackageInfo;
+
+#[wasm_bindgen]
+impl PackageInfo {
+    /// Position-analysis contract schema version.
+    #[wasm_bindgen(getter, js_name = apiVersion)]
+    pub fn api_version(&self) -> u32 {
+        API_VERSION
+    }
+
+    /// Cargo package version; this does not identify distributed bytes.
+    #[wasm_bindgen(getter, js_name = engineVersion)]
+    pub fn engine_version(&self) -> String {
+        env!("CARGO_PKG_VERSION").to_owned()
+    }
+
+    /// Manifest's frozen source baseline for releases; the build commit for candidates.
+    #[wasm_bindgen(getter, js_name = sourceCommit)]
+    pub fn source_commit(&self) -> Option<String> {
+        source_commit().map(str::to_owned)
+    }
+
+    /// Git commit actually checked out when the package was built, if verified.
+    #[wasm_bindgen(getter, js_name = buildCommit)]
+    pub fn build_commit(&self) -> Option<String> {
+        build_commit().map(str::to_owned)
+    }
+
+    /// Explicit unknown state for a build without a verified source commit.
+    #[wasm_bindgen(getter, js_name = sourceCommitStatus, unchecked_return_type = "'known' | 'unknown'")]
+    pub fn source_commit_status(&self) -> String {
+        if source_commit().is_some() {
+            "known"
+        } else {
+            "unknown"
+        }
+        .to_owned()
+    }
+
+    /// Release tag, committed candidate, or unverified local build.
+    #[wasm_bindgen(getter, unchecked_return_type = "'release' | 'candidate' | 'local'")]
+    pub fn provenance(&self) -> String {
+        build_provenance().to_owned()
+    }
+
+    /// Evaluator active immediately after initialization.
+    #[wasm_bindgen(getter, js_name = initialEvaluatorId, unchecked_return_type = "'material'")]
+    pub fn initial_evaluator_id(&self) -> String {
+        "material".to_owned()
+    }
+
+    /// Version of the built-in material evaluator.
+    #[wasm_bindgen(getter, js_name = initialEvaluatorVersion, unchecked_return_type = "'material-v1'")]
+    pub fn initial_evaluator_version(&self) -> String {
+        "material-v1".to_owned()
+    }
+
+    /// Built-in material evaluation has no weight image or hash.
+    #[wasm_bindgen(getter, js_name = initialEvaluatorWeightSha256)]
+    pub fn initial_evaluator_weight_sha256(&self) -> Option<String> {
+        None
+    }
+}
+
+/// Return package provenance before creating a board or loading an evaluator.
+#[wasm_bindgen(js_name = packageInfo)]
+pub fn package_info() -> PackageInfo {
+    PackageInfo
+}
+
 /// Validate and activate one evaluator supplied by the browser as bytes.
 ///
 /// Loading is fail-closed and one-shot. A rejected image leaves material
@@ -1589,6 +1698,32 @@ mod tests {
 
     const ASYMMETRIC_BLACK: &str = "4k4/9/9/9/9/9/9/9/4K4 b P 1";
     const ASYMMETRIC_WHITE: &str = "4k4/9/9/9/9/9/9/9/4K4 w P 1";
+
+    #[test]
+    fn package_provenance_is_available_without_board_or_evaluator() {
+        let info = package_info();
+        assert_eq!(info.api_version(), 4);
+        assert_eq!(info.engine_version(), env!("CARGO_PKG_VERSION"));
+        assert_eq!(info.initial_evaluator_id(), "material");
+        assert_eq!(info.initial_evaluator_version(), "material-v1");
+        assert_eq!(info.initial_evaluator_weight_sha256(), None);
+        match info.source_commit_status().as_str() {
+            "known" => {
+                assert!(valid_commit(info.source_commit().as_deref().unwrap()));
+                assert!(valid_commit(info.build_commit().as_deref().unwrap()));
+                assert!(matches!(
+                    info.provenance().as_str(),
+                    "release" | "candidate"
+                ));
+            }
+            "unknown" => {
+                assert_eq!(info.source_commit(), None);
+                assert_eq!(info.build_commit(), None);
+                assert_eq!(info.provenance(), "local");
+            }
+            other => panic!("invalid source commit status: {other}"),
+        }
+    }
 
     fn assert_legal_line(mut sfen: String, line: &[String]) {
         for mv in line {
