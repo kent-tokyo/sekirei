@@ -10,8 +10,33 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+
+from ab_match_supervisor import _inputs
+
+
+class EvaluatorPinTest(unittest.TestCase):
+    def test_supervisor_pins_both_declared_halfkp_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            candidate, baseline = base / "candidate", base / "baseline"
+            candidate.write_bytes(b"candidate"); baseline.write_bytes(b"baseline")
+            args = SimpleNamespace(mode="selfplay", engine_a=None, engine_b=None,
+                                   match_binary=None, openings=None, evalfile="none",
+                                   candidate_evalfile=str(candidate), baseline_evalfile=str(baseline),
+                                   openings_manifest=None, gate_observation_declaration=None,
+                                   option_a=[], option_b=[])
+            before = _inputs(args)
+            self.assertEqual(before["candidate_evaluator"]["path"], str(candidate.resolve()))
+            self.assertEqual(before["baseline_evaluator"]["path"], str(baseline.resolve()))
+            self.assertNotEqual(before["candidate_evaluator"]["sha256"], before["baseline_evaluator"]["sha256"])
+            baseline.write_bytes(b"changed baseline")
+            after = _inputs(args)
+            self.assertEqual(before["candidate_evaluator"], after["candidate_evaluator"])
+            self.assertNotEqual(before["baseline_evaluator"], after["baseline_evaluator"])
 
 FAKE_MATCH = r'''#!/usr/bin/env python3
 import json

@@ -8,7 +8,10 @@ explicit ``--evalfile`` only when both sides should use the same HalfKP file.
 For an independently frozen candidate-versus-material gate, use
 ``--candidate-evalfile`` with ``--openings-manifest``.  That mode pins a
 HalfKP evaluator to engine A only, keeps engine B material-only, and verifies
-the runner's load acknowledgement.  Explicit options can study parallel modes.
+the runner's load acknowledgement.  Add ``--baseline-evalfile`` for a distinct
+frozen HalfKP incumbent on engine B using the same engine build. Both loader
+acknowledgements and evaluator identities are then checked. Explicit options
+can study parallel modes.
 
 Self-play A/B (engine A is reported)::
 
@@ -641,6 +644,34 @@ def validate_candidate_material_evidence(
     return None
 
 
+def validate_candidate_baseline_evidence(
+    raw_json_path: Path, candidate_evalfile: str, baseline_evalfile: str, fv_scale: int,
+    engine_commands: tuple[str, str] | None = None,
+) -> str | None:
+    """Require each HalfKP arm to acknowledge its own declared evaluator."""
+    try:
+        raw = json.loads(raw_json_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return f"cannot read raw dual-HalfKP evidence: {type(error).__name__}: {error}"
+    if not isinstance(raw, dict):
+        return "raw dual-HalfKP evidence must be one object"
+    for side, evaluator in ((1, candidate_evalfile), (2, baseline_evalfile)):
+        if engine_commands is not None and raw.get(f"engine{side}_command") != engine_commands[side - 1]:
+            return f"engine{side} command does not match the declared fixed binary"
+        options = raw.get(f"engine{side}_options")
+        if not isinstance(options, dict):
+            return f"engine{side} is missing its evaluator option snapshot"
+        for key, expected in (("EvalFile", evaluator), ("FV_SCALE", str(fv_scale)),
+                              ("NnueOutput", "absolute")):
+            if options.get(key) != expected:
+                return f"engine{side} {key} does not match its declared evaluator"
+        if raw.get(f"engine{side}_eval_file_acknowledgement") != (
+            f"info string NNUE weights loaded from {evaluator}"
+        ):
+            return f"engine{side} evaluator load acknowledgement does not match its declared file"
+    return None
+
+
 def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool, SprtSpec | None]:
     """Parse and validate the complete match contract before creating outputs."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -656,9 +687,13 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
     parser.add_argument(
         "--candidate-evalfile",
         help=(
-            "frozen HalfKP nn.bin used by engine A only against a material-only "
-            "engine B; requires selfplay, --evalfile none, and --openings-manifest"
+            "frozen HalfKP nn.bin for engine A against material, or --baseline-evalfile; "
+            "requires selfplay, --evalfile none, and --openings-manifest"
         ),
+    )
+    parser.add_argument(
+        "--baseline-evalfile",
+        help="distinct frozen HalfKP file for engine B; requires --candidate-evalfile",
     )
     parser.add_argument("--fv-scale", type=int, default=24)
     parser.add_argument("--nodes-limit", type=int, default=0, help="YaneuraOu NodesLimit (0 = none)")
@@ -739,6 +774,8 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         parser.error("yaneuraou mode needs --yaneuraou")
     material_only = args.evalfile.lower() in {"none", "material"}
     candidate_material_gate = args.candidate_evalfile is not None
+    if args.baseline_evalfile is not None and not candidate_material_gate:
+        parser.error("--baseline-evalfile requires --candidate-evalfile")
     if args.mode == "yaneuraou" and material_only:
         parser.error("yaneuraou mode needs an explicit --evalfile")
     if candidate_material_gate:
@@ -752,6 +789,17 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         if not candidate_path.is_file():
             parser.error("--candidate-evalfile must name an existing regular file")
         args.candidate_evalfile = str(candidate_path)
+        if args.baseline_evalfile is not None:
+            baseline_path = Path(args.baseline_evalfile).expanduser().resolve()
+            if not baseline_path.is_file():
+                parser.error("--baseline-evalfile must name an existing regular file")
+            args.baseline_evalfile = str(baseline_path)
+            try:
+                same_weights = file_sha256(candidate_path) == file_sha256(baseline_path)
+            except OSError as error:
+                parser.error(f"cannot read declared evaluator files: {error}")
+            if same_weights:
+                parser.error("candidate and baseline evaluator files must have distinct contents")
     if args.games <= 0:
         parser.error("--games must be positive")
     if args.games_per_position is not None and args.games_per_position <= 0:
@@ -822,6 +870,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
 def main() -> int:
     args, material_only, sprt = parse_args()
     candidate_material_gate = args.candidate_evalfile is not None
+    candidate_baseline_gate = args.baseline_evalfile is not None
     if args.supervised:
         from ab_match_supervisor import supervise
         return supervise(args, sys.argv[1:])
@@ -850,9 +899,15 @@ def main() -> int:
             ]
             if candidate_material_gate:
                 independent_inputs.append(args.candidate_evalfile)
+            if candidate_baseline_gate:
+                independent_inputs.append(args.baseline_evalfile)
             frozen_inputs = [file_identity(path) for path in independent_inputs]
             if any(not item or not item.get("exists") or not item.get("sha256") for item in frozen_inputs):
                 raise ValueError("independent corpus requires explicit existing engine and runner files")
+            if candidate_baseline_gate and frozen_inputs[0]["sha256"] != frozen_inputs[1]["sha256"]:
+                raise ValueError("candidate-versus-baseline evaluator gates require the same engine binary")
+            if candidate_baseline_gate and frozen_inputs[-2]["sha256"] == frozen_inputs[-1]["sha256"]:
+                raise ValueError("candidate and baseline evaluator files must have distinct contents")
             match_identity = file_identity(args.match_binary)
             if not match_identity or match_identity.get("sha256") != corpus_evidence["match_binary_sha256"]:
                 raise ValueError("match binary differs from the corpus history validator")
@@ -905,13 +960,16 @@ def main() -> int:
     if args.mode == "selfplay":
         command += sekirei_options(
             "--engine-option2",
-            None if candidate_material_gate or material_only else args.evalfile,
+            (args.baseline_evalfile if candidate_baseline_gate
+             else None if candidate_material_gate or material_only else args.evalfile),
             args.fv_scale,
             args.threads_b,
             args.search_mode_b,
             args.spec_top_n_b,
             args.hash,
         )
+        if candidate_baseline_gate:
+            command += ["--engine-option2", "NnueOutput=absolute"]
     else:
         command += yaneuraou_options(
             args.evalfile, args.fv_scale, args.nodes_limit, args.threads_b, args.hash
@@ -1015,16 +1073,21 @@ def main() -> int:
             # Crossing a numerical boundary is not an accepted verdict when
             # the durable observations cannot be verified.
             verdict = ""
-        elif candidate_material_gate:
-            candidate_evidence_error = validate_candidate_material_evidence(
-                raw_json_path, args.candidate_evalfile, args.fv_scale
+        if launch_error is None and candidate_material_gate:
+            candidate_evidence_error = (
+                validate_candidate_baseline_evidence(
+                    raw_json_path, args.candidate_evalfile, args.baseline_evalfile, args.fv_scale,
+                    (args.engine_a, engine2),
+                ) if candidate_baseline_gate else validate_candidate_material_evidence(
+                    raw_json_path, args.candidate_evalfile, args.fv_scale
+                )
             )
             if candidate_evidence_error is not None:
                 launch_error = f"EvidenceError: {candidate_evidence_error}"
                 if process_code in {None, 0} or terminated_for_sprt:
                     process_code = 1
                 verdict = ""
-        elif sprt is not None:
+        if launch_error is None and sprt is not None:
             try:
                 durable_counts, durable_llr, durable_verdict = replay_durable_sprt(
                     raw_json_path,
@@ -1063,6 +1126,8 @@ def main() -> int:
             independent_inputs = [args.engine_a, engine2, *INDEPENDENT_DRIVER_FILES, args.match_binary]
             if candidate_material_gate:
                 independent_inputs.append(args.candidate_evalfile)
+            if candidate_baseline_gate:
+                independent_inputs.append(args.baseline_evalfile)
             current_inputs = [file_identity(path) for path in independent_inputs]
             if current_corpus != corpus_evidence or current_inputs != frozen_inputs:
                 raise ValueError("independent gate inputs changed during the match")
@@ -1214,7 +1279,9 @@ def main() -> int:
                 },
                 "evaluation": {
                     "mode": (
-                        "candidate-halfkp-vs-material"
+                        "candidate-halfkp-vs-halfkp"
+                        if candidate_baseline_gate
+                        else "candidate-halfkp-vs-material"
                         if candidate_material_gate
                         else "material" if material_only else "halfkp"
                     ),
@@ -1227,7 +1294,10 @@ def main() -> int:
                         {
                             "candidate_side": "a",
                             "candidate_nnue_output": "absolute",
-                            "baseline": "material",
+                            "baseline": "halfkp" if candidate_baseline_gate else "material",
+                            **({"baseline_file": file_identity(args.baseline_evalfile),
+                                "baseline_side": "b",
+                                "baseline_nnue_output": "absolute"} if candidate_baseline_gate else {}),
                         }
                         if candidate_material_gate
                         else {}
