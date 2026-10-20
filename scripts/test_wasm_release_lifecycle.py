@@ -15,7 +15,7 @@ from finalize_wasm_release_manifest import finalize
 from check_wasm_npm_distribution import REQUIRED, validate_release_tag
 
 
-SOURCE = Path(__file__).parents[1] / "release-manifest-v0.5.0.json"
+SOURCE = Path(__file__).parents[1] / "docs/releases/manifests/release-manifest-v0.5.0.json"
 
 
 def future_manifest():
