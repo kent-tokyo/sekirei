@@ -10,7 +10,7 @@ from record_wasm_npm_status import updated_manifest
 from validate_release_manifest import validate
 
 
-MANIFEST = Path(__file__).parents[1] / "release-manifest-v0.5.0.json"
+MANIFEST = Path(__file__).parents[1] / "docs/releases/manifests/release-manifest-v0.5.0.json"
 
 
 class NpmStatusTests(unittest.TestCase):

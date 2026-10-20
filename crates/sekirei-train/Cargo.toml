@@ -1,6 +1,6 @@
 [package]
 name = "sekirei-train"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 description = "NNUE training pipeline for the Sekirei shogi engine"
 license = "MIT OR Apache-2.0"
@@ -16,7 +16,7 @@ name = "verify-shogiesa-label-run"
 path = "src/bin/verify_shogiesa_label_run.rs"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core", version = "0.5.0" }
+sekirei-core = { path = "../sekirei-core", version = "0.5.1" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
