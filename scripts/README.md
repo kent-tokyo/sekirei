@@ -391,10 +391,17 @@ expected response, elapsed wait and buffered partial-line byte count. Its
 absolute response deadline uses the opponent's advertised time control and
 remaining time inferred from received move echoes. Our move echo has a
 2-minute deadline. `--active-receive-deadline-seconds` can
-override it for a controlled run. Between games the 70-minute read timeout
-still applies. A waiting-state `WouldBlock` or `TimedOut` read records
-`between_game_receive_timeout` with the raw error kind/errno, time since the
-last server line, and buffered partial-line size. It ends the bounded run
+override it for a controlled run. Before the first complete line of the next
+game summary, the 70-minute read timeout is an absolute wait limit. The client
+updates its status about every 30 seconds while waiting, keeping the
+supervisor's default 120-second freshness check
+valid and recording partial-line bytes before the final timeout. The status
+also records when the last `%%GAME` request was flushed locally; that timestamp
+does not prove server acceptance or pairing eligibility. A waiting-state
+`WouldBlock` or `TimedOut` at the limit records
+`between_game_receive_timeout` with the final error kind/errno (if supplied
+by the OS), the last poll error kind/errno, time since the last server line,
+and buffered partial-line size. It ends the bounded run
 without replay; the status and one-shot receipt retain the completed count.
 The server's silence and any link to a storage failure still need independent
 evidence. An active-game deadline records
