@@ -8,6 +8,22 @@ preserves older per-change notes.
 
 No changes yet.
 
+## [0.5.1] – 2026-10-20
+
+Version 0.5.1 adds a WASM package identity available before search and a
+validated path for publishing the same package through npm. The GitHub Release
+archive remains the source for the npm publication check. The default search
+and material evaluator are unchanged; this release makes no strength claim.
+
+### Added
+
+- Expose `packageInfo()` with the API version, engine version, source and build
+  commits when known, release/candidate/local provenance, and the initial
+  material evaluator identity.
+- Verify tagged WASM build identity and archive checksums with a two-stage
+  release manifest, then check per-file parity, lockfile integrity, and a fresh
+  install before recording an npm publication as verified.
+
 ## [0.5.0] – 2026-10-20
 
 Version 0.5.0 releases the optional in-house `nn_r6` HalfKP artifact with a
