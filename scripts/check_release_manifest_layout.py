@@ -45,6 +45,10 @@ def check_layout(root: Path, current_version: str) -> list[str]:
             errors.append(f"current release manifest is archived: {name}")
         if document.get("publish", {}).get("status") != "verified":
             errors.append(f"archived release manifest is not verified: {name}")
+        version = tuple(int(part) for part in name.removeprefix("release-manifest-v").removesuffix(".json").split("."))
+        wasm = document.get("webassembly")
+        if version >= (0, 5, 1) and (not isinstance(wasm, dict) or wasm.get("status") != "verified"):
+            errors.append(f"archived WASM release manifest is not verified: {name}")
     return errors
 
 

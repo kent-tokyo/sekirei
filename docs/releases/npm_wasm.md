@@ -6,9 +6,30 @@ extracted file with the registry download by SHA-256. Repacking may change the
 outer `.tgz` bytes; it must not change the package files. Neither channel
 contains optional NNUE weights.
 
-Run **Publish WASM to npm** from `main` with an existing stable release tag.
+For v0.5.1 and later, the immutable tag contains a planned release manifest:
+`webassembly.status = planned`, with no archive SHA-256 or size. The tagged
+commit is embedded in the WASM package, so its final archive hash cannot be
+committed into that same tag. Build and upload the asset from the tag, then run
+`finalize_wasm_release_manifest.py` with the tagged planned manifest, downloaded
+asset, Release SHA256SUMS, and peeled tag commit. It verifies the embedded
+`sourceCommit` and `buildCommit` before writing a verified manifest copy with
+the actual hash and size. After the normal crates.io publication checks, commit
+the verified manifest on `main` (or in the versioned manifest archive).
+
+```sh
+# After downloading the tag's planned manifest, WASM asset, and SHA256SUMS:
+python3 scripts/finalize_wasm_release_manifest.py \
+  --planned-manifest planned-release-manifest.json \
+  --asset sekirei-wasm-X.Y.Z.tgz \
+  --sha256sums SHA256SUMS-vX.Y.Z.txt \
+  --tag-commit "$(git rev-parse 'vX.Y.Z^{commit}')" \
+  --output release-manifest-vX.Y.Z.json
+```
+
+Run **Publish WASM to npm** from `main` with an existing stable release tag
+only after that verified post-Release manifest is committed.
 Leave `dry_run` enabled first. The workflow verifies the tagged Cargo version,
-release manifest, Release SHA256SUMS, package metadata, generated declarations,
+the verified post-Release manifest, Release SHA256SUMS, package metadata, generated declarations,
 legal notices, and file list. A real run publishes the exact Release archive,
 installs the pinned registry version in a fresh directory, checks lockfile
 integrity, and calls `startSfen()`, `searchCapabilities()`, and

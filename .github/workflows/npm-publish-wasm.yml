@@ -49,7 +49,17 @@ jobs:
           version="${RELEASE_TAG#v}"
           mkdir -p "$RUNNER_TEMP/npm-wasm"
           git show "refs/tags/$RELEASE_TAG:crates/sekirei-wasm/Cargo.toml" > "$RUNNER_TEMP/npm-wasm/Cargo.toml"
-          git show "refs/tags/$RELEASE_TAG:release-manifest-$RELEASE_TAG.json" > "$RUNNER_TEMP/npm-wasm/release-manifest.json"
+          git show "refs/tags/$RELEASE_TAG:release-manifest-$RELEASE_TAG.json" > "$RUNNER_TEMP/npm-wasm/tag-manifest.json"
+          manifest="release-manifest-$RELEASE_TAG.json"
+          if [[ -f "$manifest" ]]; then
+            cp "$manifest" "$RUNNER_TEMP/npm-wasm/release-manifest.json"
+          elif [[ -f "docs/releases/manifests/$manifest" ]]; then
+            cp "docs/releases/manifests/$manifest" "$RUNNER_TEMP/npm-wasm/release-manifest.json"
+          else
+            echo "Verified post-Release manifest $manifest is missing from main" >&2
+            exit 1
+          fi
+          echo "TAG_COMMIT=$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" >> "$GITHUB_ENV"
           gh release download "$RELEASE_TAG" --pattern "sekirei-wasm-$version.tgz" --dir "$RUNNER_TEMP/npm-wasm"
           gh release download "$RELEASE_TAG" --pattern "SHA256SUMS-$RELEASE_TAG.txt" --dir "$RUNNER_TEMP/npm-wasm"
           echo "WASM_VERSION=$version" >> "$GITHUB_ENV"
@@ -58,9 +68,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/validate_release_manifest.py "$RUNNER_TEMP/npm-wasm/release-manifest.json"
+          source_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$RUNNER_TEMP/npm-wasm/release-manifest.json")"
+          git merge-base --is-ancestor "$source_commit" "$TAG_COMMIT"
           python3 scripts/check_wasm_npm_distribution.py \
             --release-archive "$WASM_ASSET" --tag "$RELEASE_TAG" \
             --cargo-manifest "$RUNNER_TEMP/npm-wasm/Cargo.toml" \
+            --tag-manifest "$RUNNER_TEMP/npm-wasm/tag-manifest.json" --tag-commit "$TAG_COMMIT" \
             --release-manifest "$RUNNER_TEMP/npm-wasm/release-manifest.json"
           python3 - <<'PY'
           import hashlib, os, pathlib
@@ -125,6 +138,7 @@ jobs:
             --release-archive "$WASM_ASSET" \
             --npm-archive "$RUNNER_TEMP/npm-wasm/registry/sekirei-wasm-$WASM_VERSION.tgz" \
             --tag "$RELEASE_TAG" --cargo-manifest "$RUNNER_TEMP/npm-wasm/Cargo.toml" \
+            --tag-manifest "$RUNNER_TEMP/npm-wasm/tag-manifest.json" --tag-commit "$TAG_COMMIT" \
             --release-manifest "$RUNNER_TEMP/npm-wasm/release-manifest.json"
           cd "$RUNNER_TEMP/npm-wasm/smoke"
           npm init --yes >/dev/null

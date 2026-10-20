@@ -19,6 +19,7 @@ REQUIRED = {
     "sekirei_wasm.js", "sekirei_wasm.d.ts", "sekirei_wasm_bg.wasm",
 }
 VERSION = re.compile(r"^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+HEX40 = re.compile(r"^[0-9a-f]{40}$")
 
 
 def archive_files(path: Path) -> dict[str, bytes]:
@@ -42,7 +43,8 @@ def archive_files(path: Path) -> dict[str, bytes]:
     return files
 
 
-def check_archive(files: dict[str, bytes], version: str) -> list[str]:
+def check_archive(files: dict[str, bytes], version: str, *, source_commit: str | None = None,
+                  tag_commit: str | None = None) -> list[str]:
     errors = [f"missing package file: {name}" for name in sorted(REQUIRED - files.keys())]
     errors.extend(
         f"forbidden package file: {name}" for name in sorted(files)
@@ -64,6 +66,13 @@ def check_archive(files: dict[str, bytes], version: str) -> list[str]:
     if tuple(map(int, version.split("."))) >= (0, 5, 1):
         if f"npm install sekirei-wasm@{version}" not in readme:
             errors.append("README is missing the version-pinned npm registry install example")
+        build = metadata.get("sekireiBuild")
+        if not isinstance(build, dict) or not HEX40.fullmatch(source_commit or "") or not HEX40.fullmatch(tag_commit or ""):
+            errors.append("tag and release build identity are missing")
+        elif (build.get("sourceCommit") != source_commit or
+              build.get("buildCommit") != tag_commit or
+              build.get("provenance") != "release"):
+            errors.append("archive sourceCommit/buildCommit differs from release evidence")
     declarations = files.get("sekirei_wasm.d.ts", b"")
     for symbol in (b"startSfen", b"searchCapabilities", b"analyzePosition"):
         if symbol not in declarations:
@@ -82,7 +91,7 @@ def compare_files(release: dict[str, bytes], npm: dict[str, bytes]) -> list[str]
 
 
 def validate_release_tag(tag: str, cargo_manifest: Path, release_manifest: Path,
-                         archive: Path) -> tuple[str, list[str]]:
+                         archive: Path, tag_manifest: Path | None = None) -> tuple[str, list[str]]:
     match = VERSION.fullmatch(tag)
     if not match:
         return "", ["release tag must be a stable vMAJOR.MINOR.PATCH tag"]
@@ -97,6 +106,18 @@ def validate_release_tag(tag: str, cargo_manifest: Path, release_manifest: Path,
         errors.append("release manifest version does not match tag")
     if wasm.get("asset") != archive.name:
         errors.append("release manifest asset name does not match archive")
+    if tuple(map(int, version.split("."))) >= (0, 5, 1):
+        if wasm.get("status") != "verified":
+            errors.append("post-Release WASM manifest is not verified")
+        if tag_manifest is None:
+            errors.append("tagged planned release manifest is missing")
+        else:
+            planned = json.loads(tag_manifest.read_text(encoding="utf-8"))
+            tagged_wasm = planned.get("webassembly", {})
+            if (planned.get("release") != tag or planned.get("commit") != manifest.get("commit") or
+                tagged_wasm.get("status") != "planned" or
+                "sha256" in tagged_wasm or "size" in tagged_wasm):
+                errors.append("tagged planned and post-Release verified manifests disagree")
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     if wasm.get("sha256") != digest or wasm.get("size") != archive.stat().st_size:
         errors.append("release archive SHA-256 or size differs from manifest")
@@ -110,16 +131,22 @@ def main() -> int:
     parser.add_argument("--tag", required=True)
     parser.add_argument("--cargo-manifest", type=Path, default=Path("crates/sekirei-wasm/Cargo.toml"))
     parser.add_argument("--release-manifest", required=True, type=Path)
+    parser.add_argument("--tag-manifest", type=Path)
+    parser.add_argument("--tag-commit")
     args = parser.parse_args()
     try:
         version, errors = validate_release_tag(args.tag, args.cargo_manifest,
-                                               args.release_manifest, args.release_archive)
+                                               args.release_manifest, args.release_archive,
+                                               args.tag_manifest)
         if version:
             release = archive_files(args.release_archive)
-            errors.extend(check_archive(release, version))
+            source = json.loads(args.release_manifest.read_text(encoding="utf-8")).get("commit")
+            errors.extend(check_archive(release, version, source_commit=source,
+                                        tag_commit=args.tag_commit))
             if args.npm_archive:
                 npm = archive_files(args.npm_archive)
-                errors.extend(check_archive(npm, version))
+                errors.extend(check_archive(npm, version, source_commit=source,
+                                            tag_commit=args.tag_commit))
                 errors.extend(compare_files(release, npm))
     except (OSError, ValueError, KeyError, tarfile.TarError) as exc:
         errors = [str(exc)]
