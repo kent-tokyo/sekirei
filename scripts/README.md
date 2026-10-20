@@ -360,6 +360,13 @@ emergency exit records. Large exclusion sets live only in a separate preparation
 process after generation. A trained output remains unqualified until a separate independent
 strength gate; the runner neither promotes nor publishes it.
 
+An operator-frozen `manual_capacity_continuation` plan can carry forward
+completed games after a cooperative low-disk stop with native return code 0,
+before any data preparation or training. It binds the original plan/status,
+raw shards and logs, preserves every completed game and the original total
+budget, and uses a distinct seed for the unfinished suffix. The old run stays
+untouched. This exception does not retry engine failures or statistical gates.
+
 `train_halfkp.py` consumes packed shards. `--init` resumes a float checkpoint;
 `--fact` folds in a king-independent factor. Inputs remain separate read-only
 memory maps and only one batch is copied at a time. Outputs are written by

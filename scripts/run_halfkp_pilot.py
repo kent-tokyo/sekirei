@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """One frozen, bounded own-HalfKP generation/train/independent-gate run.
 
-Never overwrites its initial evaluator, resumes an interrupted trial, retries
-an engine failure, publishes a checkpoint or changes the engine default.
+Never overwrites its initial evaluator, automatically resumes an interrupted
+trial, retries an engine failure, publishes a checkpoint or changes the default.
+An explicit, frozen capacity-continuation plan may retain completed games.
 """
 from __future__ import annotations
 import argparse
@@ -99,6 +100,116 @@ def prepare_rows(paths, excluded, output, min_ply):
             'identities': sorted({identity_hash(r.sfen) for r in kept})}
 
 
+def generation_jobs(plan):
+    g = plan['generation']
+    counts = g.get('games_per_seed', [g['games_per_shard']] * len(g['seeds']))
+    require(isinstance(counts, list) and len(counts) == len(g['seeds']) and
+            all(type(n) is int and 1 <= n <= 1024 for n in counts),
+            'invalid per-seed game counts')
+    return list(zip(g['seeds'], counts))
+
+
+def capacity_retained(plan):
+    """Validate an operator-frozen carry-forward; never restart an old process.
+
+    Only native return0 with an explicit between-games capacity stop is eligible.
+    The old experiment, every raw shard and its log remain immutable inputs.
+    """
+    amendment = plan.get('manual_capacity_continuation')
+    if amendment is None:
+        require('games_per_seed' not in plan['generation'],
+                'variable game counts require a capacity-continuation amendment')
+        return []
+    bound = {str(Path(x['path']).resolve()): x['sha256'] for x in plan['bound_inputs']}
+    def pinned(item):
+        require(bound.get(str(Path(item['path']).resolve())) == item['sha256'] and
+                sha(item['path']) == item['sha256'], 'unbound or changed retained evidence')
+        return Path(item['path']).resolve()
+    source_path = pinned(amendment['source_plan'])
+    source = json.loads(source_path.read_text())
+    status_path = pinned(amendment['source_status'])
+    require(status_path == source_path.parent/'status.json', 'wrong source status location')
+    status = json.loads(status_path.read_text())
+    require('manual_capacity_continuation' not in source,
+            'chained continuation requires a separately reviewed protocol')
+    require(status.get('status') == 'STOPPED_NOT_QUALIFIED' and
+            status.get('error') == 'stopped between games for low output capacity' and
+            status.get('capacity_stop_requested') is True and
+            status.get('last_child_returncode') == 0 and status.get('adopted') is False and
+            status.get('plan') == amendment['source_plan'], 'ineligible capacity-stop source')
+    require(not any((source_path.parent/name).exists() for name in
+            ('generation-receipt.json', 'eligible.txt', 'split.json', 'train.bin',
+             'val.bin', 'training.stdout', 'training.ckpt', 'candidate.json', 'nn_r8c1.bin')),
+            'source already reached data preparation or training')
+    require(plan['baseline_sha256'] == source['baseline_sha256'] and
+            plan['baseline'] == source['baseline'] and
+            plan['generator'] == source['generator'] and plan['packer'] == source['packer'] and
+            plan['training'] == source['training'] and plan['source_base'] == source['source_base'] and
+            plan['exclusions'] == source['exclusions'] and
+            plan['spent_manifests'] == source['spent_manifests'],
+            'capacity continuation changed frozen evaluator/training/exclusions')
+    for item in source['bound_inputs']:
+        require(bound.get(str(Path(item['path']).resolve())) == item['sha256'],
+                'source pinned input omitted or changed')
+    source_bound = {str(Path(x['path']).resolve()): x['sha256'] for x in source['bound_inputs']}
+    require(sha(plan['trainer']) == source_bound.get(str(Path(source['trainer']).resolve())),
+            'active trainer differs from source recipe')
+    for name in ('freeze_material_gate_openings.py', 'split_gensfen_by_game.py',
+                 'generate_search_diagnostic.py', 'paired_search_diagnostics.py', 'nps_threads.py'):
+        active = Path(__file__).resolve().parent/name
+        prior = Path(source['trainer']).resolve().parent/name
+        require(source_bound.get(str(prior)) == bound.get(str(active)) == sha(active),
+                'active preparation helper differs from source recipe: ' + name)
+    for key, value in source['generation'].items():
+        if key not in ('seeds', 'games_per_seed'):
+            require(plan['generation'].get(key) == value, 'generation recipe changed')
+    old_jobs = generation_jobs(source)
+    retained = amendment['retained_shards']
+    require(isinstance(retained, list) and 1 <= len(retained) <= len(old_jobs) and
+            status.get('shard') == len(retained), 'wrong retained source prefix')
+    require(status.get('generated_shards') == [x['raw'] for x in retained[:-1]],
+            'successful source shard receipt mismatch')
+    seen = set()
+    for n, item in enumerate(retained):
+        seed, requested = old_jobs[n]
+        games = item['completed_games']
+        require(item['seed'] == seed and type(games) is int and 0 < games <= requested,
+                'invalid retained completed game count')
+        raw = pinned(item['raw']); log = pinned(item['stderr'])
+        require(raw == source_path.parent/f'raw-{n:02}.txt' and
+                log == source_path.parent/f'generate-{n:02}.stderr', 'wrong retained shard location')
+        text = raw.read_text()
+        require(text.endswith('\n'), 'truncated retained raw shard')
+        validate_generated_ids(raw, seed, games)
+        rows = [parse_record(line, raw, i) for i, line in enumerate(text.splitlines(), 1)]
+        validate_game_results(rows)
+        for row in rows:
+            key = (row.game_id, row.ply)
+            require(key not in seen, 'duplicate retained game/ply')
+            seen.add(key)
+        log_text = log.read_text()
+        require('(HalfKp)' in log_text and not re.search(r'(?i)panic|os \{|error:', log_text),
+                'retained generator has evaluator/error evidence')
+        markers = re.findall(r'^stop file found after (\d+) games$', log_text, re.M)
+        if n == len(retained)-1:
+            require(markers == [str(games)], 'missing exact cooperative stop marker')
+        else:
+            require(not markers and games == requested, 'incomplete successful source shard')
+    new_jobs = generation_jobs(plan)
+    # Unstarted original seeds keep their original budgets. Exactly one new seed
+    # replaces the unfinished suffix; it must be explicitly registered in advance.
+    suffix = old_jobs[len(retained):]
+    remainder = old_jobs[len(retained)-1][1] - retained[-1]['completed_games']
+    replacement = amendment['replacement_seed']
+    require(type(replacement) is int and replacement not in source['generation']['seeds'],
+            'replacement seed overlaps original plan')
+    expected = suffix + ([(replacement, remainder)] if remainder else [])
+    require(new_jobs == expected, 'continuation does not preserve exact remaining game budget')
+    require(sum(x['completed_games'] for x in retained) + sum(n for _, n in new_jobs) ==
+            sum(n for _, n in old_jobs), 'continuation total game budget mismatch')
+    return [Path(x['raw']['path']) for x in retained]
+
+
 def validate_plan(plan):
     require(plan.get('schema') == 'sekirei.own-halfkp-pilot-plan.v1', 'unknown plan schema')
     g = plan['generation']
@@ -109,6 +220,7 @@ def validate_plan(plan):
     require(1 <= g['games_per_shard'] <= 1024 and 1 <= g['depth'] <= 16 and
             1 <= g['nodes'] <= 1000000 and 0 <= g['random_plies'] <= g['min_training_ply'] < g['max_ply'] <= 512,
             'unbounded generation configuration')
+    generation_jobs(plan)
     required = {str(Path(plan[k]).resolve()) for k in ['generator','packer','baseline','trainer']}
     required.update(str(Path(p).resolve()) for p in plan['exclusions']+plan['spent_manifests'])
     bound = {str(Path(x['path']).resolve()) for x in plan['bound_inputs']}
@@ -260,14 +372,15 @@ def run_locked(plan_path):
     try:
         snapshot(); pins(); validate_plan(plan)
         require(plan['baseline_sha256'] == sha(plan['baseline']), 'wrong nn_r6')
-        raw = []
-        for n, seed in enumerate(plan['generation']['seeds']):
+        raw = capacity_retained(plan)
+        state['retained_shards'] = [ref(x) for x in raw]
+        for n, (seed, games) in enumerate(generation_jobs(plan)):
             state.update(status='GENERATING', shard=n+1, total_shards=len(plan['generation']['seeds']))
             text = base/f'raw-{n:02}.txt'
             require(not text.exists(), 'raw shard already exists; no append/retry')
             require(not (base/'STOP_GENERATION').exists(), 'generation stop file already present')
             g = plan['generation']
-            cmd = [plan['generator'],'--out',str(text),'--games',str(g['games_per_shard']),
+            cmd = [plan['generator'],'--out',str(text),'--games',str(games),
                    '--seed',str(seed),'--depth',str(g['depth']),'--nodes',str(g['nodes']),
                    '--random-plies',str(g['random_plies']),'--max-ply',str(g['max_ply']),
                    '--hash-mb','16','--eval',plan['baseline'],'--fv-scale','24',
@@ -277,7 +390,7 @@ def run_locked(plan_path):
             require('(HalfKp)' in generation_log, 'generator evaluator mismatch')
             require(not (base/'STOP_GENERATION').exists() and 'stop file found' not in generation_log,
                     'generation stopped early; frozen game count not completed')
-            validate_generated_ids(text,seed,g['games_per_shard'])
+            validate_generated_ids(text,seed,games)
             raw.append(text)
             state['generated_shards'] = [ref(x) for x in raw]
             snapshot()
