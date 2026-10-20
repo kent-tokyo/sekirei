@@ -30,7 +30,8 @@ def updated_manifest(source: dict, *, status: str, result: str,
     limitations = output.get("known_limitations")
     if isinstance(limitations, list):
         limitations = [note for note in limitations if not (isinstance(note, str) and
-                                                          "not published to the npm registry" in note)]
+                                                          ("not published to the npm registry" in note or
+                                                           "registry publication remains unverified" in note))]
         if status == "unverified":
             limitations.append(f"npm publication was attempted in workflow run {workflow_run}; registry publication remains unverified.")
         output["known_limitations"] = limitations
@@ -51,8 +52,8 @@ def main() -> int:
     args = parser.parse_args()
     try:
         source = json.loads(args.manifest.read_text(encoding="utf-8"))
-        if source.get("webassembly", {}).get("npm_registry_status") != "not_published":
-            raise ValueError("source manifest must record npm as not_published")
+        if source.get("webassembly", {}).get("npm_registry_status") not in {"not_published", "unverified"}:
+            raise ValueError("source manifest must record npm as not_published or unverified")
         output = updated_manifest(source, status=args.status, result=args.result,
                                   workflow_run=args.workflow_run, integrity=args.integrity)
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:

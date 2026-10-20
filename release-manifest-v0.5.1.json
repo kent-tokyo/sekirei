@@ -42,9 +42,13 @@
     "asset": "sekirei-wasm-0.5.1.tgz",
     "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.5.1/sekirei-wasm-0.5.1.tgz",
     "status": "verified",
-    "npm_registry_status": "not_published",
+    "npm_registry_status": "unverified",
     "sha256": "a5bc8c7d0263d39c32cc723d8bb2bdd8425eff3ff83f113096aeff7516209be4",
-    "size": 549698
+    "size": 549698,
+    "npm_publish_attempt": {
+      "workflow_run": "39419554938",
+      "result": "failed"
+    }
   },
   "internal_measurement": {
     "spec_top_n": 0,
@@ -63,6 +67,7 @@
     "The GitHub Release asset remains the primary distribution; the npm registry outcome is recorded separately in webassembly.npm_registry_status.",
     "Source commit and version identify source provenance, not distributed byte identity or playing strength.",
     "Optional nn_r6 weights remain separate from the WASM package and are available from the v0.5.0 GitHub Release; this release does not select a new checkpoint.",
-    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0."
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "npm publication was attempted in workflow run 39419554938; registry publication remains unverified."
   ]
 }

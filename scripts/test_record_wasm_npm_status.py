@@ -32,6 +32,17 @@ class NpmStatusTests(unittest.TestCase):
         self.assertNotIn("npm_registry_integrity", updated["webassembly"])
         self.assertFalse(any("not published to the npm registry" in note for note in updated["known_limitations"]))
 
+    def test_retry_replaces_failed_attempt_with_verified_publication(self):
+        failed = updated_manifest(self.source, status="unverified", result="failed",
+                                  workflow_run="123", integrity=None)
+        published = updated_manifest(failed, status="published", result="verified",
+                                     workflow_run="456", integrity="sha512-" + "a" * 86 + "==")
+        self.assertEqual(validate(published), [])
+        self.assertEqual(published["webassembly"]["npm_publish_attempt"],
+                         {"workflow_run": "456", "result": "verified"})
+        self.assertFalse(any("registry publication remains unverified" in note
+                             for note in published["known_limitations"]))
+
     def test_invalid_or_unsupported_evidence_is_rejected(self):
         with self.assertRaises(ValueError):
             updated_manifest(self.source, status="published", result="verified",
