@@ -1,0 +1,95 @@
+{
+  "changed": 58,
+  "changed_percent": 0.00018058921840643778,
+  "delta_direction": "right-minus-left",
+  "interpretation": "Integer parameter changes only; no playing-strength or adoption verdict.",
+  "left": {
+    "architecture_descriptor": "Sekirei HalfKP 256x2-32-32 own training (19804530 positions, lam 1.0)",
+    "bytes": 64216957,
+    "path": "/Users/k_tanabe/.local/state/sekirei/nnue-public-qualification/20261018T202833Z-shared-host/nn_r6.bin",
+    "sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469"
+  },
+  "parameters_equal": false,
+  "right": {
+    "architecture_descriptor": "Sekirei HalfKP 256x2-32-32 own training (44918 positions, lam 1.0)",
+    "bytes": 64216954,
+    "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261020T221608Z-r8c1-capacity-continuation/nn_r8c1.bin",
+    "sha256": "6ef55f1e6906b84a1149eb3e5d66ba1fcb84250832b0ab494a713de136b8cbc1"
+  },
+  "schema": "sekirei.halfkp-integer-parameter-diff.v1",
+  "sections": [
+    {
+      "absolute_delta_sum": 0,
+      "changed": 0,
+      "changed_percent": 0.0,
+      "maximum_changed_delta": null,
+      "minimum_changed_delta": null,
+      "name": "ft_bias",
+      "total": 256
+    },
+    {
+      "absolute_delta_sum": 0,
+      "changed": 0,
+      "changed_percent": 0.0,
+      "maximum_changed_delta": null,
+      "minimum_changed_delta": null,
+      "name": "ft_weight",
+      "total": 32099328
+    },
+    {
+      "absolute_delta_sum": 269,
+      "changed": 28,
+      "changed_percent": 87.5,
+      "maximum_changed_delta": 15,
+      "minimum_changed_delta": -17,
+      "name": "l1_bias",
+      "total": 32
+    },
+    {
+      "absolute_delta_sum": 0,
+      "changed": 0,
+      "changed_percent": 0.0,
+      "maximum_changed_delta": null,
+      "minimum_changed_delta": null,
+      "name": "l1_weight",
+      "total": 16384
+    },
+    {
+      "absolute_delta_sum": 354,
+      "changed": 30,
+      "changed_percent": 93.75,
+      "maximum_changed_delta": 15,
+      "minimum_changed_delta": -15,
+      "name": "l2_bias",
+      "total": 32
+    },
+    {
+      "absolute_delta_sum": 0,
+      "changed": 0,
+      "changed_percent": 0.0,
+      "maximum_changed_delta": null,
+      "minimum_changed_delta": null,
+      "name": "l2_weight",
+      "total": 1024
+    },
+    {
+      "absolute_delta_sum": 0,
+      "changed": 0,
+      "changed_percent": 0.0,
+      "maximum_changed_delta": null,
+      "minimum_changed_delta": null,
+      "name": "out_bias",
+      "total": 1
+    },
+    {
+      "absolute_delta_sum": 0,
+      "changed": 0,
+      "changed_percent": 0.0,
+      "maximum_changed_delta": null,
+      "minimum_changed_delta": null,
+      "name": "out_weight",
+      "total": 32
+    }
+  ],
+  "total": 32117089
+}

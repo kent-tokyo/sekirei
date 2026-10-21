@@ -1,0 +1,51 @@
+{
+  "schema": "sekirei.own-halfkp-batch-ablation-status.v1",
+  "status": "TRAINED_ENGINEERING_ONLY_AWAITING_INDEPENDENT_GATE",
+  "candidate": "nn_r8c2",
+  "baseline": "nn_r6",
+  "plan": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261021T142808Z-r8c2-batch256/plan.json",
+    "sha256": "9a01706fd019c84cd21c03ce2b171bb12326eadcd4be402afaada4d5133be077"
+  },
+  "started_at": "2026-10-21T14:28:09.965162+00:00",
+  "pid": 49752,
+  "automatic_trial_retry": false,
+  "best_remains": "nn_r6",
+  "adopted": false,
+  "updated_at": "2026-10-21T14:29:45.662017+00:00",
+  "stable_samples": 3,
+  "child_pid": 50121,
+  "last_child_returncode": 0,
+  "candidate_file": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261021T142808Z-r8c2-batch256/nn_r8c2.bin",
+    "sha256": "6a3180d87c102fd6a69e2ccbeaac0cc59ffce51afe95dafd0aa4c05f665a69e8"
+  },
+  "checkpoint": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261021T142808Z-r8c2-batch256/nn_r8c2.pt",
+    "sha256": "e2b6e2302fc95c14e2fe77325024004675e1725a026bf6f918c31447a40b1645"
+  },
+  "parameter_diff": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261021T142808Z-r8c2-batch256/integer-parameter-diff.json",
+    "sha256": "c6d37df0bb5995059091a0e5682cdecc0c80be008ebe16ab2176b73e8a09c0a2"
+  },
+  "integer_weight_changes": {
+    "ft_weight": 427,
+    "l1_weight": 0,
+    "l2_weight": 0,
+    "out_weight": 0
+  },
+  "weight_update_observed": true,
+  "validation_is_diagnostic_only": true,
+  "completed_at": "2026-10-21T14:29:45.644117+00:00",
+  "observer_outcome": {
+    "returncode": 0,
+    "stop_requested_signal": null,
+    "kind": "normal_exit"
+  },
+  "training_log": "49893 positions (44918 train, 4975 held out), device cpu, mmap input\ninitialization quantized-bin-warm-start-fresh-optimizer from /Users/k_tanabe/.local/state/sekirei/nnue-public-qualification/20261018T202833Z-shared-host/nn_r6.bin\nepoch 0 val_loss 0.009792\n  epoch 1 step 25/175 loss 0.009626 6s\n  epoch 1 step 50/175 loss 0.009765 11s\n  epoch 1 step 75/175 loss 0.009922 20s\n  epoch 1 step 100/175 loss 0.009970 25s\n  epoch 1 step 125/175 loss 0.009909 33s\n  epoch 1 step 150/175 loss 0.009918 40s\n  epoch 1 step 175/175 loss 0.009845 47s\nepoch 1 train_loss 0.009845 val_loss 0.009755 lr 5.00e-06 48s\nwrote /Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261021T142808Z-r8c2-batch256/nn_r8c2.bin\nfirst 5 predictions (cp): [200, -1, 72, 19, 55]\n",
+  "comparison_scope": "same owned data/parent/LR/one epoch; batch-size engineering ablation only",
+  "technical_recovery": {
+    "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261021T142808Z-r8c2-batch256/technical-recovery-audit.json",
+    "sha256": "513f8b78fe3a931876586ff1e8e402f5e9bb5b557cd70d82478f0dba760faa92"
+  }
+}

@@ -352,6 +352,12 @@ cargo run --release -p sekirei-core --example halfkp_pack -- \
   pack data/selfplay/validation.bin data/selfplay/validation.txt
 ```
 
+`compare_halfkp_parameters.py PARENT.bin CANDIDATE.bin --output NEW.json`
+compares integer sections with bounded memory and strict format/input checks.
+It reports changed weights and biases separately; changed counts do not imply
+strength. It refuses input aliases and overwriting an existing report. See the
+[r8c1 recipe review](../docs/experiments/own_nnue_r8c1_recipe_v0.5.1/README.md).
+
 `train_halfkp.py` consumes packed shards. `--init-bin weights.bin --fv-scale 24`
 starts a fresh optimizer from an existing compatible quantized HalfKP file.
 It validates the complete layout and exact integer parameter re-export,

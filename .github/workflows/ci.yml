@@ -444,6 +444,7 @@ jobs:
             scripts/test_nnue_gate_host.py \
             scripts/test_run_observed_process.py \
             scripts/test_run_halfkp_pilot.py \
+            scripts/test_compare_halfkp_parameters.py \
             scripts/test_guard_halfkp_capacity.py \
             scripts/test_validate_nnue_candidate_card.py
       - name: Search diagnostic tooling tests
