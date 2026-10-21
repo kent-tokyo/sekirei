@@ -100,3 +100,6 @@ do not launch a hyperparameter grid against the same held-out gate roots.
 Local evidence: `~/.local/state/sekirei/own-nnue-training/reviews/20261021T142048Z-r8c1/`.
 The original candidate, training artifacts and the live match trial remain
 unchanged. Local experiment plans and observers bind inputs by SHA-256.
+
+The [bounded overnight protocol](overnight-plan.md) records the authorized
+next stages and their fixed budgets.
