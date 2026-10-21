@@ -111,7 +111,7 @@ def candidate_name(plan):
     require(isinstance(name, str) and
             re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', name) is not None,
             'invalid candidate_id: expected 1-64 ASCII letters, digits, underscores or hyphens')
-    require(name not in {'train', 'val', 'emergency-reserve'},
+    require(name.casefold() not in {'train', 'val', 'emergency-reserve'},
             'candidate_id collides with pilot data or reserve')
     return name
 

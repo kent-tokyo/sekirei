@@ -84,7 +84,7 @@ class PilotIntegrityTest(unittest.TestCase):
         self.assertEqual(pilot.candidate_name({'candidate_id':'a'*64}), 'a'*64)
         for name in ('', None, 3, '../nn_r8c3', '/tmp/nn_r8c3', 'a/b', 'a\\b',
                      '.', '..', 'a.pt', 'x\n', 'ｎｎ_r8c3', 'a'*65,
-                     'train', 'val', 'emergency-reserve'):
+                     'train', 'val', 'emergency-reserve', 'Train', 'VAL', 'Emergency-Reserve'):
             with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'candidate_id'):
                 pilot.candidate_name({'candidate_id':name})
 
