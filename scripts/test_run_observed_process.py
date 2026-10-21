@@ -1,3 +1,4 @@
+import errno
 import fcntl
 import json
 from pathlib import Path
@@ -7,6 +8,7 @@ import time
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from scripts import run_observed_process as O
 
 
@@ -24,6 +26,98 @@ class ObservedProcessTests(unittest.TestCase):
             self.assertEqual(events[-1]['event'], 'child_exited')
             self.assertEqual(events[-1]['outcome']['returncode'], 0)
             self.assertEqual(json.loads((root/'observer-status.json').read_text())['status'], 'exited')
+
+    def test_enospc_state_save_releases_physical_reserve_and_observes_one_child(self):
+        for phase in ('starting', 'running', 'exited'):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                original_save = O.save
+                injected = False
+
+                def save_with_full_disk(path, document):
+                    nonlocal injected
+                    if document.get('status') == phase and not injected:
+                        injected = True
+                        reserve = root / '.observer-emergency-reserve'
+                        self.assertEqual(reserve.stat().st_size, O.EmergencyReserve.size)
+                        self.assertGreaterEqual(reserve.stat().st_blocks * 512,
+                                                O.EmergencyReserve.size)
+                        # Fail after the pending state has actually been written.
+                        with mock.patch.object(O.os, 'fsync',
+                                               side_effect=OSError(errno.ENOSPC, 'disk full')):
+                            original_save(path, document)
+                    else:
+                        original_save(path, document)
+
+                marker = root / 'executions'
+                script = f"from pathlib import Path; p=Path({str(marker)!r}); p.open('a').write('once\\n'); print('finished')"
+                with mock.patch.object(O, 'save', side_effect=save_with_full_disk):
+                    result = self.run_child(script, root)
+                self.assertTrue(injected)
+                self.assertEqual(result['status'], 'exited')
+                self.assertEqual(result['outcome']['returncode'], 0)
+                self.assertEqual(result['persistence_recovery']['reason'], 'ENOSPC')
+                self.assertEqual(marker.read_text().splitlines(), ['once'])
+                self.assertFalse((root / '.observer-emergency-reserve').exists())
+                self.assertEqual(json.loads((root / 'observer-status.json').read_text())['status'],
+                                 'exited')
+
+    def test_enospc_event_append_rolls_back_partial_line_and_preserves_exit(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            original_append = O.append
+            injected = False
+
+            def append_with_full_disk(path, document):
+                nonlocal injected
+                if document['event'] == 'child_exited' and not injected:
+                    injected = True
+                    with mock.patch.object(O.os, 'fsync',
+                                           side_effect=OSError(errno.ENOSPC, 'disk full')):
+                        original_append(path, document)
+                else:
+                    original_append(path, document)
+
+            marker = root / 'executions'
+            script = f"from pathlib import Path; Path({str(marker)!r}).open('a').write('once\\n')"
+            with mock.patch.object(O, 'append', side_effect=append_with_full_disk):
+                result = self.run_child(script, root)
+            self.assertTrue(injected)
+            self.assertEqual(result['outcome']['returncode'], 0)
+            self.assertEqual(marker.read_text().splitlines(), ['once'])
+            events = [json.loads(line) for line in
+                      (root / 'observer-events.jsonl').read_text().splitlines()]
+            exits = [event for event in events if event['event'] == 'child_exited']
+            self.assertEqual(len(exits), 1)
+            self.assertEqual(exits[0]['outcome']['returncode'], 0)
+            self.assertEqual(exits[0]['persistence_recovery']['reason'], 'ENOSPC')
+            saved = json.loads((root / 'observer-status.json').read_text())
+            self.assertEqual(saved['persistence_recovery']['reason'], 'ENOSPC')
+            self.assertFalse((root / '.observer-emergency-reserve').exists())
+
+    def test_persistent_enospc_does_not_spin_or_relaunch_child(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            original_save = O.save
+            failures = 0
+
+            def save_with_full_disk(path, document):
+                nonlocal failures
+                if document['status'] in {'running', 'observer_error'}:
+                    failures += 1
+                    raise OSError(errno.ENOSPC, 'disk remains full')
+                original_save(path, document)
+
+            with mock.patch.object(O, 'save', side_effect=save_with_full_disk):
+                with self.assertRaises(OSError):
+                    self.run_child('import time; time.sleep(30)', root)
+            self.assertEqual(failures, 3)  # failed write, one reserve retry, final status.
+            events = [json.loads(line) for line in
+                      (root / 'observer-events.jsonl').read_text().splitlines()]
+            self.assertEqual(sum(event['event'] == 'attempt_starting' for event in events), 1)
+            failure = next(event for event in events if event['event'] == 'observer_error')
+            self.assertIsNotNone(failure['child_returncode'])
+            self.assertFalse((root / '.observer-emergency-reserve').exists())
 
     def test_nonzero_exit_preserves_stderr_and_code(self):
         with tempfile.TemporaryDirectory() as td:

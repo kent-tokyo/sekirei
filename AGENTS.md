@@ -91,6 +91,8 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-21: Manually continue the interrupted nn_r8c1 screen after auditing all completed pairs; preserve the stop record, original weights, corpus order, SPRT and total deadline. Do not enable automatic trial retries.
+
 * 2026-10-21: Report self-NNUE progress in this thread every30 minutes, including live job state, completed pairs, SPRT status, and resource-wait or termination reasons.
 
 * 2026-10-21: Implement automatic pause and continuation after NNUE output-capacity recovery, preserving completed games and exact active process state. Persist pause/resume and failure evidence; never automatically retry engine failures or statistical gates.

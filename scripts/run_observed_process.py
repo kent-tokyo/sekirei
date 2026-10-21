@@ -12,6 +12,7 @@ when independence from an interactive app/session is required.
 from __future__ import annotations
 
 import argparse
+import errno
 from datetime import datetime, timezone
 import fcntl
 import json
@@ -40,10 +41,69 @@ def save(path: Path, document: dict) -> None:
 
 
 def append(path: Path, document: dict) -> None:
-    with path.open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(document, allow_nan=False) + "\n")
-        stream.flush()
-        os.fsync(stream.fileno())
+    # A failed append can leave half a JSON line. Roll it back before a retry.
+    payload = (json.dumps(document, allow_nan=False) + "\n").encode("utf-8")
+    with path.open("ab", buffering=0) as stream:
+        offset = stream.tell()
+        try:
+            remaining = memoryview(payload)
+            while remaining:
+                written = stream.write(remaining)
+                if not written:
+                    raise OSError(errno.ENOSPC, "event append made no progress")
+                remaining = remaining[written:]
+            os.fsync(stream.fileno())
+        except OSError:
+            os.ftruncate(stream.fileno(), offset)
+            raise
+
+
+class EmergencyReserve:
+    """Physically reserve a bounded exit-journal budget; consume it only once.
+
+    Do not replenish during an attempt: further disk exhaustion fails closed
+    instead of repeatedly writing or relaunching the child.
+    """
+
+    size = 8 * 1048576
+
+    def __init__(self, directory: Path):
+        self.path = directory / ".observer-emergency-reserve"
+        self.available = False
+        self.recovery = None
+
+    def allocate(self) -> None:
+        # The caller holds the observer lock and has checked previous identity.
+        self.path.unlink(missing_ok=True)
+        try:
+            with self.path.open("xb") as stream:
+                block = bytes(65536)
+                for _ in range(self.size // len(block)):
+                    stream.write(block)
+                stream.flush()
+                os.fsync(stream.fileno())
+            self.available = True
+        except BaseException:
+            self.close()
+            raise
+
+    def write(self, operation, path: Path, document: dict) -> None:
+        try:
+            operation(path, document)
+        except OSError as error:
+            if error.errno != errno.ENOSPC or not self.available:
+                raise
+            self.close()
+            self.recovery = {"at": now(), "reason": "ENOSPC",
+                             "released_bytes": self.size,
+                             "automatic_child_retry": False}
+            # One retry of journal persistence only, never of the child.
+            document["persistence_recovery"] = self.recovery
+            operation(path, document)
+
+    def close(self) -> None:
+        self.path.unlink(missing_ok=True)
+        self.available = False
 
 
 def describe_exit(returncode: int, requested_signal: int | None = None) -> dict:
@@ -113,9 +173,18 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
     previous_handlers = {}
     child = None
     state = None
+    reserve = EmergencyReserve(directory)
+
+    def persist_state() -> None:
+        if reserve.recovery is not None:
+            state["persistence_recovery"] = reserve.recovery
+        reserve.write(save, state_path, state)
+        if reserve.recovery is not None and "persistence_recovery" not in state:
+            state["persistence_recovery"] = reserve.recovery
+            reserve.write(save, state_path, state)
 
     def event(name: str, **fields) -> None:
-        append(events, {"at": now(), "event": name, **fields})
+        reserve.write(append, events, {"at": now(), "event": name, **fields})
 
     def request_stop(number, _frame) -> None:
         nonlocal requested
@@ -135,6 +204,7 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
                 raise RuntimeError("previous child identity is unknown; refusing duplicate launch")
             if alive(pid):
                 raise RuntimeError("previous child may still be alive; refusing duplicate launch")
+        reserve.allocate()
         attempt = int(previous.get("attempt", 0)) + 1
         stdout_path = directory / ("attempt-%04d.stdout" % attempt)
         stderr_path = directory / ("attempt-%04d.stderr" % attempt)
@@ -142,7 +212,7 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
                  "attempt": attempt, "started_at": now(), "observer_pid": os.getpid(),
                  "command": command, "stdout": str(stdout_path), "stderr": str(stderr_path),
                  "automatic_retry": False, "initial_resources": snapshot(directory, None)}
-        save(state_path, state)
+        persist_state()
         event("attempt_starting", attempt=attempt, command=command)
         for number in (signal.SIGTERM, signal.SIGINT):
             previous_handlers[number] = signal.signal(number, request_stop)
@@ -150,7 +220,7 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
             child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=stdout,
                                      stderr=stderr, start_new_session=True)
             state.update(status="running", child_pid=child.pid)
-            save(state_path, state)
+            persist_state()
             event("child_started", attempt=attempt, child_pid=child.pid)
             stop_deadline = None
             while child.poll() is None:
@@ -173,7 +243,7 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
                 except subprocess.TimeoutExpired:
                     pass
                 state.update(last_heartbeat=snapshot(directory, child.pid))
-                save(state_path, state)
+                persist_state()
             stdout.flush()
             stderr.flush()
             os.fsync(stdout.fileno())
@@ -181,9 +251,11 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
         outcome = describe_exit(child.returncode, requested)
         state.update(status="exited", completed_at=now(), outcome=outcome,
                      final_resources=snapshot(directory, child.pid))
-        save(state_path, state)
+        persist_state()
         event("child_exited", attempt=attempt, child_pid=child.pid, outcome=outcome,
               last_heartbeat=state.get("last_heartbeat"), final_resources=state["final_resources"])
+        if reserve.recovery is not None and "persistence_recovery" not in state:
+            persist_state()
         return state
     except BaseException as error:
         # A persistence failure must not leave an unobserved owned child running.
@@ -198,15 +270,21 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
                 pass
         failure = {"at": now(), "event": "observer_error", "error_type": type(error).__name__,
                    "error": str(error), "child_returncode": None if child is None else child.returncode}
-        try:
-            event("observer_error", **{k: v for k, v in failure.items() if k not in {"at", "event"}})
-            if state is not None:
-                state.update(status="observer_error", completed_at=now(), error=failure)
-                save(state_path, state)
-        finally:
-            print(json.dumps(failure), file=sys.stderr, flush=True)
+        for write_failure in (
+                lambda: event("observer_error", **{k: v for k, v in failure.items()
+                                                   if k not in {"at", "event"}}),
+                lambda: persist_state() if state is not None else None):
+            try:
+                if state is not None:
+                    state.update(status="observer_error", completed_at=now(), error=failure)
+                write_failure()
+            except OSError:
+                # Keep the original error and independently try the other journal.
+                pass
+        print(json.dumps(failure), file=sys.stderr, flush=True)
         raise
     finally:
+        reserve.close()
         for number, handler in previous_handlers.items():
             signal.signal(number, handler)
         lock.close()
