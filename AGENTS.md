@@ -91,6 +91,8 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-21: While the user sleeps, autonomously revise plans and advance bounded self-NNUE generation, training and fresh-root candidate gates. Preserve registered verdicts and limits, audit failures without automatic trial retries, and keep publication/default changes separate.
+
 * 2026-10-21: Review the nn_r8c1 training recipe using owned-data and exported-parameter diagnostics; isolate a batch-size ablation from existing strength trials, and require independent fresh-root gates before adoption.
 
 * 2026-10-21: Manually continue the interrupted nn_r8c1 screen after auditing all completed pairs; preserve the stop record, original weights, corpus order, SPRT and total deadline. Do not enable automatic trial retries.

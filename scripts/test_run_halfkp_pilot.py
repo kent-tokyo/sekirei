@@ -78,6 +78,132 @@ def rebind(plan,path):
 
 
 class PilotIntegrityTest(unittest.TestCase):
+    def test_candidate_id_is_bounded_ascii_and_cannot_escape_or_replace_data(self):
+        self.assertEqual(pilot.candidate_name({}), 'nn_r8c1')
+        self.assertEqual(pilot.candidate_name({'candidate_id':'nn_r8c3'}), 'nn_r8c3')
+        self.assertEqual(pilot.candidate_name({'candidate_id':'a'*64}), 'a'*64)
+        for name in ('', None, 3, '../nn_r8c3', '/tmp/nn_r8c3', 'a/b', 'a\\b',
+                     '.', '..', 'a.pt', 'x\n', 'ｎｎ_r8c3', 'a'*65,
+                     'train', 'val', 'emergency-reserve'):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'candidate_id'):
+                pilot.candidate_name({'candidate_id':name})
+
+    def test_second_candidate_wires_trainer_loader_and_status_to_same_identifier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp).resolve()
+            paths=[root/name for name in ('generator', 'packer', 'trainer', 'baseline')]
+            for path in paths:
+                path.write_text('frozen fixture '+path.name)
+            generator,packer,trainer,baseline=paths
+            diff_tool=root/'parameter_diff_tool.py';diff_tool.write_text('frozen diagnostic')
+            plan={'schema':'sekirei.own-halfkp-pilot-plan.v1','candidate_id':'nn_r8c3',
+                  'generator':str(generator),'packer':str(packer),'trainer':str(trainer),
+                  'baseline':str(baseline),'baseline_sha256':pilot.sha(baseline),
+                  'generation':{'seeds':[7],'games_per_shard':1,'depth':1,'nodes':1,
+                      'random_plies':0,'min_training_ply':24,'max_ply':64},
+                  'training':{'batch':256,'lr':1e-4,'seed':42},'max_wall_hours':1,
+                  'exclusions':[],'spent_manifests':[],
+                  'parameter_diff_tool':str(diff_tool),
+                  'bound_inputs':[pilot.ref(p) for p in [*paths,diff_tool]]}
+            pilot.save(root/'plan.json',plan)
+            commands=[]
+            def launch(argv, **kwargs):
+                commands.append(argv)
+                if argv[0]==str(generator):
+                    Path(argv[argv.index('--out')+1]).write_text(
+                        row(A,1,'0000000000000007-0000000000000000'))
+                    kwargs['stderr'].write('eval baseline (HalfKp)\n')
+                    kwargs['stderr'].flush()
+                elif '--prepare-only' in argv:
+                    for arm in ('train','val'):
+                        (root/(arm+'.txt')).write_text('fixture')
+                    pilot.save(root/'split.json',
+                               {'train':{'positions':2},'validation':{'positions':1}})
+                elif argv[0]==str(packer) and argv[1]=='pack':
+                    count=2 if Path(argv[2]).name=='train.bin' else 1
+                    Path(argv[2]).write_bytes(bytes(count*158))
+                elif str(trainer) in argv:
+                    Path(argv[argv.index('--out')+1]).write_text('candidate fixture')
+                    Path(argv[argv.index('--save')+1]).write_text('checkpoint fixture')
+                elif str(diff_tool) in argv:
+                    self.assertEqual(argv, [sys.executable,'-B',str(diff_tool),str(baseline),
+                                          str(root/'nn_r8c3.bin'),'--output',
+                                          str(root/'integer-parameter-diff.json')])
+                    pilot.save(root/'integer-parameter-diff.json',{'diagnostic_only':True})
+                elif argv[0]==str(packer):
+                    self.assertEqual(argv[1:4], ['check',str(root/'nn_r8c3.bin'),'24'])
+                else:
+                    self.fail('unexpected command '+repr(argv))
+                return SimpleNamespace(pid=12345,returncode=0,poll=lambda:0)
+            def reserve(path):
+                path.write_bytes(b'reserve fixture')
+            with patch.object(pilot.subprocess,'Popen',side_effect=launch), \
+                 patch.object(pilot,'observe_host_cpu',return_value=0.0), \
+                 patch.object(pilot.shutil,'disk_usage',return_value=SimpleNamespace(free=5000*1048576)), \
+                 patch.object(pilot.time,'sleep'), \
+                 patch.object(pilot,'allocate_reserve',side_effect=reserve):
+                pilot.run(root/'plan.json')
+            training=next(cmd for cmd in commands if str(trainer) in cmd)
+            self.assertEqual(training[training.index('--out')+1],str(root/'nn_r8c3.bin'))
+            self.assertEqual(training[training.index('--save')+1],str(root/'nn_r8c3.pt'))
+            self.assertEqual(training[training.index('--batch')+1],'256')
+            for filename in ('candidate.json','status.json'):
+                status=json.loads((root/filename).read_text())
+                self.assertEqual(status['candidate_id'],'nn_r8c3')
+                self.assertEqual(status['candidate'],pilot.ref(root/'nn_r8c3.bin'))
+                self.assertEqual(status['float_checkpoint'],pilot.ref(root/'nn_r8c3.pt'))
+                self.assertFalse(status['adopted'])
+                self.assertEqual(status['integer_parameter_diff'],
+                                 pilot.ref(root/'integer-parameter-diff.json'))
+            unbound=copy.deepcopy(plan)
+            unbound['bound_inputs']=[p for p in plan['bound_inputs'] if p['path']!=str(diff_tool)]
+            with self.assertRaisesRegex(ValueError,'unbound'):
+                pilot.validate_plan(unbound)
+            self.assertFalse((root/'nn_r8c1.bin').exists())
+            self.assertEqual(pilot.sha(baseline),plan['baseline_sha256'])
+
+    def test_quality_floors_are_optional_strict_and_do_not_weaken_original_minima(self):
+        self.assertEqual(pilot.quality_floors({}),
+                         {'train_positions':4096,'validation_positions':256})
+        self.assertEqual(pilot.quality_floors({'quality_floors':{'train_positions':1}}),
+                         {'train_positions':4096,'validation_positions':256})
+        for floors in (None, [], {'unknown':1}, {'train_games':0},
+                       {'train_games':-1}, {'train_games':True}, {'train_games':1.5}):
+            with self.subTest(floors=floors),self.assertRaisesRegex(ValueError,'quality_floors'):
+                pilot.quality_floors({'quality_floors':floors})
+        plan={'quality_floors':{'train_positions':200000,'validation_positions':20000,
+                               'train_games':4000,'validation_games':400}}
+        split={'train':{'positions':200000,'games':4000},
+               'validation':{'positions':20000,'games':400}}
+        pilot.validate_quality(plan,split)
+        for arm,field in (('train','positions'),('validation','positions'),
+                          ('train','games'),('validation','games')):
+            bad=copy.deepcopy(split);bad[arm][field]-=1
+            with self.subTest(arm=arm,field=field),self.assertRaisesRegex(ValueError,'insufficient'):
+                pilot.validate_quality(plan,bad)
+
+    def test_prepare_rejects_quality_floor_after_split_without_training_or_refill(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);raw=root/'raw.txt'
+            raw.write_text(row(A,1,'game'))
+            pilot.save(root/'generation-receipt.json',[pilot.ref(raw)])
+            plan={'exclusions':[],'spent_manifests':[],
+                  'generation':{'min_training_ply':24},
+                  'training':{'validation_ratio':0.1,'seed':42},
+                  'quality_floors':{'train_games':4000}}
+            split={'train':{'positions':200000,'games':3999},
+                   'validation':{'positions':20000,'games':400}}
+            with patch.object(pilot,'load_exclusions',return_value=(set(), [])), \
+                 patch.object(pilot,'split_files',return_value=split) as splitter, \
+                 patch.object(pilot.subprocess,'Popen') as launch:
+                with self.assertRaisesRegex(ValueError,'train_games 3999 < 4000'):
+                    pilot.prepare_data(plan,root)
+                splitter.assert_called_once()
+                launch.assert_not_called()
+            self.assertTrue((root/'eligible.txt').exists())
+            self.assertFalse((root/'train.bin').exists())
+            self.assertFalse((root/'nn_r8c1.bin').exists())
+
     def test_known_holdout_blocks_entire_game_including_nonmatching_rows(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp);source=p/'raw.txt';target=p/'eligible.txt'

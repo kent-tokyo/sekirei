@@ -385,6 +385,14 @@ Large exclusion sets live only in a separate preparation process after
 generation. A trained output remains unqualified until a separate independent
 strength gate; the runner neither promotes nor publishes it.
 
+Pilot plans may set a safe `candidate_id` to bind the `.bin`, `.pt`, load check
+and candidate card to the same network (legacy default: `nn_r8c1`). Optional
+`quality_floors` require minimum train/validation positions and games after the
+whole-game split, before packing/training; insufficient data stops without
+extra generation. Optional SHA-pinned `parameter_diff_tool` runs the integer
+parameter diagnostic after training and records its artifact in the card.
+These diagnostics and data floors never replace independent strength gates.
+
 An operator-frozen `manual_capacity_continuation` plan can carry forward
 completed games after a cooperative low-disk stop with native return code 0,
 before any data preparation or training. It binds the original plan/status,

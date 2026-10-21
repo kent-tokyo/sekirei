@@ -105,6 +105,17 @@ def prepare_rows(paths, excluded, output, min_ply):
             'identities': sorted({identity_hash(r.sfen) for r in kept})}
 
 
+def candidate_name(plan):
+    """Keep legacy plans compatible while binding new artifacts to one safe ID."""
+    name = plan.get('candidate_id', 'nn_r8c1')
+    require(isinstance(name, str) and
+            re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', name) is not None,
+            'invalid candidate_id: expected 1-64 ASCII letters, digits, underscores or hyphens')
+    require(name not in {'train', 'val', 'emergency-reserve'},
+            'candidate_id collides with pilot data or reserve')
+    return name
+
+
 def generation_jobs(plan):
     g = plan['generation']
     counts = g.get('games_per_seed', [g['games_per_shard']] * len(g['seeds']))
@@ -144,9 +155,11 @@ def capacity_retained(plan):
             status.get('plan') == amendment['source_plan'], 'ineligible capacity-stop source')
     require(not any((source_path.parent/name).exists() for name in
             ('generation-receipt.json', 'eligible.txt', 'split.json', 'train.bin',
-             'val.bin', 'training.stdout', 'training.ckpt', 'candidate.json', 'nn_r8c1.bin')),
+             'val.bin', 'training.stdout', 'training.ckpt', 'candidate.json',
+             candidate_name(source)+'.bin', candidate_name(source)+'.pt')),
             'source already reached data preparation or training')
-    require(plan['baseline_sha256'] == source['baseline_sha256'] and
+    require(candidate_name(plan) == candidate_name(source) and
+            plan['baseline_sha256'] == source['baseline_sha256'] and
             plan['baseline'] == source['baseline'] and
             plan['generator'] == source['generator'] and plan['packer'] == source['packer'] and
             plan['training'] == source['training'] and plan['source_base'] == source['source_base'] and
@@ -215,8 +228,31 @@ def capacity_retained(plan):
     return [Path(x['raw']['path']) for x in retained]
 
 
+def quality_floors(plan):
+    """Optional preregistered minima cannot weaken the original position floors."""
+    specified = plan.get('quality_floors', {})
+    allowed = {'train_positions', 'validation_positions', 'train_games', 'validation_games'}
+    require(isinstance(specified, dict) and set(specified) <= allowed and
+            all(type(value) is int and value > 0 for value in specified.values()),
+            'invalid quality_floors: only positive integer position/game minima are allowed')
+    floors = {'train_positions':4096, 'validation_positions':256}
+    for key, value in specified.items():
+        floors[key] = max(floors.get(key, 0), value)
+    return floors
+
+
+def validate_quality(plan, split):
+    for key, minimum in quality_floors(plan).items():
+        arm, field = key.split('_', 1)
+        observed = split[arm].get(field)
+        require(type(observed) is int and observed >= minimum,
+                f'insufficient whole-game train/validation data: {key} {observed} < {minimum}')
+
+
 def validate_plan(plan):
     require(plan.get('schema') == 'sekirei.own-halfkp-pilot-plan.v1', 'unknown plan schema')
+    candidate_name(plan)
+    quality_floors(plan)
     g = plan['generation']
     seeds = g['seeds']
     require(isinstance(seeds,list) and 1 <= len(seeds) <= 16 and len(set(seeds)) == len(seeds),
@@ -228,6 +264,10 @@ def validate_plan(plan):
     generation_jobs(plan)
     required = {str(Path(plan[k]).resolve()) for k in ['generator','packer','baseline','trainer']}
     required.update(str(Path(p).resolve()) for p in plan['exclusions']+plan['spent_manifests'])
+    if 'parameter_diff_tool' in plan:
+        require(isinstance(plan['parameter_diff_tool'], str) and plan['parameter_diff_tool'],
+                'invalid parameter_diff_tool path')
+        required.add(str(Path(plan['parameter_diff_tool']).resolve()))
     bound = {str(Path(x['path']).resolve()) for x in plan['bound_inputs']}
     require(required <= bound, 'unbound generator/trainer/evaluator/exclusion input')
     require(0 < plan['max_wall_hours'] <= 72, 'unbounded run wall cap')
@@ -340,8 +380,7 @@ def prepare_data(plan, base):
          'identities':ids,'sources':[ref(base/'eligible.txt')]})
     split=split_files([base/'eligible.txt'],base/'train.txt',base/'val.txt',base/'split.json',
                       plan['training']['validation_ratio'],plan['training']['seed'],64)
-    require(split['train']['positions'] >= 4096 and split['validation']['positions'] >= 256,
-            'insufficient whole-game train/validation data')
+    validate_quality(plan, split)
     for x in receipt:
         require(sha(x['path']) == x['sha256'], 'raw shard changed during preparation')
 
@@ -356,9 +395,10 @@ def run(plan_path):
 def run_locked(plan_path):
     base = plan_path.resolve().parent
     plan = json.loads(plan_path.read_text())
+    name = candidate_name(plan)
     require(not (base/'status.json').exists(), 'fresh run required; automatic restart forbidden')
     state = {'schema':'sekirei.own-halfkp-pilot-status.v1', 'status':'PREFLIGHT',
-             'started_at':now(), 'pid':os.getpid(), 'plan':ref(plan_path),
+             'started_at':now(), 'pid':os.getpid(), 'plan':ref(plan_path), 'candidate_id':name,
              'published':False, 'default_changed':False, 'best_remains':'nn_r6',
              'automatic_capacity_resume':True, 'capacity_pause_below_mib':2048,
              'capacity_resume_minimum_mib':3072}
@@ -492,19 +532,26 @@ def run_locked(plan_path):
             require((base/(arm+'.bin')).stat().st_size == count*158, 'packed row count mismatch')
         state['status']='TRAINING';snapshot()
         t = plan['training']
-        candidate = base/'nn_r8c1.bin'
+        candidate = base/(name+'.bin')
+        checkpoint = base/(name+'.pt')
         cmd=[sys.executable,'-u','-B',plan['trainer'],'--data',str(base/'train.bin'),
              '--val-data',str(base/'val.bin'),'--init-bin',plan['baseline'],
-             '--out',str(candidate),'--save',str(base/'nn_r8c1.pt'),'--ckpt',str(base/'training.ckpt'),
+             '--out',str(candidate),'--save',str(checkpoint),'--ckpt',str(base/'training.ckpt'),
              '--epochs','1','--batch',str(t['batch']),'--lr',str(t['lr']),
              '--lam','1.0','--scale','400','--fv-scale','24','--device','cpu',
              '--threads','1','--seed',str(t['seed']),'--log-every','10','--ckpt-every','20']
         command(cmd,'training',6*3600,min_free=2048)
+        if 'parameter_diff_tool' in plan:
+            report = base/'integer-parameter-diff.json'
+            command([sys.executable,'-B',plan['parameter_diff_tool'],plan['baseline'],
+                     str(candidate),'--output',str(report)],
+                    'parameter-diff',300,min_free=768)
+            state['integer_parameter_diff'] = ref(report)
         # Load the exported file with the native inference implementation.
         command([plan['packer'],'check',str(candidate),'24',str(base/'val.txt'),'8'],
                 'export-load-check',120,min_free=768)
         state.update(status='CANDIDATE_TRAINED_AWAITING_INDEPENDENT_GATE',candidate=ref(candidate),
-                     float_checkpoint=ref(base/'nn_r8c1.pt'),completed_at=now(),
+                     float_checkpoint=ref(checkpoint),completed_at=now(),
                      validation_is_diagnostic_only=True,adopted=False)
         save(base/'candidate.json',dict(state,training_split=ref(base/'split.json')))
         reserve.unlink(missing_ok=True)
