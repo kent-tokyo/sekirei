@@ -91,6 +91,8 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-23: Manually continue nn_r8c3 after its observer capacity failure, retaining all123 completed pairs, the unplayed-root order,400-pair cap and original deadline; use the validated observer fix and file necessary issues without publishing private trial artifacts.
+
 * 2026-10-22: Manually start the previously unplayed nn_r8c3 formal screen after the user requested resumption; preserve the old c2/c3 stop records, frozen400-root order, weights, conditions, cap and original deadline. Never automatically retry an engine failure.
 
 * 2026-10-21: While the user sleeps, autonomously revise plans and advance bounded self-NNUE generation, training and fresh-root candidate gates. Preserve registered verdicts and limits, audit failures without automatic trial retries, and keep publication/default changes separate.
