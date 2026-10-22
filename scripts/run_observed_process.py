@@ -67,8 +67,8 @@ class EmergencyReserve:
 
     size = 8 * 1048576
 
-    def __init__(self, directory: Path):
-        self.path = directory / ".observer-emergency-reserve"
+    def __init__(self, directory: Path, name: str = ".observer-emergency-reserve"):
+        self.path = directory / name
         self.available = False
         self.recovery = None
 
@@ -174,6 +174,19 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
     child = None
     state = None
     reserve = EmergencyReserve(directory)
+    # Periodic heartbeat recovery must not spend the terminal journal budget.
+    # A second persistence failure still stops the child; only its final
+    # state/event may use this separately allocated reserve.
+    terminal_reserve = EmergencyReserve(directory, ".observer-terminal-reserve")
+
+    def release_terminal_reserve() -> None:
+        if terminal_reserve.available:
+            terminal_reserve.close()
+            if state is not None:
+                state["terminal_journal_reserve"] = {
+                    "released_at": now(), "released_bytes": terminal_reserve.size,
+                    "automatic_child_retry": False,
+                }
 
     def persist_state() -> None:
         if reserve.recovery is not None:
@@ -205,6 +218,7 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
             if alive(pid):
                 raise RuntimeError("previous child may still be alive; refusing duplicate launch")
         reserve.allocate()
+        terminal_reserve.allocate()
         attempt = int(previous.get("attempt", 0)) + 1
         stdout_path = directory / ("attempt-%04d.stdout" % attempt)
         stderr_path = directory / ("attempt-%04d.stderr" % attempt)
@@ -248,6 +262,7 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
             stderr.flush()
             os.fsync(stdout.fileno())
             os.fsync(stderr.fileno())
+        release_terminal_reserve()
         outcome = describe_exit(child.returncode, requested)
         state.update(status="exited", completed_at=now(), outcome=outcome,
                      final_resources=snapshot(directory, child.pid))
@@ -258,18 +273,34 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
             persist_state()
         return state
     except BaseException as error:
+        cleanup_signal = None
         # A persistence failure must not leave an unobserved owned child running.
         if child is not None and child.poll() is None:
             try:
                 os.killpg(child.pid, signal.SIGTERM)
+                cleanup_signal = "SIGTERM"
                 child.wait(timeout=stop_grace_seconds)
             except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                    cleanup_signal = "SIGKILL"
+                except ProcessLookupError:
+                    pass  # The child exited between the grace timeout and kill.
                 child.wait()
             except ProcessLookupError:
                 pass
+        terminal_release_error = None
+        try:
+            release_terminal_reserve()
+        except OSError as release_error:
+            # Preserve the original persistence error even if unlink itself
+            # cannot complete on a full filesystem.
+            terminal_release_error = str(release_error)
         failure = {"at": now(), "event": "observer_error", "error_type": type(error).__name__,
-                   "error": str(error), "child_returncode": None if child is None else child.returncode}
+                   "error": str(error), "child_returncode": None if child is None else child.returncode,
+                   "observer_cleanup_signal": cleanup_signal}
+        if terminal_release_error is not None:
+            failure["terminal_reserve_release_error"] = terminal_release_error
         for write_failure in (
                 lambda: event("observer_error", **{k: v for k, v in failure.items()
                                                    if k not in {"at", "event"}}),
@@ -284,7 +315,13 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
         print(json.dumps(failure), file=sys.stderr, flush=True)
         raise
     finally:
-        reserve.close()
+        # A failed unlink must not hide the primary error or prevent restoring
+        # signal handlers and releasing the directory lock.
+        for budget in (terminal_reserve, reserve):
+            try:
+                budget.close()
+            except OSError:
+                pass
         for number, handler in previous_handlers.items():
             signal.signal(number, handler)
         lock.close()
