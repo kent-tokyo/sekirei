@@ -25,11 +25,11 @@ mod game;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::fs;
-use std::io::Write as IoWrite;
+use std::io::{self, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use engine::{SearchInfo, UsiEngine};
+use engine::{SearchInfo, UsiEngine, response_timeout_budget};
 use game::{
     EndReason, Outcome, end_reason_for_go_error, engine1_to_move, fischer_clock_after_move,
     gameover_results, repetition_result,
@@ -222,7 +222,7 @@ fn print_usage() {
     eprintln!(
         "  --games-per-position <n>  play N games per position (covers all; overrides --games)"
     );
-    eprintln!("  --json <file>        write result summary as JSON");
+    eprintln!("  --json <file>        write result summary and a .failures.jsonl sidecar");
     eprintln!(
         "  --engine-option1 <Name=Value>  USI setoption sent to engine1 after usiok, before isready (repeatable)"
     );
@@ -481,6 +481,85 @@ impl Transcript {
     }
 }
 
+/// Durable, bounded diagnostics for failed `go` calls. The sidecar is opened
+/// before engine launch and synced before an invalid game is scored.
+struct MoveFailureJournal {
+    path: Option<PathBuf>,
+    file: Option<fs::File>,
+}
+
+fn move_failure_path(args: &Args) -> Option<PathBuf> {
+    args.json_file
+        .as_ref()
+        .map(|path| path.with_extension("failures.jsonl"))
+        .or_else(|| {
+            args.output_dir
+                .as_ref()
+                .map(|dir| dir.join("move-failures.jsonl"))
+        })
+        .or_else(|| {
+            args.csa_output_dir
+                .as_ref()
+                .map(|dir| dir.join("move-failures.jsonl"))
+        })
+}
+
+fn go_error_kind(error: &io::Error) -> &'static str {
+    match error.kind() {
+        io::ErrorKind::TimedOut => "timeout",
+        io::ErrorKind::BrokenPipe | io::ErrorKind::NotConnected | io::ErrorKind::UnexpectedEof => {
+            "disconnected"
+        }
+        _ => "protocol_failure",
+    }
+}
+
+impl MoveFailureJournal {
+    fn open(args: &Args) -> io::Result<Self> {
+        let path = move_failure_path(args);
+        let file = path.as_ref().map(fs::File::create).transpose()?;
+        Ok(Self { path, file })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_go_error(
+        &mut self,
+        game_num: usize,
+        ply: usize,
+        engine_arm: &str,
+        engine_pid: u32,
+        elapsed_ms: u128,
+        timeout_budget_ms: u128,
+        error: &io::Error,
+    ) -> io::Result<()> {
+        let message: String = error.to_string().chars().take(256).collect();
+        let record = serde_json::json!({
+            "schema": "sekirei.match-move-failure.v1",
+            "ts_ms": now_ms(),
+            "game_num": game_num,
+            "ply": ply,
+            "engine_arm": engine_arm,
+            "engine_pid": engine_pid,
+            "elapsed_ms": elapsed_ms,
+            "timeout_budget_ms": timeout_budget_ms,
+            "error_kind": go_error_kind(error),
+            "io_error_kind": format!("{:?}", error.kind()),
+            "error_message": message,
+        });
+        if let Some(file) = &mut self.file {
+            let mut line = serde_json::to_vec(&record).map_err(io::Error::other)?;
+            line.push(b'\n');
+            file.write_all(&line)?;
+            file.sync_data()?;
+        } else {
+            // Runs without an artifact destination still retain a bounded
+            // machine-readable record in their captured stderr stream.
+            eprintln!("  [match] move failure: {record}");
+        }
+        Ok(())
+    }
+}
+
 /// Join both opening and played moves into one USI move sequence.
 /// Every caller uses the same representation for engine requests and kifu.
 fn append_position_moves(prefix: &str, moves: &[String]) -> String {
@@ -586,6 +665,7 @@ fn run_game(
     start_pos: &str, // startpos or raw SFEN, each with an optional moves prefix
     game_num: usize,
     transcript: &mut Transcript,
+    failures: &mut MoveFailureJournal,
 ) -> (Outcome, Vec<String>, EndReason) {
     let byoyomi_cmd = format!("go byoyomi {byoyomi_ms}");
     // Remaining Fischer clock of Black and White (ms).
@@ -651,11 +731,31 @@ fn run_game(
         let go_result = match mover.go(&pos_cmd, &go_cmd) {
             Ok(result) => result,
             Err(e) => {
+                let elapsed_ms = started.elapsed().as_millis();
+                let timeout_budget_ms = response_timeout_budget(&go_cmd).as_millis();
                 // Let the search actually wind down now instead of leaving
                 // it running until the next game's new-game barrier aborts
                 // it -- pure cleanup, begin_new_game()'s barrier is what
                 // actually guarantees no stale output leaks forward.
                 mover.stop();
+                if let Err(write_error) = failures.record_go_error(
+                    game_num,
+                    ply,
+                    if e1_turn { "e1" } else { "e2" },
+                    mover_pid,
+                    elapsed_ms,
+                    timeout_budget_ms,
+                    &e,
+                ) {
+                    fatal_evidence_error(
+                        e1,
+                        e2,
+                        &format!(
+                            "move failure journal write failed ({}): {write_error}",
+                            failures.path.as_ref().unwrap().display()
+                        ),
+                    );
+                }
                 transcript.log_move(
                     game_num,
                     ply,
@@ -664,7 +764,7 @@ fn run_game(
                     &sfen_before,
                     0,
                     "",
-                    &format!("timeout:{e}"),
+                    go_error_kind(&e),
                     None,
                 );
                 let outcome = if e1_turn {
@@ -2014,6 +2114,16 @@ fn main() {
         std::process::exit(1);
     }
 
+    if let (Some(transcript), Some(failures)) = (&args.transcript_file, move_failure_path(&args))
+        && transcript == &failures
+    {
+        eprintln!(
+            "error: --transcript must differ from the move failure journal {}",
+            failures.display()
+        );
+        std::process::exit(1);
+    }
+
     if let Some(dir) = &args.output_dir
         && let Err(e) = fs::create_dir_all(dir)
     {
@@ -2029,6 +2139,11 @@ fn main() {
         );
         std::process::exit(1);
     }
+
+    let mut failures = MoveFailureJournal::open(&args).unwrap_or_else(|error| {
+        eprintln!("move failure journal initialization failed: {error}");
+        std::process::exit(2);
+    });
 
     let positions: Vec<String> = match args.positions_file.as_ref() {
         Some(path) => load_positions(path).unwrap_or_else(|error| {
@@ -2118,6 +2233,7 @@ fn main() {
             start_pos,
             game_num,
             &mut transcript,
+            &mut failures,
         );
         let gameover_errors = notify_gameover(&mut e1, &mut e2, outcome);
         if !gameover_errors.is_empty() {
@@ -2461,6 +2577,133 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static FAILURE_TEST_ID: AtomicU64 = AtomicU64::new(0);
+
+    fn failure_test_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "sekirei-match-{label}-{}-{}.jsonl",
+            std::process::id(),
+            FAILURE_TEST_ID.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    #[cfg(unix)]
+    fn synthetic_engine(go_action: &str) -> UsiEngine {
+        let script = format!(
+            r#"while IFS= read -r line; do
+  case "$line" in
+    usi) echo 'id name synthetic'; echo 'usiok' ;;
+    isready) echo 'readyok' ;;
+    go*) {go_action} ;;
+    quit) exit 0 ;;
+  esac
+done"#
+        );
+        launch_and_init("/bin/sh", &["-c".to_string(), script], &[]).unwrap()
+    }
+
+    #[cfg(unix)]
+    fn failed_synthetic_move(go_action: &str) -> (serde_json::Value, EndReason) {
+        let path = failure_test_path("failure");
+        let mut failures = MoveFailureJournal {
+            file: Some(fs::File::create(&path).unwrap()),
+            path: Some(path.clone()),
+        };
+        let mut e1 = synthetic_engine(go_action);
+        let mut e2 = synthetic_engine(":");
+        let mut transcript = Transcript(None);
+        let (outcome, moves, reason) = run_game(
+            &mut e1,
+            &mut e2,
+            true,
+            1,
+            None,
+            1,
+            "startpos",
+            7,
+            &mut transcript,
+            &mut failures,
+        );
+        e1.kill();
+        e2.kill();
+        assert_eq!(outcome, Outcome::E2Win);
+        assert!(moves.is_empty());
+        drop(failures);
+        let content = fs::read_to_string(&path).unwrap();
+        fs::remove_file(path).unwrap();
+        let lines: Vec<_> = content.lines().collect();
+        assert_eq!(lines.len(), 1);
+        (serde_json::from_str(lines[0]).unwrap(), reason)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_bestmove_records_actual_timeout_and_budget() {
+        let (record, reason) = failed_synthetic_move(":");
+        assert_eq!(reason, EndReason::TimeForfeit);
+        assert_eq!(record["error_kind"], "timeout");
+        assert_eq!(record["io_error_kind"], "TimedOut");
+        assert_eq!(record["timeout_budget_ms"], 3001);
+        assert!(record["elapsed_ms"].as_u64().unwrap() >= 3000);
+        assert_eq!(record["game_num"], 7);
+        assert_eq!(record["ply"], 0);
+        assert_eq!(record["engine_arm"], "e1");
+        assert!(record["engine_pid"].as_u64().unwrap() > 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn output_chatter_does_not_extend_failure_budget() {
+        let (record, reason) =
+            failed_synthetic_move("while :; do echo 'info depth 1'; sleep 0.05; done");
+        assert_eq!(reason, EndReason::TimeForfeit);
+        assert_eq!(record["error_kind"], "timeout");
+        assert_eq!(record["timeout_budget_ms"], 3001);
+        assert!(record["elapsed_ms"].as_u64().unwrap() < 10000);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn disconnection_and_malformed_bestmove_have_distinct_failure_records() {
+        let (disconnected, reason) = failed_synthetic_move("exit 0");
+        assert_eq!(reason, EndReason::EngineError);
+        assert_eq!(disconnected["error_kind"], "disconnected");
+        assert_eq!(disconnected["io_error_kind"], "BrokenPipe");
+
+        let (malformed, reason) = failed_synthetic_move("echo bestmove");
+        assert_eq!(reason, EndReason::EngineError);
+        assert_eq!(malformed["error_kind"], "protocol_failure");
+        assert_eq!(malformed["io_error_kind"], "InvalidData");
+        assert_eq!(malformed["error_message"], "bestmove has no move");
+    }
+
+    #[test]
+    fn move_failure_journal_propagates_write_errors() {
+        let path = failure_test_path("failure-readonly");
+        fs::write(&path, "").unwrap();
+        let mut journal = MoveFailureJournal {
+            file: Some(fs::File::open(&path).unwrap()),
+            path: Some(path.clone()),
+        };
+        assert!(
+            journal
+                .record_go_error(
+                    1,
+                    0,
+                    "e1",
+                    12,
+                    100,
+                    3001,
+                    &io::Error::new(io::ErrorKind::TimedOut, "synthetic timeout"),
+                )
+                .is_err()
+        );
+        drop(journal);
+        fs::remove_file(path).unwrap();
+    }
 
     #[cfg(unix)]
     #[test]

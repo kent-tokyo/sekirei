@@ -120,6 +120,8 @@ python3 scripts/run_local_selfplay.py --games 1000 \
 Runs store manifests, records, CSA, search data, and deduplication metadata
 under ignored `data/runs/`. Same-engine results are regression evidence, not
 Floodgate or human ratings. `sekirei-csa` accepts credentials only at runtime.
+For a match using `--json result.json`, failed engine responses are recorded in
+`result.failures.jsonl` with elapsed time, response budget, engine arm and error.
 
 For NNUE training, run `cargo run --release -p sekirei-train -- --help`.
 Training pins `lineprior 0.12.6` and `shogiesa-core 0.11.6`; external wrappers
