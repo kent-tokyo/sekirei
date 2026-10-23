@@ -150,6 +150,42 @@ struct SearchResult {
     dfpn: Option<DfpnReport>,
 }
 
+impl SearchResult {
+    fn new(
+        best_move: Option<sekirei_core::mv::Move>,
+        score: i32,
+        depth: u32,
+        nodes: u64,
+        elapsed: Duration,
+        hashfull: u32,
+        pv: Vec<sekirei_core::mv::Move>,
+    ) -> Self {
+        Self {
+            best_move,
+            score,
+            depth,
+            nodes,
+            elapsed,
+            hashfull,
+            pv_list: Vec::new(),
+            pv,
+            worker_stats: Vec::new(),
+            lazy_worker_tt_reuse: Vec::new(),
+            lazy_tt_writes: None,
+            lazy_work_overlap: None,
+            lazy_root_hints: None,
+            lazy_retirement: None,
+            cooperative_root: None,
+            cooperative_root_wait: None,
+            nmp_stats: Vec::new(),
+            aspiration_stats: Vec::new(),
+            shared_mcts_stats: None,
+            root_safety: None,
+            dfpn: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DfpnReport {
     outcome: DfpnOutcome,
@@ -182,6 +218,29 @@ struct DfpnBackend {
 struct SharedMctsBackend {
     searcher: SharedTreeMcts,
     abort: Arc<AtomicBool>,
+}
+
+fn run_with_abort_deadline<T>(
+    abort: &Arc<AtomicBool>,
+    limit: Option<Duration>,
+    task: impl FnOnce() -> T,
+) -> T {
+    let timer = limit.map(|limit| {
+        let abort = Arc::clone(abort);
+        let (cancel_tx, cancel_rx) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            if cancel_rx.recv_timeout(limit).is_err() {
+                abort.store(true, Ordering::Relaxed);
+            }
+        });
+        (cancel_tx, handle)
+    });
+    let result = task();
+    if let Some((cancel_tx, handle)) = timer {
+        let _ = cancel_tx.send(());
+        let _ = handle.join();
+    }
+    result
 }
 
 impl SearchBackend {
@@ -293,29 +352,15 @@ impl SearchBackend {
                 }
                 RepetitionOutcome::PerpetualCheck(_) => MATE_SCORE - 1,
             };
-            return SearchResult {
-                best_move: fallback_legal_move(board),
+            return SearchResult::new(
+                fallback_legal_move(board),
                 score,
-                depth: 0,
-                nodes: 0,
-                elapsed: Duration::ZERO,
-                hashfull: 0,
-                pv_list: Vec::new(),
-                pv: Vec::new(),
-                worker_stats: Vec::new(),
-                lazy_worker_tt_reuse: Vec::new(),
-                lazy_tt_writes: None,
-                lazy_work_overlap: None,
-                lazy_root_hints: None,
-                lazy_retirement: None,
-                cooperative_root: None,
-                cooperative_root_wait: None,
-                nmp_stats: Vec::new(),
-                aspiration_stats: Vec::new(),
-                shared_mcts_stats: None,
-                root_safety: None,
-                dfpn: None,
-            };
+                0,
+                0,
+                Duration::ZERO,
+                0,
+                Vec::new(),
+            );
         }
         match self {
             Self::Sequential(s) => s.searcher.new_search(),
@@ -362,18 +407,19 @@ impl SearchBackend {
                     )
                     .expect("USI generation manager must serialize Lazy SMP searches");
                 let result = info.result;
-                SearchResult {
-                    best_move: result.best_move.or_else(|| fallback_legal_move(board)),
-                    score: result.score,
-                    depth: result.depth,
-                    nodes: info.total_nodes,
+                let base = SearchResult::new(
+                    result.best_move.or_else(|| fallback_legal_move(board)),
+                    result.score,
+                    result.depth,
+                    info.total_nodes,
                     // The selected worker's duration is not the duration of
                     // the Lazy SMP group; use wall time for truthful NPS and
                     // USI timing diagnostics.
-                    elapsed: info.elapsed,
-                    hashfull: result.hashfull,
-                    pv_list: Vec::new(),
-                    pv: result.pv,
+                    info.elapsed,
+                    result.hashfull,
+                    result.pv,
+                );
+                SearchResult {
                     worker_stats: info.worker_results,
                     lazy_worker_tt_reuse,
                     lazy_tt_writes: info.tt_writes,
@@ -397,91 +443,56 @@ impl SearchBackend {
                                 .collect()
                         })
                         .unwrap_or_default(),
-                    shared_mcts_stats: None,
-                    root_safety: None,
-                    dfpn: None,
+                    ..base
                 }
             }
             Self::Dfpn(s) => {
                 let started = Instant::now();
-                let timer = config.time_limit.map(|limit| {
-                    let abort = Arc::clone(&s.abort);
-                    let (cancel_tx, cancel_rx) = mpsc::channel();
-                    let handle = std::thread::spawn(move || {
-                        if cancel_rx.recv_timeout(limit).is_err() {
-                            abort.store(true, Ordering::Relaxed);
-                        }
-                    });
-                    (cancel_tx, handle)
+                let result = run_with_abort_deadline(&s.abort, config.time_limit, || {
+                    s.solver.solve_with_abort(
+                        board,
+                        DfpnConfig {
+                            max_depth: config.max_depth.min(u16::MAX as u32) as u16,
+                            node_limit: config.node_limit.unwrap_or(100_000),
+                            ..DfpnConfig::default()
+                        },
+                        &s.abort,
+                    )
                 });
-                let result = s.solver.solve_with_abort(
-                    board,
-                    DfpnConfig {
-                        max_depth: config.max_depth.min(u16::MAX as u32) as u16,
-                        node_limit: config.node_limit.unwrap_or(100_000),
-                        ..DfpnConfig::default()
-                    },
-                    &s.abort,
-                );
-                if let Some((cancel_tx, handle)) = timer {
-                    let _ = cancel_tx.send(());
-                    let _ = handle.join();
-                }
                 normalize_dfpn_result(board, config.max_depth, result, started.elapsed())
             }
             Self::SharedMcts(s) => {
                 let started = Instant::now();
-                let timer = config.time_limit.map(|limit| {
-                    let abort = Arc::clone(&s.abort);
-                    let (cancel_tx, cancel_rx) = mpsc::channel();
-                    let handle = std::thread::spawn(move || {
-                        if cancel_rx.recv_timeout(limit).is_err() {
-                            abort.store(true, Ordering::Relaxed);
-                        }
-                    });
-                    (cancel_tx, handle)
+                let info = run_with_abort_deadline(&s.abort, config.time_limit, || {
+                    s.searcher.search_with_abort(
+                        board,
+                        SharedTreeMctsConfig {
+                            simulations: config.node_limit.unwrap_or(128).min(u32::MAX as u64)
+                                as u32,
+                            max_depth: config.max_depth.min(u16::MAX as u32) as u16,
+                            share_transpositions: true,
+                        },
+                        &sekirei_core::mcts::UniformPolicy,
+                        &MaterialValue,
+                        &s.abort,
+                    )
                 });
-                let info = s.searcher.search_with_abort(
-                    board,
-                    SharedTreeMctsConfig {
-                        simulations: config.node_limit.unwrap_or(128).min(u32::MAX as u64) as u32,
-                        max_depth: config.max_depth.min(u16::MAX as u32) as u16,
-                        share_transpositions: true,
-                    },
-                    &sekirei_core::mcts::UniformPolicy,
-                    &MaterialValue,
-                    &s.abort,
+                let base = SearchResult::new(
+                    info.best_move.or_else(|| fallback_legal_move(board)),
+                    info.score,
+                    config.max_depth,
+                    info.nodes as u64,
+                    started.elapsed(),
+                    0,
+                    info.best_move.into_iter().collect(),
                 );
-                if let Some((cancel_tx, handle)) = timer {
-                    let _ = cancel_tx.send(());
-                    let _ = handle.join();
-                }
                 SearchResult {
-                    best_move: info.best_move.or_else(|| fallback_legal_move(board)),
-                    score: info.score,
-                    depth: config.max_depth,
-                    nodes: info.nodes as u64,
-                    elapsed: started.elapsed(),
-                    hashfull: 0,
-                    pv_list: Vec::new(),
-                    pv: info.best_move.into_iter().collect(),
-                    worker_stats: Vec::new(),
-                    lazy_worker_tt_reuse: Vec::new(),
-                    lazy_tt_writes: None,
-                    lazy_work_overlap: None,
-                    lazy_root_hints: None,
-                    lazy_retirement: None,
-                    cooperative_root: None,
-                    cooperative_root_wait: None,
-                    nmp_stats: Vec::new(),
-                    aspiration_stats: Vec::new(),
                     shared_mcts_stats: Some((
                         info.simulations,
                         info.nodes,
                         info.transposition_hits,
                     )),
-                    root_safety: None,
-                    dfpn: None,
+                    ..base
                 }
             }
         }
@@ -489,54 +500,30 @@ impl SearchBackend {
 }
 
 fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
-    SearchResult {
-        best_move: info.best_move,
-        score: info.score,
-        depth: info.depth,
-        nodes: info.nodes,
-        elapsed: info.elapsed,
-        hashfull: info.hashfull,
-        pv_list: Vec::new(),
-        pv: info.pv,
-        worker_stats: Vec::new(),
-        lazy_worker_tt_reuse: Vec::new(),
-        lazy_tt_writes: None,
-        lazy_work_overlap: None,
-        lazy_root_hints: None,
-        lazy_retirement: None,
-        cooperative_root: None,
-        cooperative_root_wait: None,
-        nmp_stats: Vec::new(),
-        aspiration_stats: Vec::new(),
-        shared_mcts_stats: None,
-        root_safety: None,
-        dfpn: None,
-    }
+    SearchResult::new(
+        info.best_move,
+        info.score,
+        info.depth,
+        info.nodes,
+        info.elapsed,
+        info.hashfull,
+        info.pv,
+    )
 }
 
 fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
+    let base = SearchResult::new(
+        info.best_move,
+        info.score,
+        info.depth,
+        info.nodes,
+        info.elapsed,
+        info.hashfull,
+        info.pv,
+    );
     SearchResult {
-        best_move: info.best_move,
-        score: info.score,
-        depth: info.depth,
-        nodes: info.nodes,
-        elapsed: info.elapsed,
-        hashfull: info.hashfull,
         pv_list: info.pv_list,
-        pv: info.pv,
-        worker_stats: Vec::new(),
-        lazy_worker_tt_reuse: Vec::new(),
-        lazy_tt_writes: None,
-        lazy_work_overlap: None,
-        lazy_root_hints: None,
-        lazy_retirement: None,
-        cooperative_root: None,
-        cooperative_root_wait: None,
-        nmp_stats: Vec::new(),
-        aspiration_stats: Vec::new(),
-        shared_mcts_stats: None,
-        root_safety: None,
-        dfpn: None,
+        ..base
     }
 }
 
@@ -547,42 +534,32 @@ fn normalize_dfpn_result(
     elapsed: Duration,
 ) -> SearchResult {
     let proof_move = result.best_move;
-    SearchResult {
-        best_move: proof_move.or_else(|| fallback_legal_move(board)),
+    let base = SearchResult::new(
+        proof_move.or_else(|| fallback_legal_move(board)),
         // Only the dedicated DFPN renderer consumes this value. It emits
         // `mate +` for a proof with unknown distance and omits `score` for
         // bounded disproofs and incomplete searches.
-        score: if result.outcome == DfpnOutcome::Proven {
+        if result.outcome == DfpnOutcome::Proven {
             MATE_SCORE - 1
         } else {
             0
         },
         // DFPN is not iterative deepening. The requested boundary is kept in
         // `DfpnReport` instead of being advertised as a completed depth.
-        depth: 0,
-        nodes: result.nodes,
+        0,
+        result.nodes,
         elapsed,
-        hashfull: 0,
-        pv_list: Vec::new(),
-        pv: proof_move.into_iter().collect(),
-        worker_stats: Vec::new(),
-        lazy_worker_tt_reuse: Vec::new(),
-        lazy_tt_writes: None,
-        lazy_work_overlap: None,
-        lazy_root_hints: None,
-        lazy_retirement: None,
-        cooperative_root: None,
-        cooperative_root_wait: None,
-        nmp_stats: Vec::new(),
-        aspiration_stats: Vec::new(),
-        shared_mcts_stats: None,
-        root_safety: None,
+        0,
+        proof_move.into_iter().collect(),
+    );
+    SearchResult {
         dfpn: Some(DfpnReport {
             outcome: result.outcome,
             aborted: result.aborted,
             limit_depth,
             best_move_from_proof: proof_move.is_some(),
         }),
+        ..base
     }
 }
 
@@ -1268,6 +1245,25 @@ fn spawn_search_thread(task: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
         .stack_size(SEARCH_STACK_BYTES)
         .spawn(task)
         .expect("failed to spawn sekirei search thread")
+}
+
+fn diagnostic_context(
+    board: &Board,
+    game_counter: u64,
+    last_position_cmd: &str,
+    weight_path: &str,
+    weight_hash: Option<u64>,
+    threads: u32,
+) -> DiagCtx {
+    DiagCtx {
+        game_counter,
+        last_position_cmd: last_position_cmd.to_owned(),
+        weight_path: weight_path.to_owned(),
+        weight_hash,
+        threads,
+        board_hash_at_search_start: board.hash(),
+        accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
+    }
 }
 
 fn main() {
@@ -1959,17 +1955,14 @@ fn main() {
                         invariant::assert_legal_bestmove(
                             &board,
                             mv,
-                            &DiagCtx {
+                            &diagnostic_context(
+                                &board,
                                 game_counter,
-                                last_position_cmd: last_position_cmd.clone(),
-                                weight_path: weight_path.clone(),
+                                &last_position_cmd,
+                                &weight_path,
                                 weight_hash,
                                 threads,
-                                board_hash_at_search_start: board.hash(),
-                                accumulator_hash_at_search_start: invariant::hash_accumulator(
-                                    &board.acc,
-                                ),
-                            },
+                            ),
                         );
                         println!("bestmove {}", move_to_usi(mv));
                         stdout.lock().flush().ok();
@@ -1986,17 +1979,14 @@ fn main() {
                     invariant::assert_legal_bestmove(
                         &board,
                         mv,
-                        &DiagCtx {
+                        &diagnostic_context(
+                            &board,
                             game_counter,
-                            last_position_cmd: last_position_cmd.clone(),
-                            weight_path: weight_path.clone(),
+                            &last_position_cmd,
+                            &weight_path,
                             weight_hash,
                             threads,
-                            board_hash_at_search_start: board.hash(),
-                            accumulator_hash_at_search_start: invariant::hash_accumulator(
-                                &board.acc,
-                            ),
-                        },
+                        ),
                     );
                     println!("bestmove {}", move_to_usi(mv));
                     stdout.lock().flush().ok();
@@ -2021,15 +2011,14 @@ fn main() {
                 let suppress2 = Arc::clone(&suppress_bm);
                 let ponder_result2 = Arc::clone(&ponder_result);
                 let search_generation2 = Arc::clone(&search_generation);
-                let diag_ctx = DiagCtx {
+                let diag_ctx = diagnostic_context(
+                    &board,
                     game_counter,
-                    last_position_cmd: last_position_cmd.clone(),
-                    weight_path: weight_path.clone(),
+                    &last_position_cmd,
+                    &weight_path,
                     weight_hash,
                     threads,
-                    board_hash_at_search_start: board.hash(),
-                    accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
-                };
+                );
 
                 search_handle = Some(spawn_search_thread(move || {
                     let info = searcher2.search(&mut board2, config, &position_history2);
@@ -2061,15 +2050,14 @@ fn main() {
                         .expect("ponder result lock poisoned")
                         .take()
                 {
-                    let diag_ctx = DiagCtx {
+                    let diag_ctx = diagnostic_context(
+                        &board,
                         game_counter,
-                        last_position_cmd: last_position_cmd.clone(),
-                        weight_path: weight_path.clone(),
+                        &last_position_cmd,
+                        &weight_path,
                         weight_hash,
                         threads,
-                        board_hash_at_search_start: board.hash(),
-                        accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
-                    };
+                    );
                     emit_search_result(&searcher, &mut board, info, &diag_ctx);
                 }
             }
@@ -2091,15 +2079,14 @@ fn main() {
                         .take()
                 {
                     ponder_go_args = None;
-                    let diag_ctx = DiagCtx {
+                    let diag_ctx = diagnostic_context(
+                        &board,
                         game_counter,
-                        last_position_cmd: last_position_cmd.clone(),
-                        weight_path: weight_path.clone(),
+                        &last_position_cmd,
+                        &weight_path,
                         weight_hash,
                         threads,
-                        board_hash_at_search_start: board.hash(),
-                        accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
-                    };
+                    );
                     emit_search_result(&searcher, &mut board, info, &diag_ctx);
                     continue;
                 }
@@ -2121,15 +2108,14 @@ fn main() {
                     let suppress2 = Arc::clone(&suppress_bm);
                     let generation = search_generation.fetch_add(1, Ordering::AcqRel) + 1;
                     let search_generation2 = Arc::clone(&search_generation);
-                    let diag_ctx = DiagCtx {
+                    let diag_ctx = diagnostic_context(
+                        &board,
                         game_counter,
-                        last_position_cmd: last_position_cmd.clone(),
-                        weight_path: weight_path.clone(),
+                        &last_position_cmd,
+                        &weight_path,
                         weight_hash,
                         threads,
-                        board_hash_at_search_start: board.hash(),
-                        accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
-                    };
+                    );
                     search_handle = Some(spawn_search_thread(move || {
                         let info = searcher2.search(&mut board2, config, &position_history2);
                         if search_generation2.load(Ordering::Acquire) != generation

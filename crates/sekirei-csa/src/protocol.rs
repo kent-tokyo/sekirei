@@ -384,43 +384,17 @@ struct RunManifestGame<'a> {
     initial_sfen: &'a str,
 }
 
-fn update_run_manifest_game(path: &Path, game: RunManifestGame<'_>) -> io::Result<()> {
+fn edit_run_manifest(
+    path: &Path,
+    edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> io::Result<()>,
+) -> io::Result<()> {
     let source = fs::read_to_string(path)?;
     let mut document: serde_json::Value = serde_json::from_str(&source)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
     let object = document.as_object_mut().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidData, "run manifest is not an object")
     })?;
-    let game_value = serde_json::json!({
-        "game_id": game.game_id,
-        "our_color": if game.color == Color::Black { "black" } else { "white" },
-        "players": {
-            "black": game.black_player,
-            "white": game.white_player,
-        },
-        "server_time_control_ms": {
-            "total": game.total_time_ms,
-            "byoyomi": game.byoyomi_ms,
-            "increment": game.increment_ms,
-        },
-        "effective_time_control_ms": {
-            "main": game.effective_main_time_ms,
-            "period": game.effective_period_ms,
-        },
-        "initial_position": game.initial_position,
-        "initial_sfen": game.initial_sfen,
-    });
-    // Keep `game` as a compatibility view of the latest match, while `games`
-    // preserves every accepted match in a looped diagnostic batch.
-    object.insert("game".into(), game_value.clone());
-    let games = object
-        .entry("games")
-        .or_insert_with(|| serde_json::Value::Array(Vec::new()))
-        .as_array_mut()
-        .ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, "manifest games is not an array")
-        })?;
-    games.push(game_value);
+    edit(object)?;
     let temporary = path.with_extension("json.tmp");
     fs::write(
         &temporary,
@@ -430,34 +404,60 @@ fn update_run_manifest_game(path: &Path, game: RunManifestGame<'_>) -> io::Resul
     fs::rename(temporary, path)
 }
 
+fn update_run_manifest_game(path: &Path, game: RunManifestGame<'_>) -> io::Result<()> {
+    edit_run_manifest(path, |object| {
+        let game_value = serde_json::json!({
+            "game_id": game.game_id,
+            "our_color": if game.color == Color::Black { "black" } else { "white" },
+            "players": {
+                "black": game.black_player,
+                "white": game.white_player,
+            },
+            "server_time_control_ms": {
+                "total": game.total_time_ms,
+                "byoyomi": game.byoyomi_ms,
+                "increment": game.increment_ms,
+            },
+            "effective_time_control_ms": {
+                "main": game.effective_main_time_ms,
+                "period": game.effective_period_ms,
+            },
+            "initial_position": game.initial_position,
+            "initial_sfen": game.initial_sfen,
+        });
+        // Keep `game` as a compatibility view of the latest match, while `games`
+        // preserves every accepted match in a looped diagnostic batch.
+        object.insert("game".into(), game_value.clone());
+        let games = object
+            .entry("games")
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()))
+            .as_array_mut()
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidData, "manifest games is not an array")
+            })?;
+        games.push(game_value);
+        Ok(())
+    })
+}
+
 fn update_run_manifest_progress(
     path: &Path,
     max_games: Option<u32>,
     completed_attempts: u32,
     terminal_stop_reason: Option<&str>,
 ) -> io::Result<()> {
-    let source = fs::read_to_string(path)?;
-    let mut document: serde_json::Value = serde_json::from_str(&source)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
-    let object = document.as_object_mut().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidData, "run manifest is not an object")
-    })?;
-    object.insert("max_games".into(), serde_json::json!(max_games));
-    object.insert(
-        "completed_attempts".into(),
-        serde_json::json!(completed_attempts),
-    );
-    object.insert(
-        "terminal_stop_reason".into(),
-        serde_json::json!(terminal_stop_reason),
-    );
-    let temporary = path.with_extension("json.tmp");
-    fs::write(
-        &temporary,
-        serde_json::to_vec_pretty(&document)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?,
-    )?;
-    fs::rename(temporary, path)
+    edit_run_manifest(path, |object| {
+        object.insert("max_games".into(), serde_json::json!(max_games));
+        object.insert(
+            "completed_attempts".into(),
+            serde_json::json!(completed_attempts),
+        );
+        object.insert(
+            "terminal_stop_reason".into(),
+            serde_json::json!(terminal_stop_reason),
+        );
+        Ok(())
+    })
 }
 
 // ---- Client ----

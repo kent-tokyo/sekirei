@@ -168,9 +168,9 @@ not prove continuous host isolation. Use a new output directory under a
 prospective protocol; this feature does not reopen or qualify previously closed studies,
 and does not replace independent match-input/exclusion requirements.
 
-Historical reports in `benchmark_reports/` apply only to their recorded host,
-revision, corpus, and operation. They are neither general speed rankings nor
-Elo claims.
+Historical [benchmark reports](../docs/experiments/benchmark_reports/README.md)
+apply only to their recorded host, revision, corpus, and operation. They are
+neither general speed rankings nor Elo claims.
 
 Example material-only tactical-line capture (repeat `--nodes` for a budget
 ladder):
@@ -484,7 +484,8 @@ python3 scripts/check_release_manifest_layout.py
 Prefer one parameterized tool over near-duplicate wrappers. Retire one-off
 instrumentation only after its evidence is retained and no live workflow or
 document references it. `cleanup_runs.sh` is dry-run by default and requires
-`APPLY=1` for deletion.
+`APPLY=1` for deletion. Its protection scan includes Python and shell scripts
+under `scripts/`, including the historical single-run tools in [`archive/`](archive/README.md).
 
 ## Experiment playbooks
 
