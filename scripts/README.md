@@ -50,6 +50,13 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 | `validate_nnue_cpu_pilot.py` | Validates a frozen, short AWS CPU-pilot plan only after a colour-reversed material gate, complete candidate/data/resume evidence, and an observed CPU-dominant bottleneck. It does not provision cloud resources. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
 | `run_ab_match.py` | Fixed-protocol local A/B, paired SPRT, or node-limited YaneuraOu measurement. It hashes inputs and fails closed on incomplete or inconsistent JSONL, kifu, snapshots, or result sidecars. `--supervised --result-json PATH` adds a one-shot parent that records a terminal error if the wrapper or match child exits unexpectedly. Material-only, one thread and `SpecTopN=0` are the defaults. |
+
+For a frozen HalfKP candidate versus its incumbent, combine
+`--candidate-evalfile NEW --baseline-evalfile BEST --evalfile none` with
+`--openings-manifest` and `--result-json`. Both engine binaries must have the
+same SHA, both weights must differ, and both exact loader acknowledgements
+are required. Evaluator checks and durable paired-SPRT replay both run before
+a verdict is accepted.
 | `launch_floodgate_once.py` | Starts one rendered bounded Floodgate LaunchAgent without combining `RunAtLoad=true` and `kickstart`; refuses registered labels and records the single-run acceptance receipt. |
 | `nps_threads.py` | Thread-scaling diagnostic for NPS, completed depth, best-move stability and optional Lazy SMP/TT/root-hint counters. `--summary-json` binds TT reuse, sampled overlap, discarded root work and worker-node balance for 4T/8T diagnosis. Counter-enabled runs are separate from speed runs; no output qualifies a speed or Elo claim. It completes new-game readiness before setting the position because some engines reset their board on `isready`. |
 | `paired_search_diagnostics.py` | Fresh-process A/B/B/A comparison for one search factor. Separates deterministic signatures, counter-free timing and opt-in parallel diagnostics; it does not estimate Elo. |
