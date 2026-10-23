@@ -24,6 +24,10 @@ def validate(document: dict, finalized: bool = False) -> list[str]:
             errors.append(key)
     if document.get("evaluation") not in {"material", "nnue"}:
         errors.append("evaluation")
+    # Older v1 manifests predate the explicit CSA HalfKP divisor.
+    if "fv_scale" in document and (type(document["fv_scale"]) is not int
+                                   or not 1 <= document["fv_scale"] <= 128):
+        errors.append("fv_scale")
     if document.get("search_backend") != "alpha_beta":
         errors.append("search_backend")
     for key in ("hash_mb", "max_depth", "resign_score_cp", "port"):

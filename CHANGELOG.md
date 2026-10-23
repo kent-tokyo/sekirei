@@ -8,17 +8,21 @@ preserves older per-change notes.
 
 ### Changed
 
-- Move v0.4.0–v0.4.3 release notes to the archive, separate search unit tests
-  from the production module, and share the DFPN/SharedMcts abort timer setup.
-  Search behavior and public APIs are unchanged.
-- Archive historical benchmark reports and unused release smoke transcripts,
-  extract root-split unit tests, and share USI diagnostic-context construction.
+- Move v0.4.0–v0.4.3 release notes to the archive and preserve historical
+  benchmark reports and release smoke transcripts under documentation.
+- Share DFPN/SharedMcts abort timer setup and USI diagnostic-context creation.
 - Share searcher field initialization across constructors and centralize CSA run
   manifest edits without changing the search policy or manifest format.
 - Archive a run-specific historical gate script and retain cleanup protection
   for shell and Python references under `scripts/`.
-- Move CSA protocol tests and match-runner gate/summarize logic into dedicated
-  modules, and share empty USI search-result diagnostics across backends.
+- Share empty USI search-result diagnostics across backends. Search behavior and
+  public APIs are unchanged.
+
+### Fixed
+
+- Allow the CSA client to select and record a validated HalfKP `FV_SCALE`
+  divisor before loading weights or connecting. The default remains 16; the
+  optional `nn_r6` artifact requires an explicit value of 24.
 
 ## [0.5.1] – 2026-10-20
 
