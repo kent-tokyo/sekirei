@@ -6,7 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Allow the CSA client to select and record a validated HalfKP `FV_SCALE`
+  divisor before loading weights or connecting. The default remains 16; the
+  optional `nn_r6` artifact requires an explicit value of 24.
 
 ## [0.5.1] – 2026-10-20
 

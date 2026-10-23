@@ -61,12 +61,14 @@ def test_finalizes_new_weight_artifact_shape_and_preserves_active_flag():
         weights.write_bytes(b"weights")
         source.write_text(json.dumps({
             "schema": "sekirei.csa-run-manifest.v1",
+            "fv_scale": 24,
             "binary": {"path": str(binary), "bytes": 6},
             "weights": {"path": str(weights), "active": True},
         }), encoding="utf-8")
         document = finalize.finalize(source, output, root)
         assert document["status"] == "finalized"
         assert document["weights"]["active"] is True
+        assert document["fv_scale"] == 24
         assert document["weights"]["sha256"] == finalize.sha256(weights)
 
 

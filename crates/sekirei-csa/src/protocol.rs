@@ -136,6 +136,8 @@ pub struct Config {
     pub evaluation: EvaluationMode,
     /// Validated NNUE checkpoint, when `evaluation` is `Nnue`.
     pub weights_path: Option<PathBuf>,
+    /// HalfKP output divisor, validated against the USI `FV_SCALE` range.
+    pub fv_scale: i32,
     /// Optional startup manifest containing the active run contract.
     pub run_manifest: Option<PathBuf>,
     /// Optional atomic runtime status snapshot for an external supervisor.
@@ -184,6 +186,7 @@ impl Default for Config {
             analysis_dir: None,
             evaluation: EvaluationMode::Material,
             weights_path: None,
+            fv_scale: sekirei_core::halfkp::DEFAULT_FV_SCALE,
             run_manifest: None,
             status_file: None,
             status_journal: None,

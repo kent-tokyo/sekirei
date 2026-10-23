@@ -18,6 +18,14 @@ def base(evaluation="material", active=False):
 
 
 assert validate(base()) == []
+explicit_scale = base("nnue", True)
+explicit_scale["weights"]["path"] = "/tmp/synthetic-halfkp.bin"
+explicit_scale["fv_scale"] = 24
+assert validate(explicit_scale) == []
+for value in (0, 129, True, False, None, "24", 24.0):
+    invalid_scale = base()
+    invalid_scale["fv_scale"] = value
+    assert "fv_scale" in validate(invalid_scale)
 bounded = base()
 bounded.update({"keep_alive": True, "max_games": 5, "completed_attempts": 5,
                 "terminal_stop_reason": "max_games_reached"})

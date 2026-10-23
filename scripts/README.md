@@ -380,6 +380,11 @@ sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
   --status-file data/floodgate/run/status.json
 ```
 
+For a HalfKP checkpoint, set `--fv-scale` to the value in its model card.
+The CSA default is 16; the optional `nn_r6` release artifact requires
+`--fv-scale 24`. The active divisor is recorded in the run manifest before
+the first connection.
+
 `--max-games` persists across reconnects. After a completed game, the client
 may recover an authenticated transport close up to three times in-process;
 protocol, recording, and mid-game failures remain terminal. Exhausted recovery
