@@ -272,6 +272,10 @@ succeeded before its PID was persisted. The tool observes the direct child
 leader; it does not certify that descendants which detach into other process
 groups have exited. The structured runner must own and inspect those workers.
 It does not resume a qualification, select outcomes, or modify gate evidence.
+The observer physically reserves 8 MiB for its journal. On ENOSPC it releases
+that reserve and retries only the failed journal write once, recording the
+recovery. Partial event appends are rolled back. A second persistence failure
+stops the owned child; it never retries a child or a statistical trial.
 
 `nnue_gate_host.py` provides shared-host **strength** trial admission. On the
 preregistered 10-core policy, three consecutive observations at no more than
