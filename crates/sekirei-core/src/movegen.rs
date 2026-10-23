@@ -711,6 +711,13 @@ mod see_lva_groups_tests {
     }
 
     #[test]
+    fn selected_move_playout_exact_see_differential() {
+        let (comparisons, captures, promotions, drops) = legal_differential(512, false);
+        assert_eq!(comparisons, 512);
+        assert!(captures > 0 && promotions > 0 && drops > 0);
+    }
+
+    #[test]
     #[ignore = "isolated material-only legal-position SEE stress; explicit count for formal qualification"]
     // Keep a runtime rejection when this ignored test is explicitly run without the feature.
     #[allow(clippy::assertions_on_constants)]
