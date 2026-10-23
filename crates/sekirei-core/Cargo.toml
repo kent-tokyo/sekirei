@@ -16,6 +16,8 @@ web-time = "1.1"
 tune = []
 # Opt-in Finny CPU experiment without enabling runtime tuning atomics.
 nnue_finny_inplace = []
+# Opt-in exact SEE CPU experiment: value-group least-attacker selection.
+see_lva_groups = []
 # Opt-in ProbCut SEE comparison bound, without runtime tuning atomics.
 probcut_see_bound = []
 # Opt-in CPU experiment: two bits in the existing repetition Bloom filter.
