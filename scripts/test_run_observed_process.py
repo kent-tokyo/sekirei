@@ -1,3 +1,4 @@
+import errno
 import fcntl
 import json
 from pathlib import Path
@@ -7,6 +8,7 @@ import time
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from scripts import run_observed_process as O
 
 
@@ -24,6 +26,242 @@ class ObservedProcessTests(unittest.TestCase):
             self.assertEqual(events[-1]['event'], 'child_exited')
             self.assertEqual(events[-1]['outcome']['returncode'], 0)
             self.assertEqual(json.loads((root/'observer-status.json').read_text())['status'], 'exited')
+
+    def test_enospc_state_save_releases_physical_reserve_and_observes_one_child(self):
+        for phase in ('starting', 'running', 'exited'):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                original_save = O.save
+                injected = False
+
+                def save_with_full_disk(path, document):
+                    nonlocal injected
+                    if document.get('status') == phase and not injected:
+                        injected = True
+                        reserve = root / '.observer-emergency-reserve'
+                        self.assertEqual(reserve.stat().st_size, O.EmergencyReserve.size)
+                        self.assertGreaterEqual(reserve.stat().st_blocks * 512,
+                                                O.EmergencyReserve.size)
+                        # Fail after the pending state has actually been written.
+                        with mock.patch.object(O.os, 'fsync',
+                                               side_effect=OSError(errno.ENOSPC, 'disk full')):
+                            original_save(path, document)
+                    else:
+                        original_save(path, document)
+
+                marker = root / 'executions'
+                script = f"from pathlib import Path; p=Path({str(marker)!r}); p.open('a').write('once\\n'); print('finished')"
+                with mock.patch.object(O, 'save', side_effect=save_with_full_disk):
+                    result = self.run_child(script, root)
+                self.assertTrue(injected)
+                self.assertEqual(result['status'], 'exited')
+                self.assertEqual(result['outcome']['returncode'], 0)
+                self.assertEqual(result['persistence_recovery']['reason'], 'ENOSPC')
+                self.assertEqual(marker.read_text().splitlines(), ['once'])
+                self.assertFalse((root / '.observer-emergency-reserve').exists())
+                self.assertEqual(json.loads((root / 'observer-status.json').read_text())['status'],
+                                 'exited')
+
+    def test_enospc_event_append_rolls_back_partial_line_and_preserves_exit(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            original_append = O.append
+            injected = False
+
+            def append_with_full_disk(path, document):
+                nonlocal injected
+                if document['event'] == 'child_exited' and not injected:
+                    injected = True
+                    with mock.patch.object(O.os, 'fsync',
+                                           side_effect=OSError(errno.ENOSPC, 'disk full')):
+                        original_append(path, document)
+                else:
+                    original_append(path, document)
+
+            marker = root / 'executions'
+            script = f"from pathlib import Path; Path({str(marker)!r}).open('a').write('once\\n')"
+            with mock.patch.object(O, 'append', side_effect=append_with_full_disk):
+                result = self.run_child(script, root)
+            self.assertTrue(injected)
+            self.assertEqual(result['outcome']['returncode'], 0)
+            self.assertEqual(marker.read_text().splitlines(), ['once'])
+            events = [json.loads(line) for line in
+                      (root / 'observer-events.jsonl').read_text().splitlines()]
+            exits = [event for event in events if event['event'] == 'child_exited']
+            self.assertEqual(len(exits), 1)
+            self.assertEqual(exits[0]['outcome']['returncode'], 0)
+            self.assertEqual(exits[0]['persistence_recovery']['reason'], 'ENOSPC')
+            saved = json.loads((root / 'observer-status.json').read_text())
+            self.assertEqual(saved['persistence_recovery']['reason'], 'ENOSPC')
+            self.assertFalse((root / '.observer-emergency-reserve').exists())
+
+    def test_persistent_enospc_does_not_spin_or_relaunch_child(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            original_save = O.save
+            failures = 0
+
+            def save_with_full_disk(path, document):
+                nonlocal failures
+                if document['status'] in {'running', 'observer_error'}:
+                    failures += 1
+                    raise OSError(errno.ENOSPC, 'disk remains full')
+                original_save(path, document)
+
+            with mock.patch.object(O, 'save', side_effect=save_with_full_disk):
+                with self.assertRaises(OSError):
+                    self.run_child('import time; time.sleep(30)', root)
+            self.assertEqual(failures, 3)  # failed write, one reserve retry, final status.
+            events = [json.loads(line) for line in
+                      (root / 'observer-events.jsonl').read_text().splitlines()]
+            self.assertEqual(sum(event['event'] == 'attempt_starting' for event in events), 1)
+            failure = next(event for event in events if event['event'] == 'observer_error')
+            self.assertIsNotNone(failure['child_returncode'])
+            self.assertFalse((root / '.observer-emergency-reserve').exists())
+
+    def test_second_enospc_preserves_terminal_record_without_relaunch(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            original_save = O.save
+            initial_failure = False
+            second_failure = False
+            marker = root / 'executions'
+            script = (f"from pathlib import Path; Path({str(marker)!r}).open('a').write('once\\n'); "
+                      "import time; time.sleep(30)")
+
+            def save_with_repeated_full_disk(path, document):
+                nonlocal initial_failure, second_failure
+                terminal = root / '.observer-terminal-reserve'
+                if document['status'] == 'running':
+                    self.assertTrue(terminal.exists())
+                    self.assertGreaterEqual(terminal.stat().st_blocks * 512,
+                                            O.EmergencyReserve.size)
+                    if not initial_failure:
+                        initial_failure = True
+                        raise OSError(errno.ENOSPC, 'first disk exhaustion')
+                    if 'last_heartbeat' in document:
+                        second_failure = True
+                        raise OSError(errno.ENOSPC, 'second disk exhaustion')
+                if document['status'] == 'observer_error':
+                    self.assertFalse(terminal.exists())
+                original_save(path, document)
+
+            with mock.patch.object(O, 'save', side_effect=save_with_repeated_full_disk):
+                with self.assertRaisesRegex(OSError, 'second disk exhaustion'):
+                    self.run_child(script, root)
+            self.assertTrue(initial_failure and second_failure)
+            self.assertEqual(marker.read_text().splitlines(), ['once'])
+            saved = json.loads((root / 'observer-status.json').read_text())
+            self.assertEqual(saved['status'], 'observer_error')
+            self.assertIn('second disk exhaustion', saved['error']['error'])
+            self.assertIsNotNone(saved['error']['child_returncode'])
+            self.assertEqual(saved['error']['observer_cleanup_signal'], 'SIGTERM')
+            self.assertEqual(saved['terminal_journal_reserve']['released_bytes'],
+                             O.EmergencyReserve.size)
+            events = [json.loads(x) for x in (root / 'observer-events.jsonl').read_text().splitlines()]
+            self.assertEqual(sum(x['event'] == 'child_started' for x in events), 1)
+            self.assertEqual(events[-1]['event'], 'observer_error')
+            self.assertFalse((root / '.observer-emergency-reserve').exists())
+            self.assertFalse((root / '.observer-terminal-reserve').exists())
+
+    def test_terminal_unlink_failure_preserves_primary_error_and_unlocks(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            original_save = O.save
+            close = O.EmergencyReserve.close
+
+            def fail_running_save(path, document):
+                if document['status'] == 'running':
+                    raise OSError(errno.EIO, 'primary journal failure')
+                original_save(path, document)
+
+            def fail_terminal_close(reserve):
+                if reserve.path.name == '.observer-terminal-reserve':
+                    raise OSError(errno.ENOSPC, 'terminal unlink failure')
+                close(reserve)
+
+            with mock.patch.object(O, 'save', side_effect=fail_running_save), \
+                 mock.patch.object(O.EmergencyReserve, 'close', fail_terminal_close):
+                with self.assertRaisesRegex(OSError, 'primary journal failure'):
+                    self.run_child('import time; time.sleep(30)', root)
+            saved = json.loads((root / 'observer-status.json').read_text())
+            self.assertIn('primary journal failure', saved['error']['error'])
+            self.assertIn('terminal unlink failure',
+                          saved['error']['terminal_reserve_release_error'])
+            with (root / 'observer.lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_ordinary_reserve_unlink_failure_keeps_original_enospc(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reserve = O.EmergencyReserve(root)
+            reserve.allocate()
+
+            def fail_write(_path, _document):
+                raise OSError(errno.ENOSPC, 'original journal full')
+
+            with mock.patch.object(reserve, 'close',
+                                   side_effect=OSError(errno.EIO, 'reserve unlink failed')):
+                with self.assertRaisesRegex(OSError, 'original journal full') as caught:
+                    reserve.write(fail_write, root / 'observer-status.json', {})
+            self.assertEqual(caught.exception.errno, errno.ENOSPC)
+            reserve.close()
+
+    def test_child_exit_during_cleanup_escalation_still_persists_primary_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            original_save = O.save
+            child = mock.Mock(pid=424242, returncode=None)
+            child.poll.return_value = None
+            waits = 0
+
+            def wait_after_grace(**kwargs):
+                nonlocal waits
+                waits += 1
+                if waits == 1:
+                    raise subprocess.TimeoutExpired('synthetic child', 1)
+                child.returncode = 0
+                return 0
+
+            child.wait.side_effect = wait_after_grace
+
+            def fail_running_save(path, document):
+                if document['status'] == 'running':
+                    raise OSError(errno.EIO, 'primary journal failure')
+                original_save(path, document)
+
+            with mock.patch.object(O, 'snapshot', return_value={}), \
+                 mock.patch.object(O, 'save', side_effect=fail_running_save), \
+                 mock.patch.object(O.subprocess, 'Popen', return_value=child) as spawn, \
+                 mock.patch.object(O.os, 'killpg', side_effect=[None, ProcessLookupError]):
+                with self.assertRaisesRegex(OSError, 'primary journal failure'):
+                    self.run_child('synthetic child', root)
+                spawn.assert_called_once()
+            saved = json.loads((root / 'observer-status.json').read_text())
+            self.assertEqual(saved['status'], 'observer_error')
+            self.assertEqual(saved['error']['child_returncode'], 0)
+            self.assertEqual(saved['error']['observer_cleanup_signal'], 'SIGTERM')
+            self.assertIn('primary journal failure', saved['error']['error'])
+            self.assertFalse((root / '.observer-terminal-reserve').exists())
+
+    def test_terminal_reserve_allocation_failure_prevents_child_launch(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allocate = O.EmergencyReserve.allocate
+
+            def allocate_with_full_disk(reserve):
+                if reserve.path.name == '.observer-terminal-reserve':
+                    raise OSError(errno.ENOSPC, 'cannot reserve terminal journal')
+                allocate(reserve)
+
+            with mock.patch.object(O.EmergencyReserve, 'allocate', allocate_with_full_disk):
+                with mock.patch.object(O.subprocess, 'Popen') as spawn:
+                    with self.assertRaises(OSError):
+                        self.run_child('pass', root)
+                    spawn.assert_not_called()
+            self.assertFalse((root / 'attempt-0001.stdout').exists())
+            self.assertFalse((root / '.observer-emergency-reserve').exists())
+            self.assertFalse((root / '.observer-terminal-reserve').exists())
 
     def test_nonzero_exit_preserves_stderr_and_code(self):
         with tempfile.TemporaryDirectory() as td:
