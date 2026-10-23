@@ -1766,20 +1766,7 @@ impl Searcher {
     /// Create a searcher using a caller-owned abort flag. This lets independent
     /// Lazy SMP workers stop as one group without sharing mutable search state.
     pub fn with_abort_flag(tt: Arc<Tt>, external_abort: Arc<AtomicBool>) -> Self {
-        Searcher {
-            tt,
-            external_abort,
-            diagnostics: None,
-            eval_cache: active_eval_cache(),
-            pruning: PruningConfig::default(),
-            history: Arc::new(HistoryTable::new()),
-            countermoves: Arc::new(CountermoveTable::new()),
-            depth_skew: 0,
-            root_order_offset: 0,
-            full_root_lmr: false,
-            root_hint: None,
-            retirement: None,
-        }
+        Self::with_options(tt, external_abort, PruningConfig::default(), None)
     }
 
     /// Create a searcher using a caller-owned abort flag and diagnostics.
@@ -1792,39 +1779,18 @@ impl Searcher {
         external_abort: Arc<AtomicBool>,
         diagnostics: Arc<SearchDiagnostics>,
     ) -> Self {
-        Searcher {
+        Self::with_options(
             tt,
             external_abort,
-            diagnostics: Some(diagnostics),
-            eval_cache: active_eval_cache(),
-            pruning: PruningConfig::default(),
-            history: Arc::new(HistoryTable::new()),
-            countermoves: Arc::new(CountermoveTable::new()),
-            depth_skew: 0,
-            root_order_offset: 0,
-            full_root_lmr: false,
-            root_hint: None,
-            retirement: None,
-        }
+            PruningConfig::default(),
+            Some(diagnostics),
+        )
     }
 
     /// Create a searcher with explicit pruning switches for controlled diagnostics.
     /// The default [`Self::new`] path keeps all production pruning enabled.
     pub fn with_pruning(tt: Arc<Tt>, pruning: PruningConfig) -> Self {
-        Self {
-            tt,
-            external_abort: Arc::new(AtomicBool::new(false)),
-            diagnostics: None,
-            eval_cache: active_eval_cache(),
-            pruning,
-            history: Arc::new(HistoryTable::new()),
-            countermoves: Arc::new(CountermoveTable::new()),
-            depth_skew: 0,
-            root_order_offset: 0,
-            full_root_lmr: false,
-            root_hint: None,
-            retirement: None,
-        }
+        Self::with_options(tt, Arc::new(AtomicBool::new(false)), pruning, None)
     }
 
     /// Create a searcher with controlled pruning and opt-in diagnostics.
@@ -1833,30 +1799,36 @@ impl Searcher {
         pruning: PruningConfig,
         diagnostics: Arc<SearchDiagnostics>,
     ) -> Self {
-        Searcher {
+        Self::with_options(
             tt,
-            external_abort: Arc::new(AtomicBool::new(false)),
-            diagnostics: Some(diagnostics),
-            eval_cache: active_eval_cache(),
+            Arc::new(AtomicBool::new(false)),
             pruning,
-            history: Arc::new(HistoryTable::new()),
-            countermoves: Arc::new(CountermoveTable::new()),
-            depth_skew: 0,
-            root_order_offset: 0,
-            full_root_lmr: false,
-            root_hint: None,
-            retirement: None,
-        }
+            Some(diagnostics),
+        )
     }
 
     /// Create a searcher that records optional move-ordering diagnostics.
     pub fn with_diagnostics(tt: Arc<Tt>, diagnostics: Arc<SearchDiagnostics>) -> Self {
+        Self::with_options(
+            tt,
+            Arc::new(AtomicBool::new(false)),
+            PruningConfig::default(),
+            Some(diagnostics),
+        )
+    }
+
+    fn with_options(
+        tt: Arc<Tt>,
+        external_abort: Arc<AtomicBool>,
+        pruning: PruningConfig,
+        diagnostics: Option<Arc<SearchDiagnostics>>,
+    ) -> Self {
         Self {
             tt,
-            external_abort: Arc::new(AtomicBool::new(false)),
-            diagnostics: Some(diagnostics),
+            external_abort,
+            diagnostics,
             eval_cache: active_eval_cache(),
-            pruning: PruningConfig::default(),
+            pruning,
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,

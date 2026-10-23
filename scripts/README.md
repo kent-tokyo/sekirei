@@ -50,6 +50,13 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 | `validate_nnue_cpu_pilot.py` | Validates a frozen, short AWS CPU-pilot plan only after a colour-reversed material gate, complete candidate/data/resume evidence, and an observed CPU-dominant bottleneck. It does not provision cloud resources. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
 | `run_ab_match.py` | Fixed-protocol local A/B, paired SPRT, or node-limited YaneuraOu measurement. It hashes inputs and fails closed on incomplete or inconsistent JSONL, kifu, snapshots, or result sidecars. `--supervised --result-json PATH` adds a one-shot parent that records a terminal error if the wrapper or match child exits unexpectedly. Material-only, one thread and `SpecTopN=0` are the defaults. |
+
+For a frozen HalfKP candidate versus its incumbent, combine
+`--candidate-evalfile NEW --baseline-evalfile BEST --evalfile none` with
+`--openings-manifest` and `--result-json`. Both engine binaries must have the
+same SHA, both weights must differ, and both exact loader acknowledgements
+are required. Evaluator checks and durable paired-SPRT replay both run before
+a verdict is accepted.
 | `launch_floodgate_once.py` | Starts one rendered bounded Floodgate LaunchAgent without combining `RunAtLoad=true` and `kickstart`; refuses registered labels and records the single-run acceptance receipt. |
 | `nps_threads.py` | Thread-scaling diagnostic for NPS, completed depth, best-move stability and optional Lazy SMP/TT/root-hint counters. `--summary-json` binds TT reuse, sampled overlap, discarded root work and worker-node balance for 4T/8T diagnosis. Counter-enabled runs are separate from speed runs; no output qualifies a speed or Elo claim. It completes new-game readiness before setting the position because some engines reset their board on `isready`. |
 | `paired_search_diagnostics.py` | Fresh-process A/B/B/A comparison for one search factor. Separates deterministic signatures, counter-free timing and opt-in parallel diagnostics; it does not estimate Elo. |
@@ -161,9 +168,9 @@ not prove continuous host isolation. Use a new output directory under a
 prospective protocol; this feature does not reopen or qualify previously closed studies,
 and does not replace independent match-input/exclusion requirements.
 
-Historical reports in `benchmark_reports/` apply only to their recorded host,
-revision, corpus, and operation. They are neither general speed rankings nor
-Elo claims.
+Historical [benchmark reports](../docs/experiments/benchmark_reports/README.md)
+apply only to their recorded host, revision, corpus, and operation. They are
+neither general speed rankings nor Elo claims.
 
 Example material-only tactical-line capture (repeat `--nodes` for a budget
 ladder):
@@ -272,6 +279,10 @@ succeeded before its PID was persisted. The tool observes the direct child
 leader; it does not certify that descendants which detach into other process
 groups have exited. The structured runner must own and inspect those workers.
 It does not resume a qualification, select outcomes, or modify gate evidence.
+The observer physically reserves 8 MiB for its journal. On ENOSPC it releases
+that reserve and retries only the failed journal write once, recording the
+recovery. Partial event appends are rolled back. A second persistence failure
+stops the owned child; it never retries a child or a statistical trial.
 
 `nnue_gate_host.py` provides shared-host **strength** trial admission. On the
 preregistered 10-core policy, three consecutive observations at no more than
@@ -380,6 +391,11 @@ sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
   --status-file data/floodgate/run/status.json
 ```
 
+For a HalfKP checkpoint, set `--fv-scale` to the value in its model card.
+The CSA default is 16; the optional `nn_r6` release artifact requires
+`--fv-scale 24`. The active divisor is recorded in the run manifest before
+the first connection.
+
 `--max-games` persists across reconnects. After a completed game, the client
 may recover an authenticated transport close up to three times in-process;
 protocol, recording, and mid-game failures remain terminal. Exhausted recovery
@@ -391,10 +407,17 @@ expected response, elapsed wait and buffered partial-line byte count. Its
 absolute response deadline uses the opponent's advertised time control and
 remaining time inferred from received move echoes. Our move echo has a
 2-minute deadline. `--active-receive-deadline-seconds` can
-override it for a controlled run. Between games the 70-minute read timeout
-still applies. A waiting-state `WouldBlock` or `TimedOut` read records
-`between_game_receive_timeout` with the raw error kind/errno, time since the
-last server line, and buffered partial-line size. It ends the bounded run
+override it for a controlled run. Before the first complete line of the next
+game summary, the 70-minute read timeout is an absolute wait limit. The client
+updates its status about every 30 seconds while waiting, keeping the
+supervisor's default 120-second freshness check
+valid and recording partial-line bytes before the final timeout. The status
+also records when the last `%%GAME` request was flushed locally; that timestamp
+does not prove server acceptance or pairing eligibility. A waiting-state
+`WouldBlock` or `TimedOut` at the limit records
+`between_game_receive_timeout` with the final error kind/errno (if supplied
+by the OS), the last poll error kind/errno, time since the last server line,
+and buffered partial-line size. It ends the bounded run
 without replay; the status and one-shot receipt retain the completed count.
 The server's silence and any link to a storage failure still need independent
 evidence. An active-game deadline records
@@ -465,7 +488,8 @@ python3 scripts/check_release_manifest_layout.py
 Prefer one parameterized tool over near-duplicate wrappers. Retire one-off
 instrumentation only after its evidence is retained and no live workflow or
 document references it. `cleanup_runs.sh` is dry-run by default and requires
-`APPLY=1` for deletion.
+`APPLY=1` for deletion. Its protection scan includes Python and shell scripts
+under `scripts/`, including the historical single-run tools in [`archive/`](archive/README.md).
 
 ## Experiment playbooks
 

@@ -33,6 +33,9 @@ cargo run --release -p sekirei
 Register `sekirei` in a USI-compatible GUI. Without `EvalFile`, the engine
 uses material evaluation. External HalfKP 256x2-32-32 files use `FV_SCALE`
 and remain subject to their own licenses.
+The CSA client accepts `--fv-scale <n>` from 1 to 128 (default 16). Pass
+`--fv-scale 24` alongside `--eval nnue --weights` for the optional `nn_r6`
+artifact. Its run manifest records the active divisor.
 [NNUE weights](docs/nnue_weights.md) records supported formats, checksums, and
 the evidence boundary. `nn_r6` passed independent colour-reversed material
 gates at 1T and 4T on a pinned source commit, and its released evidence bundle
@@ -117,6 +120,8 @@ python3 scripts/run_local_selfplay.py --games 1000 \
 Runs store manifests, records, CSA, search data, and deduplication metadata
 under ignored `data/runs/`. Same-engine results are regression evidence, not
 Floodgate or human ratings. `sekirei-csa` accepts credentials only at runtime.
+For a match using `--json result.json`, failed engine responses are recorded in
+`result.failures.jsonl` with elapsed time, response budget, engine arm and error.
 
 For NNUE training, run `cargo run --release -p sekirei-train -- --help`.
 Training pins `lineprior 0.12.6` and `shogiesa-core 0.11.6`; external wrappers

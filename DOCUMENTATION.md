@@ -18,6 +18,11 @@ mistaken for current behavior.
 | [`scripts/README.md`](scripts/README.md) | Release, training, match, and diagnostic tool index |
 | [`scripts/DENRYU_REHEARSAL.md`](scripts/DENRYU_REHEARSAL.md) | Loopback CSA recovery and 14-game continuity rehearsal |
 
+## Historical releases
+
+The [release records](docs/releases/README.md) index links archived manifests
+and USI smoke transcripts. These are snapshots of earlier versions.
+
 ## Design records
 
 Files under [`docs/design/`](docs/design/) explain decisions and known
@@ -35,10 +40,9 @@ preregistrations, exact run conditions, hashes, and results. Their dates and
 revisions are part of the record. Do not reuse an old verdict as evidence for
 the current engine without re-running the stated contract.
 
-Benchmark reports under
-[`scripts/benchmark_reports/`](scripts/benchmark_reports/) follow the same
-rule: they compare only the recorded revision, host, corpus, evaluator, and
-operation.
+The [archived benchmark reports](docs/experiments/benchmark_reports/README.md)
+follow the same rule: they compare only the recorded revision, host, corpus,
+evaluator, and operation.
 
 ## Private planning
 
