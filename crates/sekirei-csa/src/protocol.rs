@@ -36,6 +36,8 @@ const TOURNAMENT_MAX_PLIES: usize = 512;
 // Floodgate pairs at :00 and :30. Span two slots even when the first is skipped,
 // then allow ten minutes for a delayed server response before stopping the run.
 const BETWEEN_GAME_READ_TIMEOUT: Duration = Duration::from_secs(70 * 60);
+// Keep the supervisor's 120-second status freshness window valid while idle.
+const BETWEEN_GAME_READ_POLL: Duration = Duration::from_secs(30);
 const DEFAULT_ACTIVE_READ_POLL: Duration = Duration::from_secs(20);
 const OWN_MOVE_ECHO_DEADLINE: Duration = Duration::from_secs(2 * 60);
 
@@ -54,6 +56,26 @@ struct ActiveReceiveWindow {
     started: Instant,
     started_ms: u128,
     duration: Duration,
+}
+
+struct BetweenGameReceiveWindow {
+    started: Instant,
+    started_ms: u128,
+    duration: Duration,
+}
+
+impl BetweenGameReceiveWindow {
+    fn new(duration: Duration) -> Self {
+        Self {
+            started: Instant::now(),
+            started_ms: current_timestamp_ms(),
+            duration,
+        }
+    }
+
+    fn deadline(&self) -> Instant {
+        self.started + self.duration
+    }
 }
 
 impl ActiveReceiveWindow {
@@ -247,6 +269,12 @@ fn current_timestamp_ms() -> u128 {
 struct RuntimeStatusDetails {
     active_game_id: Option<String>,
     last_server_received_ms: Option<u128>,
+    last_game_request_sent_ms: Option<u128>,
+    between_game_wait_started_ms: Option<u128>,
+    between_game_receive_deadline_ms: Option<u128>,
+    between_game_receive_poll_count: u32,
+    between_game_receive_last_poll_error_kind: Option<String>,
+    between_game_receive_last_poll_os_error: Option<i32>,
     between_game_receive_error_kind: Option<String>,
     between_game_receive_os_error: Option<i32>,
     between_game_receive_idle_ms: Option<u128>,
@@ -282,6 +310,12 @@ fn write_runtime_status_snapshot(
         "active_game_id": &details.active_game_id,
         "session_id": &details.session_id,
         "last_server_received_ms": details.last_server_received_ms,
+        "last_game_request_sent_ms": details.last_game_request_sent_ms,
+        "between_game_wait_started_ms": details.between_game_wait_started_ms,
+        "between_game_receive_deadline_ms": details.between_game_receive_deadline_ms,
+        "between_game_receive_poll_count": details.between_game_receive_poll_count,
+        "between_game_receive_last_poll_error_kind": &details.between_game_receive_last_poll_error_kind,
+        "between_game_receive_last_poll_os_error": details.between_game_receive_last_poll_os_error,
         "between_game_receive_error_kind": &details.between_game_receive_error_kind,
         "between_game_receive_os_error": details.between_game_receive_os_error,
         "between_game_receive_idle_ms": details.between_game_receive_idle_ms,
@@ -670,6 +704,72 @@ impl CsaClient {
         self.process_received(received)
     }
 
+    fn recv_between_games(
+        &mut self,
+        window: &BetweenGameReceiveWindow,
+        poll: Duration,
+    ) -> io::Result<String> {
+        loop {
+            let remaining = window.deadline().saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return self.process_received(Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "between-game receive deadline exceeded",
+                )));
+            }
+            let tick_deadline = Instant::now() + poll.min(remaining);
+            let deadline = tick_deadline.min(window.deadline());
+            self.reader.set_read_timeout(
+                deadline
+                    .saturating_duration_since(Instant::now())
+                    .max(Duration::from_millis(1)),
+            )?;
+            let received = self.reader.read_line_until(Some(deadline));
+            match received {
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    self.status_details.between_game_receive_poll_count = self
+                        .status_details
+                        .between_game_receive_poll_count
+                        .saturating_add(1);
+                    self.status_details
+                        .between_game_receive_last_poll_error_kind =
+                        Some(format!("{:?}", error.kind()));
+                    self.status_details.between_game_receive_last_poll_os_error =
+                        error.raw_os_error();
+                    self.status_details.between_game_receive_idle_ms = Some(
+                        self.status_details
+                            .last_server_received_ms
+                            .map(|last| current_timestamp_ms().saturating_sub(last))
+                            .unwrap_or_else(|| window.started.elapsed().as_millis()),
+                    );
+                    self.status_details.between_game_receive_partial_line_bytes =
+                        Some(self.reader.pending_bytes());
+                    if Instant::now() >= window.deadline() {
+                        return self.process_received(Err(error));
+                    }
+                    self.emit_status(Some("between_game_idle"));
+                    if self
+                        .status_details
+                        .between_game_receive_poll_count
+                        .is_multiple_of(10)
+                    {
+                        eprintln!(
+                            "[csa] between-game receive idle: elapsed_ms={} pending_line_bytes={}",
+                            window.started.elapsed().as_millis(),
+                            self.reader.pending_bytes(),
+                        );
+                    }
+                }
+                result => return self.process_received(result),
+            }
+        }
+    }
+
     fn clear_active_receive_wait(&mut self) {
         self.status_details.active_receive_phase = None;
         self.status_details.active_receive_wait_started_ms = None;
@@ -849,6 +949,10 @@ impl CsaClient {
     fn request_game(&mut self) -> io::Result<()> {
         let msg = format!("%%GAME {} *", self.config.game_id);
         self.send(&msg)?;
+        // This proves only that the local write was flushed, not that the
+        // server accepted this client into a pairing pool.
+        self.status_details.last_game_request_sent_ms = Some(current_timestamp_ms());
+        self.emit_status(Some("game_request_sent"));
         Ok(())
     }
 
@@ -866,9 +970,30 @@ impl CsaClient {
         let mut in_position = false;
         let mut position_lines = Vec::new();
         let mut header_started = false;
+        let between_game_window = BetweenGameReceiveWindow::new(BETWEEN_GAME_READ_TIMEOUT);
+        self.status_details.between_game_wait_started_ms = Some(between_game_window.started_ms);
+        self.status_details.between_game_receive_deadline_ms = Some(
+            between_game_window
+                .started_ms
+                .saturating_add(between_game_window.duration.as_millis()),
+        );
+        self.status_details.between_game_receive_poll_count = 0;
+        self.status_details
+            .between_game_receive_last_poll_error_kind = None;
+        self.status_details.between_game_receive_last_poll_os_error = None;
+        self.status_details.between_game_receive_error_kind = None;
+        self.status_details.between_game_receive_os_error = None;
+        self.status_details.between_game_receive_idle_ms = None;
+        self.status_details.between_game_receive_partial_line_bytes = None;
+        self.emit_status(Some("between_game_wait_started"));
 
         loop {
-            let line = self.recv()?;
+            let line = if header_started {
+                self.reader.set_read_timeout(BETWEEN_GAME_READ_TIMEOUT)?;
+                self.recv()?
+            } else {
+                self.recv_between_games(&between_game_window, BETWEEN_GAME_READ_POLL)?
+            };
             if let Some(rejected) = line.strip_prefix("REJECT:") {
                 let rejected_id = rejected.split_once(" by ").map_or(rejected, |(id, _)| id);
                 if !summary_validated || rejected_id != game_summary_id {
@@ -2059,9 +2184,9 @@ mod tests {
         CsaTimeControl, CsaTimeControlSet, parse_decimal, parse_time_unit_ms,
     };
     use super::{
-        AnalysisLog, Color, Config, CsaClient, EvaluationMode, GameRecord, GameResult,
-        RecordMetadata, RootCandidateRecord, RuntimeStatusDetails, ServerLine,
-        TOURNAMENT_MAX_PLIES, ThinkResult, advance_tournament_ply, bare_server_move,
+        AnalysisLog, BetweenGameReceiveWindow, Color, Config, CsaClient, EvaluationMode,
+        GameRecord, GameResult, RecordMetadata, RootCandidateRecord, RuntimeStatusDetails,
+        ServerLine, TOURNAMENT_MAX_PLIES, ThinkResult, advance_tournament_ply, bare_server_move,
         classify_server_line, clock_after_echo, csa_think_budget_ms, current_timestamp_ms,
         game_result_name, json_string, opponent_receive_deadline, parse_game_end, parse_our_color,
         parse_time_from_echo, pv_to_csa, root_candidates_json, score_kind,
@@ -2615,7 +2740,10 @@ mod tests {
             },
             awaiting_aborted_game_result: false,
         };
-        let error = client.recv().unwrap_err();
+        let window = BetweenGameReceiveWindow::new(Duration::from_millis(100));
+        let error = client
+            .recv_between_games(&window, Duration::from_millis(20))
+            .unwrap_err();
         assert!(matches!(
             error.kind(),
             io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
@@ -2633,6 +2761,102 @@ mod tests {
         assert_eq!(
             status["between_game_receive_os_error"].as_i64(),
             error.raw_os_error().map(i64::from)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn waiting_heartbeat_and_partial_line_keep_an_absolute_deadline() {
+        use sekirei_core::search::Searcher;
+        use sekirei_core::tt::Tt;
+
+        let root = unique_test_directory("waiting-heartbeat-partial-line");
+        fs::create_dir_all(&root).unwrap();
+        let status_file = root.join("status.json");
+        let status_journal = root.join("status.jsonl");
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let stream = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut client = CsaClient {
+            reader: CsaLineReader::new(stream.try_clone().unwrap()),
+            writer: stream,
+            searcher: Searcher::new(Tt::new(1)),
+            config: Config {
+                keep_alive: true,
+                max_games: Some(10),
+                status_file: Some(status_file.clone()),
+                status_journal: Some(status_journal.clone()),
+                ..Config::default()
+            },
+            status_state: "waiting_for_game",
+            status_event: None,
+            status_details: RuntimeStatusDetails {
+                last_server_received_ms: Some(current_timestamp_ms()),
+                completed_attempts: 3,
+                ..RuntimeStatusDetails::default()
+            },
+            awaiting_aborted_game_result: false,
+        };
+        client.request_game().unwrap();
+        let mut request = String::new();
+        BufReader::new(server.try_clone().unwrap())
+            .read_line(&mut request)
+            .unwrap();
+        assert_eq!(request, "%%GAME floodgate-300-10F *\n");
+        server.write_all(b"G").unwrap();
+        let sender = thread::spawn(move || {
+            for _ in 0..15 {
+                thread::sleep(Duration::from_millis(40));
+                if server.write_all(b"a").is_err() {
+                    break;
+                }
+            }
+        });
+        let window = BetweenGameReceiveWindow::new(Duration::from_millis(500));
+        let error = client
+            .recv_between_games(&window, Duration::from_millis(50))
+            .unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+        ));
+        assert!(window.started.elapsed() < Duration::from_secs(2));
+        assert!(!client.can_reconnect_after_run_error(&error));
+        client.mark_run_error(3);
+        sender.join().unwrap();
+        let status: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(status_file).unwrap()).unwrap();
+        assert_eq!(status["state"], "client_error");
+        assert_eq!(
+            status["terminal_stop_reason"],
+            "between_game_receive_timeout"
+        );
+        assert_eq!(status["completed_attempts"], 3);
+        assert!(status["last_game_request_sent_ms"].as_u64().is_some());
+        assert!(status["between_game_receive_poll_count"].as_u64().unwrap() >= 1);
+        assert!(
+            status["between_game_receive_partial_line_bytes"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+        let events: Vec<serde_json::Value> = fs::read_to_string(status_journal)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert!(
+            events
+                .iter()
+                .any(|event| event["event"] == "game_request_sent")
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event["event"] == "between_game_idle")
         );
         fs::remove_dir_all(root).unwrap();
     }
