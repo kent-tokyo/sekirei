@@ -179,7 +179,7 @@ each candidate run. Finalize only complete artifacts; keep `PASS`, `FAIL`,
 | `record_resume_run.py`, `attach_resume_manifest.py` | Preserve checkpoint and resume lineage. |
 | `split_gensfen_by_game.py` | Split current six-column gensfen by whole game; reject legacy five-column rows. |
 | `train_halfkp.py` | Train from separate read-only packed shards with a game-level `--val-data` split. `--init-bin` imports compatible quantized weights with a fresh optimizer and explicit `--fv-scale`; validation loss alone does not select a candidate. |
-| `run_halfkp_pilot.py` | Run one hash-bound generation/training pilot with whole-game hold-out exclusion, durable status, bounded capacity pause/continuation of the same child, and no automatic failure or gate retry. |
+| `run_halfkp_pilot.py` | Run one hash-bound generation/training pilot with whole-game hold-out exclusion, bounded capacity pause/continuation of the same child, a separate `pilot-terminal.json` failure receipt backed by a dedicated reserve, and no automatic failure or gate retry. The receipt is best effort under further filesystem failure. |
 | `guard_halfkp_capacity.py` | Supervise disk capacity for an already running frozen pilot using verified process identities and a pause journal; it never starts a trainer. |
 | `compare_halfkp_parameters.py` | Compare integer HalfKP sections with bounded memory and strict input checks; changed parameter counts are diagnostic only. |
 | `export_gate_observations.py` | Export eligible independent gate manifests as lineprior `GateObservation` JSONL. |

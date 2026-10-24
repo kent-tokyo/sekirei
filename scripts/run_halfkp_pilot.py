@@ -25,7 +25,7 @@ import time
 
 from freeze_material_gate_openings import identity_hash, canonical_identity, load_exclusions
 from split_gensfen_by_game import split_files, parse_record, validate_game_results
-from run_observed_process import cleanup_child, cleanup_preserving_error
+from run_observed_process import EmergencyReserve, cleanup_child, cleanup_preserving_error
 
 
 class PilotShutdown(RuntimeError):
@@ -388,7 +388,11 @@ def run_locked(plan_path):
     base = plan_path.resolve().parent
     plan = json.loads(plan_path.read_text())
     name = candidate_name(plan)
-    require(not (base/'status.json').exists(), 'fresh run required; automatic restart forbidden')
+    terminal_path = base/'pilot-terminal.json'
+    terminal_reserve = EmergencyReserve(base, '.pilot-terminal-reserve')
+    require(not any(os.path.lexists(path) for path in
+                    (base/'status.json', terminal_path, terminal_reserve.path)),
+            'fresh run required; automatic restart forbidden')
     state = {'schema':'sekirei.own-halfkp-pilot-status.v1', 'status':'PREFLIGHT',
              'started_at':now(), 'pid':os.getpid(), 'plan':ref(plan_path), 'candidate_id':name,
              'published':False, 'default_changed':False, 'best_remains':'nn_r6',
@@ -488,6 +492,9 @@ def run_locked(plan_path):
             require(code == 0, 'child failed with return code ' + str(code))
         pins()
     try:
+        # This budget survives release of the ordinary capacity-pause reserve.
+        # Refuse to launch any owned child if it cannot be allocated.
+        terminal_reserve.allocate()
         snapshot(); pins(); validate_plan(plan)
         require(plan['baseline_sha256'] == sha(plan['baseline']), 'wrong nn_r6')
         raw = capacity_retained(plan)
@@ -565,9 +572,23 @@ def run_locked(plan_path):
             state['cleanup_errors'] = cleanup_errors
         if getattr(error, 'cleanup_incomplete', False):
             state['cleanup_incomplete'] = True
+        terminal = {'schema':'sekirei.own-halfkp-pilot-terminal.v1',
+                    'at':now(), 'plan':state['plan'], 'candidate_id':name,
+                    'status':'STOPPED_NOT_QUALIFIED', 'phase':state.get('active_log'),
+                    'error_type':type(error).__name__, 'error':str(error),
+                    'child_pid':state.get('child_pid'),
+                    'child_returncode':proc.returncode if proc is not None else
+                                       state.get('last_child_returncode'),
+                    'cleanup_errors':cleanup_errors,
+                    'cleanup_incomplete':bool(state.get('cleanup_incomplete')),
+                    'adopted':False, 'automatic_retry':False}
+        try:
+            terminal_reserve.write(save, terminal_path, terminal)
+        except Exception as persistence_error:
+            state['terminal_receipt_error'] = str(persistence_error)
         try:
             snapshot()
-        except OSError as persistence_error:
+        except Exception as persistence_error:
             # If even the exit journal cannot be written, stderr still retains
             # the primary failure and independently observed cleanup failures.
             try:
@@ -577,6 +598,12 @@ def run_locked(plan_path):
                 # Even diagnostic output may share the exhausted filesystem.
                 pass
         raise
+    finally:
+        try:
+            terminal_reserve.close()
+        except Exception:
+            # Reserve cleanup cannot replace the primary failure.
+            pass
 
 
 def interrupted(number, _frame):
