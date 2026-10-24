@@ -1,6 +1,7 @@
 import errno
 import fcntl
 import json
+import os
 from pathlib import Path
 import signal
 import subprocess
@@ -212,7 +213,7 @@ class ObservedProcessTests(unittest.TestCase):
             root = Path(td)
             original_save = O.save
             child = mock.Mock(pid=424242, returncode=None)
-            child.poll.return_value = None
+            child.poll.side_effect = lambda: child.returncode
             waits = 0
 
             def wait_after_grace(**kwargs):
@@ -230,10 +231,15 @@ class ObservedProcessTests(unittest.TestCase):
                     raise OSError(errno.EIO, 'primary journal failure')
                 original_save(path, document)
 
+            def signal_race(_pid, number):
+                if number == signal.SIGKILL:
+                    child.returncode = 0
+                    raise ProcessLookupError()
+
             with mock.patch.object(O, 'snapshot', return_value={}), \
                  mock.patch.object(O, 'save', side_effect=fail_running_save), \
                  mock.patch.object(O.subprocess, 'Popen', return_value=child) as spawn, \
-                 mock.patch.object(O.os, 'killpg', side_effect=[None, ProcessLookupError]):
+                 mock.patch.object(O.os, 'killpg', side_effect=signal_race):
                 with self.assertRaisesRegex(OSError, 'primary journal failure'):
                     self.run_child('synthetic child', root)
                 spawn.assert_called_once()
@@ -243,6 +249,111 @@ class ObservedProcessTests(unittest.TestCase):
             self.assertEqual(saved['error']['observer_cleanup_signal'], 'SIGTERM')
             self.assertIn('primary journal failure', saved['error']['error'])
             self.assertFalse((root / '.observer-terminal-reserve').exists())
+
+    def test_cont_permission_exit_race_is_recorded_without_signalling_reaped_pid(self):
+        child = mock.Mock(pid=424242, returncode=None)
+        child.poll.side_effect = lambda: child.returncode
+
+        def exit_before_cont(_pid, number):
+            if number == signal.SIGCONT:
+                child.returncode = -signal.SIGTERM
+                raise PermissionError(errno.EPERM, 'exited group')
+
+        with mock.patch.object(O.os, 'killpg', side_effect=exit_before_cont) as killpg:
+            report = O.cleanup_child(child, .01, .01)
+        self.assertEqual(report['returncode'], -signal.SIGTERM)
+        self.assertEqual(report['errors'][0]['action'], 'killpg:SIGCONT')
+        child.send_signal.assert_not_called()
+        child.wait.assert_not_called()
+        self.assertEqual(killpg.call_count, 2)
+
+    def test_cleanup_invalid_budgets_are_rejected_before_child_access(self):
+        for values in ((float('inf'), 1), (1, float('nan')), (0, 1), (1, -1)):
+            with self.subTest(values=values):
+                child = mock.Mock()
+                with self.assertRaises(ValueError):
+                    O.cleanup_child(child, *values)
+                child.poll.assert_not_called()
+
+    def test_already_reaped_child_is_never_signalled_again(self):
+        child = mock.Mock(pid=424242, returncode=0)
+        child.poll.return_value = 0
+        with mock.patch.object(O.os, 'killpg') as killpg:
+            report = O.cleanup_child(child)
+        self.assertEqual(report, {'signals': [], 'errors': [], 'returncode': 0})
+        killpg.assert_not_called()
+        child.send_signal.assert_not_called()
+        child.wait.assert_not_called()
+
+    def test_live_permission_denial_is_incomplete_and_waits_are_bounded(self):
+        child = mock.Mock(pid=424242, returncode=None)
+        child.poll.return_value = None
+        child.send_signal.side_effect = PermissionError(errno.EPERM, 'child denied')
+        child.wait.side_effect = subprocess.TimeoutExpired('owned child', .01)
+        with mock.patch.object(O.os, 'killpg',
+                               side_effect=PermissionError(errno.EPERM, 'group denied')):
+            with self.assertRaises(O.ChildCleanupError) as caught:
+                O.cleanup_child(child, .01, .02)
+        self.assertIsNone(caught.exception.report['returncode'])
+        self.assertEqual(child.send_signal.call_args_list,
+                         [mock.call(signal.SIGTERM), mock.call(signal.SIGKILL)])
+        child.wait.assert_called_once_with(timeout=.02)
+        self.assertTrue(caught.exception.cleanup_errors)
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process groups required')
+    def test_group_permission_denial_still_terminates_owned_stopped_child(self):
+        child = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(30)'],
+                                 start_new_session=True)
+        try:
+            os.killpg(child.pid, signal.SIGSTOP)
+            with mock.patch.object(O.os, 'killpg',
+                                   side_effect=PermissionError(errno.EPERM, 'group denied')):
+                report = O.cleanup_child(child, 2, 2)
+            self.assertEqual(report['returncode'], -signal.SIGTERM)
+            self.assertEqual([item['signal'] for item in report['signals']],
+                             ['SIGTERM', 'SIGCONT'])
+            self.assertTrue(all(item['scope'] == 'child' for item in report['signals']))
+            self.assertEqual(len(report['errors']), 2)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=3)
+
+    def test_cleanup_permission_failure_cannot_hide_primary_journal_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            original_save = O.save
+            primary = OSError(errno.ENOSPC, 'primary full journal')
+            child = mock.Mock(pid=424242, returncode=None)
+            child.poll.return_value = None
+            child.send_signal.side_effect = PermissionError(errno.EPERM, 'child denied')
+            child.wait.side_effect = subprocess.TimeoutExpired('owned child', .01)
+
+            def fail_running(path, document):
+                if document['status'] == 'running':
+                    raise primary
+                original_save(path, document)
+
+            with mock.patch.object(O, 'snapshot', return_value={}), \
+                 mock.patch.object(O, 'save', side_effect=fail_running), \
+                 mock.patch.object(O.subprocess, 'Popen', return_value=child) as spawn, \
+                 mock.patch.object(O.os, 'killpg',
+                                   side_effect=PermissionError(errno.EPERM, 'group denied')):
+                with self.assertRaises(OSError) as caught:
+                    O.observe(['synthetic child'], root, .01, .01)
+            self.assertIs(caught.exception, primary)
+            spawn.assert_called_once()
+            saved = json.loads((root/'observer-status.json').read_text())
+            self.assertEqual(saved['error']['error_type'], 'OSError')
+            self.assertIn('primary full journal', saved['error']['error'])
+            self.assertTrue(saved['error']['cleanup_incomplete'])
+            self.assertIsNone(saved['error']['child_returncode'])
+            self.assertTrue(any(item['error_type'] == 'PermissionError'
+                                for item in saved['error']['cleanup_errors']))
+            self.assertEqual(saved['terminal_journal_reserve']['released_bytes'],
+                             O.EmergencyReserve.size)
+            with (root/'observer.lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def test_terminal_reserve_allocation_failure_prevents_child_launch(self):
         with tempfile.TemporaryDirectory() as td:
@@ -357,6 +468,23 @@ class ObservedProcessTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self.run_child("print('must not launch')", root)
             self.assertFalse((root/'attempt-0002.stdout').exists())
+
+    def test_previous_unconfirmed_cleanup_refuses_live_or_unknown_child(self):
+        for pid, error in ((None, {'cleanup_incomplete': True, 'child_returncode': None}),
+                           (424242, {'child_returncode': None}),
+                           (424242, {'cleanup_incomplete': True, 'child_returncode': 1})):
+            with self.subTest(pid=pid, error=error), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                previous = {'status':'observer_error', 'attempt':1, 'child_pid':pid,
+                            'error':error}
+                O.save(root/'observer-status.json', previous)
+                with mock.patch.object(O, 'alive', return_value=True), \
+                     mock.patch.object(O.subprocess, 'Popen') as spawn:
+                    with self.assertRaisesRegex(RuntimeError, 'refusing duplicate'):
+                        self.run_child('must not launch', root)
+                spawn.assert_not_called()
+                self.assertEqual(json.loads((root/'observer-status.json').read_text()), previous)
+                self.assertFalse((root/'attempt-0002.stdout').exists())
 
     def test_unknown_previous_observer_exit_is_not_fabricated(self):
         with tempfile.TemporaryDirectory() as td:

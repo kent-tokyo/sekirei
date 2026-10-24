@@ -165,6 +165,90 @@ def alive(pid: int) -> bool:
         return True
 
 
+class ChildCleanupError(RuntimeError):
+    """An owned child could not be confirmed exited within the cleanup budget."""
+
+    def __init__(self, report):
+        self.report = report
+        self.cleanup_errors = report["errors"]
+        super().__init__("owned child cleanup incomplete")
+
+
+def cleanup_child(child, stop_grace_seconds=20, kill_grace_seconds=5):
+    """Terminate one direct Popen child and its independently created group.
+
+    The caller must own an unreaped Popen started with start_new_session=True.
+    Poll before every signal: after reaping, the PID/group must never be used
+    again. A group permission/exit race falls back only to that direct child,
+    never to a PID inferred from a status file. No permission error proves exit.
+    """
+    if any(not math.isfinite(value) or value <= 0
+           for value in (stop_grace_seconds, kill_grace_seconds)):
+        raise ValueError("cleanup grace periods must be finite and positive")
+    report = {"signals": [], "errors": [], "returncode": child.poll()}
+
+    def record(action, error):
+        report["errors"].append({"action": action, "error_type": type(error).__name__,
+                                 "error": str(error)})
+
+    def send(number):
+        if child.poll() is not None:
+            return False
+        name = signal.Signals(number).name
+        try:
+            os.killpg(child.pid, number)
+            report["signals"].append({"scope": "group", "signal": name})
+            return True
+        except OSError as error:
+            record("killpg:" + name, error)
+        if child.poll() is not None:
+            return False
+        try:
+            child.send_signal(number)
+            report["signals"].append({"scope": "child", "signal": name})
+            return True
+        except OSError as error:
+            record("child:" + name, error)
+            return False
+
+    def wait(seconds):
+        if child.poll() is not None:
+            return
+        try:
+            child.wait(timeout=seconds)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            record("wait", error)
+
+    if report["returncode"] is None:
+        # Deliver TERM before CONT: resuming a stopped child must not restart
+        # its work unless termination was actually requested successfully.
+        if send(signal.SIGTERM):
+            send(signal.SIGCONT)
+            wait(stop_grace_seconds)
+        if child.poll() is None:
+            send(signal.SIGKILL)
+            wait(kill_grace_seconds)
+    report["returncode"] = child.poll()
+    if report["returncode"] is None:
+        raise ChildCleanupError(report)
+    return report
+
+
+def cleanup_preserving_error(error, child, **kwargs):
+    """Keep the primary failure even if child cleanup itself fails."""
+    try:
+        report = cleanup_child(child, **kwargs)
+    except ChildCleanupError as cleanup_error:
+        report = cleanup_error.report
+    except Exception as cleanup_error:
+        report = {"signals": [], "returncode": child.returncode,
+                  "errors": [{"action": "cleanup", "error_type": type(cleanup_error).__name__,
+                              "error": str(cleanup_error)}]}
+    error.cleanup_errors = list(getattr(error, "cleanup_errors", [])) + report["errors"]
+    error.cleanup_incomplete = report["returncode"] is None
+    return report
+
+
 def observe(command: list[str], directory: Path, poll_seconds: float = 10,
             stop_grace_seconds: float = 15) -> dict:
     if (not command or not math.isfinite(poll_seconds) or not math.isfinite(stop_grace_seconds)
@@ -219,9 +303,12 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
             event("previous_spawn_identity_unknown", previous=previous,
                   cause="observer disappeared before child identity was durable")
             raise RuntimeError("previous spawn may have succeeded; resolve unknown child before relaunch")
-        if previous.get("status") == "running":
+        unresolved_cleanup = (previous.get("status") == "observer_error" and
+                              (previous.get("error", {}).get("cleanup_incomplete") or
+                               previous.get("error", {}).get("child_returncode") is None))
+        if previous.get("status") == "running" or unresolved_cleanup:
             event("previous_observer_disappeared", previous=previous,
-                  cause="unknown; previous observer did not persist its exit")
+                  cause="unknown; previous child exit was not confirmed")
             pid = previous.get("child_pid")
             if type(pid) is not int or pid < 1:
                 raise RuntimeError("previous child identity is unknown; refusing duplicate launch")
@@ -284,21 +371,12 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
         return state
     except BaseException as error:
         cleanup_signal = None
-        # A persistence failure must not leave an unobserved owned child running.
-        if child is not None and child.poll() is None:
-            try:
-                os.killpg(child.pid, signal.SIGTERM)
-                cleanup_signal = "SIGTERM"
-                child.wait(timeout=stop_grace_seconds)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(child.pid, signal.SIGKILL)
-                    cleanup_signal = "SIGKILL"
-                except ProcessLookupError:
-                    pass  # The child exited between the grace timeout and kill.
-                child.wait()
-            except ProcessLookupError:
-                pass
+        # Cleanup is bounded and cannot hide the persistence/protocol failure.
+        if child is not None:
+            cleanup = cleanup_preserving_error(error, child,
+                                                stop_grace_seconds=stop_grace_seconds)
+            cleanup_signal = next((item["signal"] for item in reversed(cleanup["signals"])
+                                   if item["signal"] != "SIGCONT"), None)
         terminal_release_error = None
         try:
             release_terminal_reserve()
@@ -309,6 +387,10 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
         failure = {"at": now(), "event": "observer_error", "error_type": type(error).__name__,
                    "error": str(error), "child_returncode": None if child is None else child.returncode,
                    "observer_cleanup_signal": cleanup_signal}
+        if getattr(error, "cleanup_errors", None):
+            failure["cleanup_errors"] = error.cleanup_errors
+        if getattr(error, "cleanup_incomplete", False):
+            failure["cleanup_incomplete"] = True
         if terminal_release_error is not None:
             failure["terminal_reserve_release_error"] = terminal_release_error
         for write_failure in (

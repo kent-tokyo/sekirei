@@ -3,6 +3,8 @@
 import json
 import copy
 import errno
+import contextlib
+import io
 import os
 import signal
 import subprocess
@@ -38,7 +40,8 @@ def continuation_fixture(root, returncode=0):
     original['trainer']=str(trainer.resolve())
     helpers=[Path(pilot.__file__).resolve().parent/name for name in
              ('freeze_material_gate_openings.py', 'split_gensfen_by_game.py',
-              'generate_search_diagnostic.py', 'paired_search_diagnostics.py', 'nps_threads.py')]
+              'generate_search_diagnostic.py', 'paired_search_diagnostics.py', 'nps_threads.py',
+              'run_observed_process.py')]
     for helper in helpers:
         (source/helper.name).write_bytes(helper.read_bytes())
     original['bound_inputs']=[pilot.ref(x) for x in [trainer,*[source/h.name for h in helpers]]]
@@ -78,6 +81,65 @@ def rebind(plan,path):
 
 
 class PilotIntegrityTest(unittest.TestCase):
+    def test_cleanup_denial_still_saves_primary_error_and_stopped_status(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            paths = [root/name for name in ('generator', 'packer', 'trainer', 'baseline')]
+            for path in paths:
+                path.write_text('fixture')
+            generator, packer, trainer, baseline = paths
+            plan = {'schema':'sekirei.own-halfkp-pilot-plan.v1',
+                    'generator':str(generator), 'packer':str(packer), 'trainer':str(trainer),
+                    'baseline':str(baseline), 'baseline_sha256':pilot.sha(baseline),
+                    'generation':{'seeds':[7], 'games_per_shard':1, 'depth':1, 'nodes':1,
+                                  'random_plies':0, 'min_training_ply':24, 'max_ply':64},
+                    'training':{}, 'max_wall_hours':1, 'exclusions':[], 'spent_manifests':[],
+                    'bound_inputs':[pilot.ref(x) for x in paths]}
+            pilot.save(root/'plan.json', plan)
+            primary = pilot.PilotShutdown('received signal 15')
+            child = Mock(pid=424242, returncode=None)
+            child.poll.return_value = None
+            child.send_signal.side_effect = PermissionError(errno.EPERM, 'child denied')
+            child.wait.side_effect = [primary, subprocess.TimeoutExpired('owned child', .01)]
+            with patch.object(pilot.subprocess, 'Popen', return_value=child) as spawn, \
+                 patch.object(pilot, 'observe_host_cpu', return_value=0.0), \
+                 patch.object(pilot.shutil, 'disk_usage',
+                              return_value=SimpleNamespace(free=5000*1048576)), \
+                 patch.object(pilot.time, 'sleep'), \
+                 patch.object(pilot, 'allocate_reserve', side_effect=lambda path:path.write_bytes(b'x')), \
+                 patch.object(pilot.os, 'killpg',
+                              side_effect=PermissionError(errno.EPERM, 'group denied')):
+                with self.assertRaises(pilot.PilotShutdown) as caught:
+                    pilot.run(root/'plan.json')
+            self.assertIs(caught.exception, primary)
+            spawn.assert_called_once()
+            saved = json.loads((root/'status.json').read_text())
+            self.assertEqual(saved['status'], 'STOPPED_NOT_QUALIFIED')
+            self.assertEqual(saved['error'], 'received signal 15')
+            self.assertTrue(saved['cleanup_incomplete'])
+            self.assertTrue(any(x['error_type'] == 'PermissionError' for x in saved['cleanup_errors']))
+
+    def test_terminal_persistence_failure_does_not_replace_primary_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pilot.save(root/'plan.json', {'schema':'bad', 'bound_inputs':[]})
+            save = pilot.save
+
+            def fail_terminal(path, document):
+                if document.get('status') == 'STOPPED_NOT_QUALIFIED':
+                    raise OSError(errno.ENOSPC, 'terminal journal full')
+                save(path, document)
+
+            output = io.StringIO()
+            with patch.object(pilot, 'save', side_effect=fail_terminal), \
+                 contextlib.redirect_stderr(output):
+                with self.assertRaisesRegex(ValueError, 'unknown plan schema'):
+                    pilot.run(root/'plan.json')
+            record = json.loads(output.getvalue())
+            self.assertEqual(record['error'], 'unknown plan schema')
+            self.assertIn('terminal journal full', record['terminal_persistence_error'])
+
     def test_candidate_id_is_bounded_ascii_and_cannot_escape_or_replace_data(self):
         self.assertEqual(pilot.candidate_name({}), 'nn_r8c1')
         self.assertEqual(pilot.candidate_name({'candidate_id':'nn_r8c3'}), 'nn_r8c3')
@@ -360,18 +422,28 @@ class PilotIntegrityTest(unittest.TestCase):
                     pilot.capacity_retained(plan)
 
     def test_changed_active_split_helper_cannot_hide_behind_old_bound_copy(self):
+        for name in ('split_gensfen_by_game.py', 'run_observed_process.py'):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);plan,source=continuation_fixture(root)
+                active=root/'active';active.mkdir()
+                for old in source.glob('*.py'):
+                    target=active/old.name;target.write_bytes(old.read_bytes())
+                    plan['bound_inputs'].append(pilot.ref(target))
+                altered=active/name
+                altered.write_text('different helper implementation')
+                rebind(plan,altered)
+                with patch.object(pilot,'__file__',str(active/'run_halfkp_pilot.py')):
+                    with self.assertRaisesRegex(ValueError,'active preparation helper differs'):
+                        pilot.capacity_retained(plan)
+
+    def test_capacity_continuation_requires_active_cleanup_helper_pin(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp);plan,source=continuation_fixture(root)
-            active=root/'active';active.mkdir()
-            for old in source.glob('*.py'):
-                target=active/old.name;target.write_bytes(old.read_bytes())
-                plan['bound_inputs'].append(pilot.ref(target))
-            altered=active/'split_gensfen_by_game.py'
-            altered.write_text('different selection algorithm')
-            rebind(plan,altered)
-            with patch.object(pilot,'__file__',str(active/'run_halfkp_pilot.py')):
-                with self.assertRaisesRegex(ValueError,'active preparation helper differs'):
-                    pilot.capacity_retained(plan)
+            plan,_=continuation_fixture(Path(tmp))
+            helper=Path(pilot.__file__).resolve().parent/'run_observed_process.py'
+            plan['bound_inputs']=[item for item in plan['bound_inputs']
+                                  if item['path'] != str(helper)]
+            with self.assertRaisesRegex(ValueError,'active preparation helper differs'):
+                pilot.capacity_retained(plan)
 
     def test_pin_failure_records_terminal_reason_without_starting_child(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -508,6 +580,33 @@ class CapacityPauseProcessTest(unittest.TestCase):
                     pilot.pause_child_for_capacity(proc,cancel,lambda:None,lambda *args:None)
                 self.assertIsNotNone(proc.poll())
                 self.assertNotEqual(proc.returncode,0)
+            finally:
+                pilot.terminate_child(proc)
+
+    def test_cont_denial_during_paused_cleanup_keeps_original_shutdown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)/'sequence'
+            proc = self.launch_writer(output)
+            real_killpg = os.killpg
+            primary = pilot.PilotShutdown('received signal 15')
+
+            def deny_cont(pid, number):
+                if number == signal.SIGCONT:
+                    raise PermissionError(errno.EPERM, 'group CONT denied')
+                return real_killpg(pid, number)
+
+            def cancel():
+                raise primary
+
+            try:
+                self.wait_started(proc, output)
+                with patch.object(pilot.os, 'killpg', side_effect=deny_cont):
+                    with self.assertRaises(pilot.PilotShutdown) as caught:
+                        pilot.pause_child_for_capacity(proc, cancel, lambda:None, lambda *args:None)
+                self.assertIs(caught.exception, primary)
+                self.assertEqual(proc.returncode, -signal.SIGTERM)
+                self.assertFalse(primary.cleanup_incomplete)
+                self.assertEqual(primary.cleanup_errors[0]['action'], 'killpg:SIGCONT')
             finally:
                 pilot.terminate_child(proc)
 
