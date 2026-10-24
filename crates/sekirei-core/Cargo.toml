@@ -18,6 +18,8 @@ tune = []
 nnue_finny_inplace = []
 # Opt-in exact SEE CPU experiment: value-group least-attacker selection.
 see_lva_groups = []
+# Opt-in CPU experiment: avoid history reads unused by late move reduction.
+lmr_stat_lazy = []
 # Opt-in ProbCut SEE comparison bound, without runtime tuning atomics.
 probcut_see_bound = []
 # Opt-in CPU experiment: two bits in the existing repetition Bloom filter.

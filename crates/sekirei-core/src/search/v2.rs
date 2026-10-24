@@ -1506,6 +1506,33 @@ fn materialize_pending(board: &mut Board, pending: Option<&mut QuietHalfKpToken>
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    // Test-only mechanism proof; absent from normal native timing binaries.
+    static LMR_STAT_OBSERVER: std::cell::Cell<Option<[u64; 3]>> = const { std::cell::Cell::new(None) };
+}
+
+/// Keep history reads at their original pre-move point, but skip unused work.
+#[inline]
+fn reduction_stat(lazy: bool, depth: i32, move_count: u32, calculate: impl FnOnce() -> i32) -> i32 {
+    let skip = lazy && (depth < 2 || move_count <= 1);
+    #[cfg(test)]
+    LMR_STAT_OBSERVER.with(|observer| {
+        if let Some(mut counts) = observer.get() {
+            let bucket = if !skip {
+                0
+            } else if move_count <= 1 {
+                1
+            } else {
+                2
+            };
+            counts[bucket] += 1;
+            observer.set(Some(counts));
+        }
+    });
+    if skip { 0 } else { calculate() }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn search(
     d: &mut Data,
@@ -2526,14 +2553,22 @@ fn node(
         }
         new_depth += ext;
 
-        // History score of the move for its reduction (before it is played).
-        let stat = if tactical {
-            p::V2_MVV_W() * victim_value(board, m) + d.capt_score(board, stm, m)
-                - p::V2_STAT_TACT_OFF()
-        } else {
-            2 * i32::from(d.main[ft]) + d.cont_at(i, 1, pt) + d.cont_at(i, 2, pt)
-                - p::V2_STAT_QUIET_OFF()
-        };
+        // Preserve the pre-move board/history snapshot, after singular search
+        // has made its final depth adjustment. Only the LMR branch consumes stat.
+        let stat = reduction_stat(
+            cfg!(feature = "lmr_stat_lazy") || p::V2_LMR_STAT_LAZY() != 0,
+            depth,
+            move_count,
+            || {
+                if tactical {
+                    p::V2_MVV_W() * victim_value(board, m) + d.capt_score(board, stm, m)
+                        - p::V2_STAT_TACT_OFF()
+                } else {
+                    2 * i32::from(d.main[ft]) + d.cont_at(i, 1, pt) + d.cont_at(i, 2, pt)
+                        - p::V2_STAT_QUIET_OFF()
+                }
+            },
+        );
 
         // Play the move.
         if let Some(c) = state.counters() {
@@ -3934,6 +3969,134 @@ mod tests {
                 assert_eq!(skip, preexisting_skip || enabled);
             }
         }
+    }
+
+    #[test]
+    fn lmr_stat_lazy_preserves_consumed_values_and_skips_unused_reads() {
+        use std::cell::Cell;
+        for depth in [i32::MIN, -1, 0, 1, 2, 3, i32::MAX] {
+            for count in [0, 1, 2, 3, u32::MAX] {
+                for value in [i32::MIN, -4500, 0, 3600, i32::MAX] {
+                    for lazy in [false, true] {
+                        let calls = Cell::new(0);
+                        let actual = reduction_stat(lazy, depth, count, || {
+                            calls.set(calls.get() + 1);
+                            value
+                        });
+                        let consumed = depth >= 2 && count > 1;
+                        assert_eq!(calls.get(), usize::from(!lazy || consumed));
+                        if !lazy || consumed {
+                            assert_eq!(actual, value);
+                        } else {
+                            assert_eq!(actual, 0);
+                        }
+                    }
+                }
+            }
+        }
+        // An unused calculation must not even touch board/history storage.
+        for (depth, count) in [(1, 2), (2, 1)] {
+            assert_eq!(
+                reduction_stat(true, depth, count, || panic!("unused read")),
+                0
+            );
+        }
+    }
+
+    #[cfg(all(feature = "tune", not(feature = "lmr_stat_lazy")))]
+    #[test]
+    #[ignore = "run alone: process-global tuning; material only"]
+    fn lmr_stat_lazy_search_reaches_skipped_and_consumed_paths() {
+        use crate::search::{SearchConfig, Searcher};
+        use crate::tt::Tt;
+        struct Restore(i32);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                assert!(p::set("V2_LMR_STAT_LAZY", self.0));
+            }
+        }
+        let _restore = Restore(p::V2_LMR_STAT_LAZY());
+        assert!(!crate::halfkp::is_active());
+        assert!(!crate::nnue::weights_active());
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let mut totals = [[0_u64; 3]; 2];
+                for sfen in [crate::sfen::STARTPOS_SFEN, SEE_CAPTURE_FIXTURES[0]] {
+                    for depth in [2, 3, 6] {
+                        let mut results = Vec::new();
+                        for enabled in [0, 1] {
+                            assert!(p::set("V2_LMR_STAT_LAZY", enabled));
+                            let mut board = Board::from_sfen(sfen).unwrap();
+                            board.refresh_acc();
+                            let before = (
+                                crate::sfen::board_to_sfen(&board),
+                                board.hash(),
+                                board.acc.clone(),
+                                board.hkp.clone(),
+                            );
+                            let searcher = Searcher::new(Tt::new(4));
+                            searcher.clear_tt();
+                            LMR_STAT_OBSERVER.with(|o| o.set(Some([0; 3])));
+                            let value = searcher.search(
+                                &mut board,
+                                SearchConfig {
+                                    max_depth: depth,
+                                    ..SearchConfig::default()
+                                },
+                            );
+                            let counts = LMR_STAT_OBSERVER.with(|o| o.replace(None).unwrap());
+                            for (total, count) in totals[enabled as usize].iter_mut().zip(counts) {
+                                *total += count;
+                            }
+                            assert!(!value.aborted);
+                            assert_eq!(value.depth, depth);
+                            assert_eq!(
+                                (
+                                    crate::sfen::board_to_sfen(&board),
+                                    board.hash(),
+                                    board.acc.clone(),
+                                    board.hkp.clone()
+                                ),
+                                before
+                            );
+                            results.push(value);
+                        }
+                        let (a, b) = (&results[0], &results[1]);
+                        assert_eq!(
+                            (
+                                a.best_move,
+                                a.score,
+                                &a.pv,
+                                a.nodes,
+                                a.depth,
+                                a.bound,
+                                a.completed_bound
+                            ),
+                            (
+                                b.best_move,
+                                b.score,
+                                &b.pv,
+                                b.nodes,
+                                b.depth,
+                                b.bound,
+                                b.completed_bound
+                            ),
+                            "{sfen} depth={depth}"
+                        );
+                    }
+                }
+                assert_eq!(totals[0][1..], [0, 0]);
+                assert!(totals[1].iter().all(|n| *n > 0));
+                assert_eq!(totals[0][0], totals[1].iter().sum::<u64>());
+                eprintln!(
+                    "LMR stat mechanism: 12 completed searches OFF={:?} ON={:?}",
+                    totals[0], totals[1]
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     const SEE_CAPTURE_FIXTURES: [&str; 3] = [

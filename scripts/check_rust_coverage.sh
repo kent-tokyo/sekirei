@@ -393,6 +393,28 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Isolate lazy LMR history reads: exact material/synthetic search identity
+# and test-only mechanism counts. No timing counters enter native builds.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --test lmr_stat_lazy \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-lmr-stat-identity-summary.json" \
+  -- --ignored --test-threads=1
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-lmr-stat-mechanism-summary.json" \
+  -- search::v2::tests::lmr_stat_lazy_search_reaches_skipped_and_consumed_paths \
+  --ignored --exact --test-threads=1
+
 # The default-off ProbCut SEE shortcut must exercise its real search branch
 # under the runtime tuning flag. This isolated material-only test owns the
 # process-wide tuning state and verifies the shortcut preserves exact results.
