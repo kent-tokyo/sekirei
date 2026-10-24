@@ -120,6 +120,115 @@ class PilotIntegrityTest(unittest.TestCase):
             self.assertTrue(saved['cleanup_incomplete'])
             self.assertTrue(any(x['error_type'] == 'PermissionError' for x in saved['cleanup_errors']))
 
+    def test_capacity_wait_enospc_keeps_terminal_cause_with_live_child(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            inputs = [root/name for name in ('generator', 'packer', 'trainer', 'baseline')]
+            for path in inputs:
+                path.write_text('fixture')
+            generator, packer, trainer, baseline = inputs
+            plan = {'schema':'sekirei.own-halfkp-pilot-plan.v1',
+                    'generator':str(generator), 'packer':str(packer), 'trainer':str(trainer),
+                    'baseline':str(baseline), 'baseline_sha256':pilot.sha(baseline),
+                    'generation':{'seeds':[7], 'games_per_shard':1, 'depth':1, 'nodes':1,
+                                  'random_plies':0, 'min_training_ply':24, 'max_ply':64},
+                    'training':{}, 'max_wall_hours':1, 'exclusions':[], 'spent_manifests':[],
+                    'bound_inputs':[pilot.ref(path) for path in inputs]}
+            pilot.save(root/'plan.json', plan)
+            child = Mock(pid=424242, returncode=None)
+            child.poll.return_value = None
+            child.send_signal.side_effect = PermissionError(errno.EPERM, 'child denied')
+            reserve_path = root/'.pilot-terminal-reserve'
+            actual_save = pilot.save
+            paused_writes = 0
+            launches = 0
+
+            def launch(*args, **kwargs):
+                nonlocal launches
+                launches += 1
+                self.assertTrue(reserve_path.exists())
+                self.assertGreaterEqual(reserve_path.stat().st_blocks * 512, 8 * 1048576)
+                return child
+
+            def disk(_):
+                return SimpleNamespace(free=(1024 if launches else 5000)*1048576)
+
+            def write(path, document):
+                nonlocal paused_writes
+                path = Path(path)
+                if path.name == 'status.json' and document.get('status') == 'PAUSED_CAPACITY':
+                    paused_writes += 1
+                    if paused_writes >= 2:
+                        raise OSError(errno.ENOSPC, 'capacity wait status full')
+                if path.name == 'status.json' and document.get('status') == 'STOPPED_NOT_QUALIFIED':
+                    raise OSError(errno.ENOSPC, 'terminal status full')
+                if path.name == 'pilot-terminal.json' and reserve_path.exists():
+                    raise OSError(errno.ENOSPC, 'terminal receipt needs reserve')
+                actual_save(path, document)
+
+            def signal_group(_pid, number):
+                if number != signal.SIGSTOP:
+                    raise PermissionError(errno.EPERM, 'group denied')
+
+            output = io.StringIO()
+            with patch.object(pilot.subprocess, 'Popen', side_effect=launch) as spawn, \
+                 patch.object(pilot.shutil, 'disk_usage', side_effect=disk), \
+                 patch.object(pilot, 'observe_host_cpu', return_value=0.0), \
+                 patch.object(pilot.time, 'sleep'), \
+                 patch.object(pilot, 'allocate_reserve',
+                              side_effect=lambda path:path.write_bytes(b'x')), \
+                 patch.object(pilot.os, 'getpgid', return_value=child.pid), \
+                 patch.object(pilot.os, 'getpgrp', return_value=child.pid+1), \
+                 patch.object(pilot.os, 'killpg', side_effect=signal_group), \
+                 patch.object(pilot, 'save', side_effect=write), \
+                 contextlib.redirect_stderr(output):
+                with self.assertRaises(OSError) as caught:
+                    pilot.run(root/'plan.json')
+            self.assertEqual(caught.exception.errno, errno.ENOSPC)
+            self.assertIn('capacity wait status full', str(caught.exception))
+            spawn.assert_called_once()
+            self.assertEqual(paused_writes, 2)
+            self.assertFalse((root/'emergency-reserve.bin').exists())
+            self.assertFalse(reserve_path.exists())
+            self.assertEqual(json.loads((root/'status.json').read_text())['status'],
+                             'PAUSED_CAPACITY')
+            receipt = json.loads((root/'pilot-terminal.json').read_text())
+            self.assertEqual(receipt['error'], str(caught.exception))
+            self.assertEqual(receipt['child_pid'], child.pid)
+            self.assertIsNone(receipt['child_returncode'])
+            self.assertTrue(receipt['cleanup_incomplete'])
+            self.assertTrue(any(x['error_type'] == 'PermissionError'
+                                for x in receipt['cleanup_errors']))
+            self.assertFalse(receipt['automatic_retry'])
+            self.assertEqual(receipt['persistence_recovery']['reason'], 'ENOSPC')
+
+    def test_terminal_reserve_allocation_failure_prevents_owned_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inputs = [root/name for name in ('generator', 'packer', 'trainer', 'baseline')]
+            for path in inputs:
+                path.write_text('fixture')
+            generator, packer, trainer, baseline = inputs
+            pilot.save(root/'plan.json', {
+                'schema':'sekirei.own-halfkp-pilot-plan.v1',
+                'generator':str(generator), 'packer':str(packer), 'trainer':str(trainer),
+                'baseline':str(baseline), 'baseline_sha256':pilot.sha(baseline),
+                'generation':{'seeds':[7], 'games_per_shard':1, 'depth':1, 'nodes':1,
+                              'random_plies':0, 'min_training_ply':24, 'max_ply':64},
+                'training':{}, 'max_wall_hours':1, 'exclusions':[], 'spent_manifests':[],
+                'bound_inputs':[pilot.ref(path) for path in inputs]})
+            with patch.object(pilot.EmergencyReserve, 'allocate',
+                              side_effect=OSError(errno.ENOSPC, 'terminal reserve full')), \
+                 patch.object(pilot.subprocess, 'Popen') as spawn:
+                with self.assertRaisesRegex(OSError, 'terminal reserve full'):
+                    pilot.run(root/'plan.json')
+            spawn.assert_not_called()
+            receipt = json.loads((root/'pilot-terminal.json').read_text())
+            self.assertEqual(receipt['error_type'], 'OSError')
+            self.assertIsNone(receipt['child_pid'])
+            self.assertFalse(receipt['automatic_retry'])
+
     def test_terminal_persistence_failure_does_not_replace_primary_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
