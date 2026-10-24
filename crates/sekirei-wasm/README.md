@@ -30,79 +30,21 @@ runs `wasm-pack` with the locked Cargo graph and adds `LICENSE-MIT`,
 `LICENSE-APACHE`, and `NOTICE` to the package.
 
 ```js
-import init, {
-  startSfen,
-  legalMoves,
-  analyzeMate,
-  analyzeMateInOne,
-  analyzeSingleKingMate,
-  analyzeSingleKingMateInOne,
-  applyMove,
-  computerMove,
-  analyzePosition,
-  analyzePositionMultiPv,
-  loadEvaluator,
-  packageInfo,
-  searchCapabilities,
-} from "./pkg/sekirei_wasm.js";
+import init, { packageInfo, analyzePosition, startSfen } from "./pkg/sekirei_wasm.js";
 
 await init();
-const packageBuild = packageInfo();
-console.log(packageBuild.apiVersion, packageBuild.engineVersion);
-console.log(packageBuild.provenance, packageBuild.sourceCommitStatus);
-console.log(packageBuild.sourceCommit, packageBuild.buildCommit);
-packageBuild.free();
-const capabilities = searchCapabilities();
-console.log(capabilities.effectiveWorkers); // 1
-// Optional, one-shot evaluator loading. Run this before creating any board.
-// The caller is responsible for the weight file's source and license.
-const weightBytes = new Uint8Array(await (await fetch("./weights.bin")).arrayBuffer());
-const loaded = loadEvaluator(weightBytes);
-console.log(loaded.evaluatorId, loaded.weightSha256);
-loaded.free();
-let sfen = startSfen();
-console.log(legalMoves(sfen));
-sfen = applyMove(sfen, "7g7f");
-const reply = computerMove(sfen, 4, 50_000);
-console.log(reply.effectiveWorkers); // 1
-sfen = applyMove(sfen, reply.bestMove);
-reply.free();
-
-const evaluation = analyzePosition(sfen, 4, 50_000);
-console.log(evaluation.kind, evaluation.scoreCp, evaluation.bound);
-evaluation.free();
-
-const ranked = analyzePositionMultiPv(sfen, 4, 50_000, 4);
-for (let index = 0; index < ranked.candidateCount; index += 1) {
-  const candidate = ranked.candidate(index);
-  console.log(candidate.rank, candidate.rootMove, candidate.scoreCp);
-  candidate.free();
-}
-ranked.free();
-
-const problem = analyzeMateInOne(
-  "4k4/2S3S2/2SGpGS2/9/4R4/9/9/9/4K4 b - 1",
-);
-console.log(problem.validPosition, problem.solutions, problem.uniqueSolution);
-
-const longerProblem = analyzeMate(
-  "4k4/9/2G3S2/5R3/2GG5/9/9/9/4K4 b - 1",
-  5,
-  1_000_000,
-);
-console.log(longerProblem.outcome, longerProblem.shortestMatePly); // mate, 3
-
-const singleKingProblem = analyzeSingleKingMate(
-  "6p1p/5g3/6kBR/9/6Ns1/9/9/9/9 b rb3g3s3n4l16p 1",
-  13,
-  1_000_000,
-);
-console.log(
-  singleKingProblem.positionPolicy, // attacker_king_optional
-  singleKingProblem.distanceRule, // all_legal_defender_replies
-  singleKingProblem.shortestProofPly, // 7
-);
+const build = packageInfo(); // Read identity before search or evaluator loading.
+console.log(build.provenance, build.sourceCommit, build.buildCommit);
+build.free();
+const result = analyzePosition(startSfen(), 4, 50_000);
+console.log(result.kind, result.scoreCp, result.bound, result.principalVariation);
+result.free(); // Free every returned wasm-bindgen object, including MultiPV candidates.
 ```
+
+Other entry points are `legalMoves`, `applyMove`, `computerMove`,
+`analyzePositionMultiPv`, `loadEvaluator`, `searchCapabilities`,
+`analyzeMateInOne`, `analyzeSingleKingMateInOne`, `analyzeMate`, and
+`analyzeSingleKingMate`. See the contracts below before using their results.
 
 Rejected input throws an object with stable `code` and human-readable
 `message` fields.
