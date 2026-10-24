@@ -127,7 +127,7 @@ The [validator](../scripts/validate_nnue_release_artifact.py) checks its
 artifact hash, license, training and whole-game hold-out manifests, exact
 engine identity, and raw 1T/4T current-engine gate references. Each gate must
 pin its opening corpus, material baseline, candidate load acknowledgement,
-paired-trinomial result, and terminal receipt. A `PASS` requires the
+and paired-trinomial result. Keep its terminal receipt. A `PASS` requires the
 preregistered bounds and complete colour-reversed pairs; a 4T
 `NON_REGRESSION` also requires a margin declared before play.
 
