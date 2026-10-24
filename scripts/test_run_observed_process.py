@@ -449,6 +449,10 @@ class ObservedProcessTests(unittest.TestCase):
             state = json.loads((root/'observer-status.json').read_text())
             self.assertEqual(state['error']['error_type'], 'FileNotFoundError')
             self.assertEqual(state['status'], 'observer_error')
+            self.assertNotIn('child_pid', state)
+            retried = self.run_child("print('started')", root)
+            self.assertEqual(retried['attempt'], 2)
+            self.assertEqual(retried['outcome']['returncode'], 0)
 
     def test_unclosed_starting_state_refuses_ambiguous_spawn(self):
         with tempfile.TemporaryDirectory() as td:
@@ -471,6 +475,7 @@ class ObservedProcessTests(unittest.TestCase):
 
     def test_previous_unconfirmed_cleanup_refuses_live_or_unknown_child(self):
         for pid, error in ((None, {'cleanup_incomplete': True, 'child_returncode': None}),
+                           (None, {'child_returncode': None}),
                            (424242, {'child_returncode': None}),
                            (424242, {'cleanup_incomplete': True, 'child_returncode': 1})):
             with self.subTest(pid=pid, error=error), tempfile.TemporaryDirectory() as td:

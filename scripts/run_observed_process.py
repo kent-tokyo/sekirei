@@ -305,7 +305,8 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
             raise RuntimeError("previous spawn may have succeeded; resolve unknown child before relaunch")
         unresolved_cleanup = (previous.get("status") == "observer_error" and
                               (previous.get("error", {}).get("cleanup_incomplete") or
-                               previous.get("error", {}).get("child_returncode") is None))
+                               ("child_pid" in previous and
+                                previous.get("error", {}).get("child_returncode") is None)))
         if previous.get("status") == "running" or unresolved_cleanup:
             event("previous_observer_disappeared", previous=previous,
                   cause="unknown; previous child exit was not confirmed")
