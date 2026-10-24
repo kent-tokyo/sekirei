@@ -116,70 +116,26 @@ python3 scripts/check_halfkp_oracle.py --engine /path/to/reference-engine \
 every visited node. The reference engine must print `eval = <int>` for the
 `eval` command.
 
-## Evidence boundary
+## Evidence for a release weight
 
-The B-small implementation passed mechanical load/inference checks, but its
-validation signals disagreed and it has no successful paired strength gate.
-It remains experimental. Unreleased candidate runs and their diagnostics do
-not make a new file distributable or stronger than material evaluation.
+The B-small implementation passed mechanical load and inference checks, but
+has no successful paired strength gate. Unreleased diagnostics do not make a
+checkpoint distributable or stronger than material evaluation.
 
-Any checkpoint considered for distribution needs, at minimum:
+A proposed HalfKP release weight needs a `sekirei.nnue-model-card.v2` card.
+The [validator](../scripts/validate_nnue_release_artifact.py) checks its
+artifact hash, license, training and whole-game hold-out manifests, exact
+engine identity, and raw 1T/4T current-engine gate references. Each gate must
+pin its opening corpus, material baseline, candidate load acknowledgement,
+and paired-trinomial result. Keep its terminal receipt. A `PASS` requires the
+preregistered bounds and complete colour-reversed pairs; a 4T
+`NON_REGRESSION` also requires a margin declared before play.
 
-```text
-checkpoint_sha256:     <sha256>
-architecture/build:    <features and dimensions>
-training_commit:       <commit>
-dataset/teacher hashes: <hashes>
-validation summary:    <metrics and held-out input>
-strength gate status:  not run | PASS | FAIL | INCONCLUSIVE
-license:               <explicit artifact license>
-```
-
-For a HalfKP artifact proposed as a recommended release candidate, use the fail-closed
-`sekirei.nnue-model-card.v2` contract checked by
-`scripts/validate_nnue_release_artifact.py`. In addition to the fields above,
-it requires hashed training-shard and whole-game hold-out manifests, exact raw
-evidence for current-engine one- and four-thread gates, and the full engine
-commit. This validator only checks whether the evidence bundle is complete and
-internally consistent; it does not create evidence or turn an unpublished
-candidate into a strength claim.
-
-Each gate condition declares `threads`, `byoyomi_ms`, `games`, `verdict`,
-and hashed `evidence` / `raw_evidence` references. `current_engine_gate` also
-pins `engine_sha256` and may pin one common `opening_corpus_sha256`. When 1T
-and 4T deliberately use separate frozen corpora, omit that common field and
-require each condition to pin its own `opening_corpus_sha256`. Either form is
-fail-closed: every evidence summary must match the applicable pinned hash. The
-evidence reference must be a UTF-8 JSON object
-(up to 1 MiB), schema `sekirei.nnue-engine-gate-evidence.v1`, containing:
-
-- Matching `engine_commit`, `engine_sha256`, `candidate_sha256`,
-  `opening_corpus_sha256`, `raw_evidence_sha256`, `threads`, `byoyomi_ms`,
-  `fv_scale`, `games` and `verdict`.
-- `wins`, `draws`, `losses` summing to the even, positive game count;
-  `status="complete"`, `artifact_write_failures=[]`, `invalid_games=[]`.
-- `baseline_evaluator="material"`, `candidate_load_acknowledged=true`,
-  `baseline_weights_loaded=false`, as supported by the retained raw logs.
-- `sprt`: `method="paired-trinomial"`, `elo0`, `elo1`, `alpha=0.05`,
-  `beta=0.05`, `require_complete_pairs=true`, `analyzed_pairs=games/2`,
-  `llr`, `lower_bound` and `upper_bound`. Bounds must match +/-log(19),
-  and LLR must reach the upper bound. Numerical fields must be finite.
-
-A `PASS` requires nonnegative `elo0` and `elo1>elo0`. A four-thread
-`NON_REGRESSION` additionally requires the condition's explicitly declared
-`non_regression_margin_elo>0`, with `elo0=-margin` and `elo1=0` in the
-accepted test. Set that margin before play; this contract supplies no default
-margin and does not authorize retrospective changes.
-
-These identity and result checks reject a hash-correct summary for another
-model/build or an unaccepted test. They do not independently replay SPRT,
-prove the claimed source-to-binary correspondence, attest hold-out scope
-completeness, or verify that logs support every declared field. The owner must
-assemble this small metadata envelope from the original records; preserve
-those records unchanged for review. A 12-position depth check remains a
-bounded regression check, not a replacement for a current-engine gate.
-
-Validate the assembled release bundle against the exact source commit:
+The validator checks the bundle's schema, references, hashes, and declared
+results. It does not replay SPRT, prove the source-to-binary relationship,
+audit every raw log claim, or authorize default adoption. Preserve the
+original records for review. A short depth diagnostic cannot replace a
+current-engine gate. Validate against the exact release source commit:
 
 ```bash
 python3 scripts/validate_nnue_release_artifact.py model-card.json \
@@ -187,32 +143,16 @@ python3 scripts/validate_nnue_release_artifact.py model-card.json \
   --expected-engine-commit <full-40-hex-commit>
 ```
 
-All referenced files must remain inside the bundle root; absolute paths,
-parent-directory escapes, missing files, and hash mismatches fail validation.
+Use [`export_nnue_gate_evidence.py`](../scripts/export_nnue_gate_evidence.py)
+on each retained terminal receipt to create the 1T and 4T summaries. Keep
+the raw match JSON, opening corpus, manifests, and receipts in the bundle;
+calculate the card's reference hashes only after assembling it. The exporter
+cannot create a gate or infer a license.
 
-An experimental opt-in asset may be distributed with a release only when its
-card explicitly records every missing v2 condition. It must remain
-non-default and may not be described as a recommended checkpoint until its
-complete v2 bundle validates against the engine commit being released.
-
-Create each gate-evidence summary from its retained terminal receipt instead
-of transcribing results by hand. The exporter checks the raw match JSON,
-candidate load acknowledgement, material baseline options, paired SPRT result,
-and all relevant hashes before writing a new file:
-
-```bash
-python3 scripts/export_nnue_gate_evidence.py \
-  --result /path/to/result.json \
-  --raw-match-json /path/to/match.json \
-  --engine-commit <full-40-hex-commit> \
-  --output /path/to/evidence/1t-gate.json
-```
-
-Run it separately for the 1T and 4T gates. Copy the output, terminal receipt,
-raw match JSON, opening corpus, and manifests into the intended private or
-release bundle before calculating the model card's reference hashes. The
-exporter does not create a gate, waive an owner attestation, or infer a
-license.
+An experimental opt-in asset may be released only with an explicit record of
+its missing v2 conditions. It must stay non-default and must not be described
+as a recommended checkpoint until a complete v2 bundle validates against the
+engine commit being released.
 
 Training can use a separately operated external teacher, but its license and
 the dataset terms must be assessed by the person distributing the resulting

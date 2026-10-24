@@ -9,11 +9,11 @@
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.5.1`では、
-探索前に取得できるWASMパッケージの来歴と、検証付きのnpm公開経路を追加します。
-既定の探索方針と駒得評価器は変更していません。任意利用のHalfKP重み`nn_r6`は
-v0.5.0のGitHub Releaseで引き続き取得できますが、既定採用や一般的な棋力向上を
-意味しません。
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.5.1`は
+既定で駒得評価を使います。NNUE重みを使う場合はファイルを明示します。
+対応形式と測定範囲は
+[NNUE重み](docs/nnue_weights.md)、リリースごとの変更は
+[変更履歴](CHANGELOG.md)を参照してください。
 
 ## まず動かす
 
@@ -31,12 +31,10 @@ cargo run --release -p sekirei
 ```
 
 生成された`sekirei`をUSI対応GUIへ登録します。`EvalFile`を指定しない場合は
-駒得評価を使います。外部HalfKP 256x2-32-32では`FV_SCALE`を使い、そのファイルのライセンスに
-従ってください。対応形式、SHA-256、測定範囲は
-[NNUE重み](docs/nnue_weights.md)にまとめています。`nn_r6`は固定したソースで
-独立した先後反転1T・4Tのmaterial gateに合格し、公開する証跡束もstrict validatorを
-通過しています。既定評価器にはせず、外部レートや今回のリリース全般での棋力向上を
-示すものでもありません。
+駒得評価を使います。外部HalfKP 256x2-32-32には`FV_SCALE`を設定し、各ファイルの
+ライセンスに従ってください。任意利用の`nn_r6`重みには`FV_SCALE=24`が必要です。
+固定条件の1T・4T material gateは、外部レートや一般的な棋力向上を示しません。
+読み込み方と証跡は[NNUE重み](docs/nnue_weights.md)を参照してください。
 
 ## 構成
 
@@ -76,26 +74,17 @@ python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 python3 scripts/check_release_manifest_layout.py
 ```
 
-現行リリースのmanifestだけをリポジトリ直下に置き、検証済みの過去証跡は
-[manifestアーカイブ](docs/releases/manifests/README.md)に保存します。
-
 カバレッジ確認には`cargo-llvm-cov 0.8.7`、`llvm-tools-preview`、`jq`が
 必要です。再利用可能なRustコードと配布するUSI実行系の行カバレッジを98%以上に
-固定します。CIではRust/Cargo関連の変更、main更新、リリースタグで実行し、文書だけ、
-または通常のスクリプトだけを変更するPRでは省略します。ベンチマーク、ゲート、
-リリース、学習の各ツールは
-[スクリプト索引](scripts/README.md)を参照してください。公開ライブラリ
-`sekirei-core`のAPIは、マージ前と公開直前にv0.3.73との互換性を確認します。
-0.4へのバージョン更新だけを理由に互換性の破壊を許可しません。処理単位の時間は
-総合速度や棋力順位を示しません。
+固定します。現行リリースのmanifestはリポジトリ直下に置き、過去分は
+[アーカイブ](docs/releases/manifests/README.md)に保存します。CIでは公開ライブラリ
+`sekirei-core`のAPIをv0.3.73と比較します。
 
-専用のPGOバイナリは、Apple M4の実測NPSで、固定したやねうらおうビルドを
-**8Tで4.65%**（95%信頼区間：+2.55〜+6.69%）、**4Tで7.1%**
-（同：+5.1〜+9.0%）上回りました。[8Tの測定条件と証跡](docs/experiments/compiler_pgo_8t_v0.4.2/README.md)と
-[4Tの測定条件と証跡](docs/experiments/compiler_pgo_4t_v0.4.1/README.md)は独立した測定です。
-通常のCargoビルドには、これらのプロファイルを適用していません。
-v0.4.4の[自前HalfKPでプロファイルした別候補](docs/experiments/own_halfkp_pgo_8t_v0.4.4/README.md)も、
-固定条件の8T比較で**+3.09%**（95%信頼区間：+0.76〜+5.40%）でした。
+PGOの[8T](docs/experiments/compiler_pgo_8t_v0.4.2/README.md)、
+[4T](docs/experiments/compiler_pgo_4t_v0.4.1/README.md)、
+[自前HalfKP 8T](docs/experiments/own_halfkp_pgo_8t_v0.4.4/README.md)の
+各報告には、固定したバイナリ、測定条件、不確実性を記録しています。通常の
+Cargoビルドや棋力の測定値として扱わないでください。
 
 ## 対局と学習
 
@@ -109,13 +98,11 @@ python3 scripts/run_local_selfplay.py --games 1000 \
 ```
 
 実行結果はGit管理外の`data/runs/`に保存します。同一エンジンの自己対局は
-学習・回帰用であり、Floodgateや人間のレートではありません。`sekirei-csa`の
-認証情報は実行時だけ渡してください。
+学習・回帰用であり、Floodgateや人間のレートではありません。対局・ゲートの
+ツールは[スクリプト索引](scripts/README.md)を参照してください。
 
 NNUE学習の引数は`cargo run --release -p sekirei-train -- --help`で確認できます。
-学習側は`lineprior 0.12.6`と`shogiesa-core 0.11.6`を固定し、外部ラッパーは
-`shogiesa 0.11.6`で確認しています。データと重みはGit外に保存します。
-レシピ、ハッシュ、再開条件、対局単位の分割条件は
+データと重みはGit外に保存します。レシピ、ハッシュ、再開条件、対局単位の分割条件は
 [スクリプト索引](scripts/README.md)にまとめています。
 
 定跡はビルド時・実行時とも明示的に有効化します。
@@ -132,8 +119,6 @@ cargo build --release -p sekirei --features opening-book
 
 - [文書索引](DOCUMENTATION.md)
 - [変更履歴](CHANGELOG.md)と[過去の詳細履歴](CHANGELOG_ARCHIVE.md)
-- [NNUE重みとライセンス](docs/nnue_weights.md)
-- [スクリプト・検証ツール索引](scripts/README.md)
 
 実装、テスト、測定、公開成果物は別の根拠です。過去の実験文書は、明示的に
 再検証しない限り、記録された版と条件にだけ適用します。
