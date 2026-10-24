@@ -95,6 +95,9 @@ class Net(nn.Module):
         w = self.ft(idx)
         if self.fact:
             w = w + self.ftp(torch.where(idx == PAD, PIECE, idx % PIECE))
+            # Export clips the folded row to this range. Keep the training
+            # value identical while retaining gradients through saturation.
+            w = w + (w.clamp(-FT_MAX, FT_MAX) - w).detach()
         return w
 
     def forward(self, us, them):
@@ -305,6 +308,7 @@ def export(net, path, fv_scale, note):
     if net.fact:
         p = net.ftp.weight.detach().cpu().double().numpy()[:PIECE]
         ft_w = (ft_w.reshape(N_KING, PIECE, HALF) + p[None]).reshape(N_IN, HALF)
+        # The same folded limit is applied by Net.rows() during training.
         ft_w = np.clip(ft_w, -FT_MAX, FT_MAX)
     ft_b = net.ft_bias.detach().cpu().double().numpy()
     q = lambda x, lo, hi, dtype: np.clip(np.rint(x), lo, hi).astype(dtype)
@@ -342,7 +346,9 @@ def load_init(net, st):
     if "ftp.weight" in st and not net.fact:
         p = st.pop("ftp.weight")[:PIECE]
         w = st["ft.weight"].clone()
-        w[:N_IN] = (w[:N_IN].view(N_KING, PIECE, HALF) + p[None]).view(N_IN, HALF)
+        folded = w[:N_IN].view(N_KING, PIECE, HALF) + p[None]
+        folded.clamp_(-FT_MAX, FT_MAX)
+        w[:N_IN] = folded.view(N_IN, HALF)
         st["ft.weight"] = w
     missing, unexpected = net.load_state_dict(st, strict=False)
     if unexpected or not all(k.startswith("ftp") for k in missing):
