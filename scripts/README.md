@@ -1,37 +1,23 @@
 # Script index
 
-`scripts/` contains reproducibility and diagnostic tools, not a second public
-CLI. Use the Cargo binaries for normal engine operation. Before running a
-script, inspect `--help`, choose a new ignored output directory, and retain its
-manifest with the result.
+`scripts/` contains reproducibility and diagnostic tools. Use the Cargo
+binaries for normal engine operation. Before running a script, inspect
+`--help`, choose a new ignored output directory, and retain its manifest.
 
-The workspace pins `lineprior 0.12.6`. The default USI runtime excludes it;
-only `sekirei-train` and an explicitly enabled `sekirei/opening-book` feature
-use it. The data-pipeline wrappers have been checked with the external
-`shogiesa 0.11.6` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.6`
-for the typed JSONL contract; the default USI engine, search core, CSA client,
-and match runner do not.
-
-The shogiesa/Quietset wrappers are diagnostic only; Sekirei's internal
-`--label-*` search remains the teacher. Before Quietset runs, the
-`verify-shogiesa-label-run` helper applies shogiesa's typed manifest and
-artifact verifier to the exact positions and observations streams. Complete
-digest provenance is the default; compatibility mode must be explicit.
-Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
+The default USI engine does not depend on `lineprior` or `shogiesa-core`.
+The trainer uses both; the optional opening-book feature uses `lineprior`.
+The pinned versions are in the workspace manifests. External
+shogiesa/Quietset wrappers are diagnostic only. Their verifier requires
+complete digests and typed manifests before Sekirei checks depth,
+`UseBook=false`, and the diagnostic-only policy.
 
 ## Release and public boundary
 
-- `.github/workflows/api-compatibility.yml` runs `cargo-semver-checks` for
-  the only published library crate, `sekirei-core`. It compares against
-  v0.3.73 with `release-type: patch`, so a 0.4 version bump cannot hide a
-  breaking public Rust API change. The crates.io publish workflow repeats the
-  same check on the exact tag before uploading any crate. The unpublished
-  WASM crate remains covered by its generated TypeScript/package contract.
-- `test_api_compatibility_workflow.py` pins the baseline, exact action commit,
-  full-history checkout, package scope, and pre-publish ordering. The publish
-  workflow also verifies the exact tag, all seven workspace versions, the
-  planned release manifest, and the GitHub Release WASM metadata before the
-  first irreversible registry upload.
+`.github/workflows/api-compatibility.yml` checks the published `sekirei-core`
+API against v0.3.73 before merge; the publish workflow repeats it on the exact
+tag before upload. `test_api_compatibility_workflow.py` checks the baseline,
+action pin, history depth, and ordering. Release checks also bind all seven
+workspace versions, the manifest, and WASM metadata.
 
 | Tool | Purpose |
 |---|---|
@@ -52,9 +38,9 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
 | `run_ab_match.py` | Fixed-protocol local A/B, paired SPRT, or node-limited YaneuraOu measurement. It hashes inputs and fails closed on incomplete or inconsistent JSONL, kifu, snapshots, or result sidecars. `--supervised --result-json PATH` adds a one-shot parent that records a terminal error if the wrapper or match child exits unexpectedly. Material-only, one thread and `SpecTopN=0` are the defaults. |
 | `launch_floodgate_once.py` | Starts one rendered bounded Floodgate LaunchAgent without combining `RunAtLoad=true` and `kickstart`; refuses registered labels and records the single-run acceptance receipt. |
-| `nps_threads.py` | Thread-scaling diagnostic for NPS, completed depth, best-move stability and optional Lazy SMP/TT/root-hint counters. `--summary-json` binds TT reuse, sampled overlap, discarded root work and worker-node balance for 4T/8T diagnosis. Counter-enabled runs are separate from speed runs; no output qualifies a speed or Elo claim. It completes new-game readiness before setting the position because some engines reset their board on `isready`. |
+| `nps_threads.py` | Thread-scaling diagnostic for NPS, completed depth, move stability, and opt-in parallel counters. Counter-enabled runs are separate from speed runs; neither establishes Elo. |
 | `paired_search_diagnostics.py` | Fresh-process A/B/B/A comparison for one search factor. Separates deterministic signatures, counter-free timing and opt-in parallel diagnostics; it does not estimate Elo. |
-| `build_pgo_lane.py` | Creates native, instrumented, and profile-use binaries from one clean source state using a fresh material-only compiler-profile corpus by default. Optional paired `--training-evalfile` / `--training-eval-card` arguments accept a public-card-verified, own-trained HalfKP file read-only; card FV_SCALE, model/card hashes and runtime load acknowledgement are required. This profiles runtime code without updating weights or selecting a model. It checks source and input hashes between phases, separates build-script profiles from normal-exit training profiles, and preserves command diagnostics with the toolchain, corpus, profile and binary hashes. It does not qualify speed, strength, or default adoption; freeze the emitted binaries into a separate host-qualified benchmark or match gate. |
+| `build_pgo_lane.py` | Builds native, instrumented, and profile-use binaries from one clean source and frozen corpus. Optional own-HalfKP profiling needs a verified public card and exact load identity. Qualify speed, strength, and default adoption in separate gates. |
 | `generate_search_diagnostic.py` | Creates new seeded, score-blind quiet/tactical diagnostic positions from Sekirei legal playouts and rule probes, with complete replay and executable-hash provenance. Reads no training corpus or external evaluator. Diagnostic-only; do not reuse as an independent gate. |
 | `validate_paired_pv.py` | Freezes the Rust legal-move tool and replays every recorded PV, checking its bestmove prefix and each legal transition. Fails on incomplete runs or illegal PVs. This is a same-rules contract check, not an independent oracle or a proof of mate scores. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
@@ -121,39 +107,20 @@ retains its separate hang timeout.
 
 For a new counter-free, movetime `paired_search_diagnostics.py` run, use
 `--idle-wait-seconds 300 --idle-poll-seconds 10 --idle-stable-samples 3`.
-Three consecutive idle samples admit dispatch; busy or unavailable samples
-reset the count. Add `--idle-min-free-mib 1024 --idle-stable-samples 5` to
-require five joint CPU and free-space samples. The default wait is zero.
-These options cannot be combined with `--allow-busy`, fixed-depth/node
-budgets, or counter-enabled runs.
+Three consecutive idle samples admit dispatch; add
+`--idle-min-free-mib 1024 --idle-stable-samples 5` for a joint disk and CPU
+floor. The default wait is zero. These options cannot be combined with
+`--allow-busy`, fixed-depth/node budgets, or counters.
 
-The manifest records samples and admission. A timeout produces
-`blocked_host_busy` or `blocked_host_resources` with zero searches. Capacity
-is checked again before dispatch, between ABBA searches, and at postflight;
-loss invalidates timing or leaves an incomplete run. Frozen inputs are
-rechecked before and after search. Samples do not prove continuous host
-isolation or reserve disk space, and this admission does not reopen an old
-study. Use a fresh output directory and keep match-input exclusions separate.
+Timeout records `blocked_host_busy` or `blocked_host_resources` with zero
+searches. Capacity is checked before, between, and after ABBA searches;
+loss invalidates timing. The manifest retains samples and frozen-input
+checks. Admission does not reserve resources or reopen an older study.
 
 Historical [benchmark reports](../docs/experiments/benchmark_reports/README.md)
-apply only to their recorded host, revision, corpus, and operation. They are
-neither general speed rankings nor Elo claims.
-
-Example material-only tactical-line capture (repeat `--nodes` for a budget
-ladder):
-
-```bash
-cargo build --release -p sekirei-core --bins
-python3 scripts/run_tactical_line_diagnostic.py \
-  --cases scripts/fixtures/tactical_line_cases_v1.json \
-  --engine target/release/sekirei-search-diagnostic \
-  --history-sfen target/release/history_sfen \
-  --nodes 100000 --nodes 2000000 \
-  --output data/runs/tactical-lines/report.json
-```
-
-Add `--weights FILE --nnue-output absolute` for a distinct NNUE lane. The
-report hashes both executables, the case file, and the optional weights.
+apply only to their recorded host, revision, corpus, and operation. For
+tactical-line captures, use `run_tactical_line_diagnostic.py --help` and
+keep material and explicit-weight lanes separate.
 
 ## JSONL ingestion and audit
 
@@ -334,30 +301,16 @@ under `scripts/`, including the historical single-run tools in [`archive/`](arch
 
 ## Experiment playbooks
 
-Keep experiment-specific commands and decision rules with their dated
-evidence instead of extending this tool index:
+Keep experiment decisions with their dated evidence:
 
-- [Useful Lazy SMP depth](../docs/experiments/lazy_smp_useful_depth_v0.4.0/README.md):
-  score-blind corpus generation, ABBA diagnostics, and separate counter-free
-  and instrumented lanes.
-- [`compare_yaneura_speed.py`](compare_yaneura_speed.py): shared-evaluator
-  ABBA throughput comparison. Pin both builds, evaluator, corpus, hash, CPU,
-  compiler and ISA; keep NPS, completed work, and playing strength separate.
-- [Independent material-opening gate](../docs/experiments/aspiration_independent_gate_v0.4.1/README.md):
-  unused-opening exclusions, frozen manifests, paired SPRT, and fail-closed
-  evidence requirements.
-- [Deferred quiet HalfKP](../docs/experiments/quiet_halfkp_qs_v0.4.1/README.md)
-  and [refresh-column fusion](../docs/experiments/halfkp_refresh_tile_v0.4.1/README.md):
-  completed independent 4T speed gates. Neither candidate established an
-  engine-level gain; both remain disabled.
-- [Quiet-TT staging](../docs/experiments/quiet_tt_stage_v0.4.1/README.md),
+- [Useful Lazy SMP depth](../docs/experiments/lazy_smp_useful_depth_v0.4.0/README.md)
+  and [material-opening gate](../docs/experiments/aspiration_independent_gate_v0.4.1/README.md)
+  define separate diagnostics and strength protocols.
+- [`compare_yaneura_speed.py`](compare_yaneura_speed.py) compares pinned
+  builds and evaluators under an ABBA throughput protocol, not Elo.
+- [Deferred quiet HalfKP](../docs/experiments/quiet_halfkp_qs_v0.4.1/README.md),
+  [refresh-column fusion](../docs/experiments/halfkp_refresh_tile_v0.4.1/README.md),
+  [quiet-TT staging](../docs/experiments/quiet_tt_stage_v0.4.1/README.md),
   [continuation rows](../docs/experiments/quiet_cont_rows_v0.4.1/README.md), and
-  [cooperative prestart cap](../docs/experiments/cooperative_root_prestart_cap_v0.4.1/README.md):
-  closed default-off screens with negative, incomplete, or timing-blocked
-  evidence.
-
-The corresponding entry points are `generate_search_diagnostic.py`,
-`paired_search_diagnostics.py`, `compare_yaneura_speed.py`,
-`freeze_material_gate_openings.py`, and `run_ab_match.py`. Always inspect
-`--help` and use a new output directory; the dated playbook, not this index,
-defines the experiment contract.
+  [cooperative prestart cap](../docs/experiments/cooperative_root_prestart_cap_v0.4.1/README.md)
+  retain their default-off verdicts and exact conditions.

@@ -61,9 +61,11 @@ deterministic diagnostics, use `Threads=1` and `SpecTopN=0`.
 [`sekirei-wasm`](crates/sekirei-wasm/README.md) provides SFEN parsing, legal
 moves, validated move application, bounded one-worker search with an optional
 caller-supplied evaluator, up to four MultiPV lines, and bounded shortest-mate
-analysis. The prebuilt v0.5.1 ES-module
-package is attached to the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.1/sekirei-wasm-0.5.1.tgz).
+analysis. Install the verified v0.5.1 ES-module package with
+`npm install sekirei-wasm@0.5.1`, or pin the
+[GitHub Release archive](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.1/sekirei-wasm-0.5.1.tgz).
+See the [distribution record](docs/releases/npm_wasm.md) for package identity
+and verification.
 
 ## Build and verify
 

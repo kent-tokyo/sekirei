@@ -59,9 +59,10 @@ USIの`usi`で全オプションを確認できます。`SearchMode=Auto`は1ワ
 
 [`sekirei-wasm`](crates/sekirei-wasm/README.md)は、SFEN解析、合法手、
 検証付き着手、呼出側が渡す任意評価器を使う上限付き1ワーカー探索、最大4本の
-MultiPV、最短詰み解析を提供します。ビルド済みのv0.5.1 ESモジュールパッケージは
+MultiPV、最短詰み解析を提供します。検証済みのv0.5.1 ESモジュールは
+`npm install sekirei-wasm@0.5.1`で導入できます。配布ファイルを固定する場合は
 [GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.1/sekirei-wasm-0.5.1.tgz)
-から取得できます。
+を利用してください。版とファイルの照合方法は[配布記録](docs/releases/npm_wasm.md)にあります。
 
 ## ビルドと検証
 
