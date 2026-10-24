@@ -1,5 +1,9 @@
 # npm distribution for `sekirei-wasm`
 
+The [v0.5.1 release manifest](../../release-manifest-v0.5.1.json) records a
+verified npm publication, registry version and integrity, and GitHub Release
+archive hash. Install that version with `npm install sekirei-wasm@0.5.1`.
+
 The GitHub Release `sekirei-wasm-X.Y.Z.tgz` remains the primary, hashed release
 asset. The npm workflow publishes that same archive and then compares every
 extracted file with the registry download by SHA-256. Repacking may change the
@@ -37,15 +41,11 @@ integrity, and calls `startSfen()`, `searchCapabilities()`, and
 only stable releases can move `latest`. A later prerelease workflow must use
 its own dist-tag and must not reuse this `latest` path.
 
-The npm owner must control the unscoped `sekirei-wasm` name. The first publish
-requires an authenticated npm owner; configure `NPM_PUBLISH_TOKEN` as a GitHub
-secret if the package does not yet support trusted publishing. For later runs,
-configure the package's npm trusted publisher for this repository,
-`npm-publish-wasm.yml`, and its `npm` environment, then remove the token. The
-workflow requests npm
-provenance with GitHub OIDC. This attestation is separate from the lockfile's
-registry integrity and the Release SHA256SUMS. A successful file comparison
-does not by itself prove that an attestation was issued.
+The npm owner must control the unscoped `sekirei-wasm` name. For future runs,
+configure the package's trusted publisher for this repository,
+`npm-publish-wasm.yml`, and its `npm` environment. A token is needed only when
+trusted publishing is unavailable. The workflow requests npm provenance with
+GitHub OIDC; package-file parity alone does not prove an attestation was issued.
 See npm's [trusted publishing](https://docs.npmjs.com/trusted-publishers/)
 and [provenance](https://docs.npmjs.com/generating-provenance-statements/)
 documentation for the account setup and attestation checks.
