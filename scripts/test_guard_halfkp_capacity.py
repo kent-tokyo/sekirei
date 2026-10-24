@@ -143,20 +143,24 @@ class GuardTest(unittest.TestCase):
     def test_reused_paused_child_pid_is_not_continued(self):
         self.system.free = 1000; self.guard.tick()
         self.system.table[300] = replace(self.system.table[300], started='new', ppid=1)
-        self.guard.resume('operator_shutdown')
+        self.system.free = 3072
+        for _ in range(3):
+            self.guard.tick()
         self.assertEqual(self.system.signals[-1], (200, signal.SIGCONT))
         self.assertNotIn((300, signal.SIGCONT), self.system.signals)
 
-    def test_caught_shutdown_continues_owned_groups_without_restarting_child(self):
+    def test_caught_shutdown_leaves_paused_groups_for_verified_recovery(self):
         self.system.free = 1000
         self.system.sleep_error = InterruptedError('operator shutdown')
         with self.assertRaises(InterruptedError):
             self.guard.run()
-        self.assertEqual(self.system.signals, [(200, signal.SIGSTOP), (300, signal.SIGSTOP),
-                                              (300, signal.SIGCONT), (200, signal.SIGCONT)])
-        self.assertEqual(json.loads(self.guard.state_path.read_text())['status'], 'STOPPED')
+        self.assertEqual(self.system.signals, [(200, signal.SIGSTOP), (300, signal.SIGSTOP)])
+        saved = json.loads(self.guard.state_path.read_text())
+        self.assertEqual(saved['status'], 'NEEDS_OPERATOR')
+        self.assertEqual(len(saved['groups']), 2)
+        self.assertEqual(saved['stable_samples'], 0)
 
-    def test_entry_log_failure_still_cleans_up_previously_paused_groups(self):
+    def test_entry_log_failure_keeps_previously_paused_groups_stopped(self):
         self.system.free = 1000; self.guard.tick()
         event = self.guard.event
         calls = 0
@@ -169,8 +173,61 @@ class GuardTest(unittest.TestCase):
         with patch.object(self.guard, 'event', side_effect=fail_once):
             with self.assertRaisesRegex(OSError, 'initial event failure'):
                 self.guard.run()
-        self.assertEqual(self.system.signals[-2:], [(300, signal.SIGCONT), (200, signal.SIGCONT)])
-        self.assertEqual(self.guard.state['groups'], [])
+        self.assertEqual(self.system.signals, [(200, signal.SIGSTOP), (300, signal.SIGSTOP)])
+        self.assertEqual(self.guard.state['status'], 'NEEDS_OPERATOR')
+        self.assertEqual(len(self.guard.state['groups']), 2)
+
+    def test_new_guard_recovers_caught_shutdown_only_after_three_good_samples(self):
+        self.system.free = 1000; self.guard.tick()
+        self.system.sleep_error = G.GuardShutdown('stop')
+        with self.assertRaises(G.GuardShutdown):
+            self.guard.run()
+        self.system.sleep_error = None
+        self.guard = G.Guard(self.config, self.system)
+        self.system.free = 3072
+        self.guard.tick(); self.guard.tick()
+        self.assertFalse(any(number == signal.SIGCONT for _, number in self.system.signals))
+        self.guard.tick()
+        self.assertEqual(self.system.signals[-2:],
+                         [(300, signal.SIGCONT), (200, signal.SIGCONT)])
+
+    def test_run_rejects_changed_input_without_continuing_paused_groups(self):
+        self.system.free = 1000; self.guard.tick()
+        self.script.write_text('# modified controller input\n')
+        with self.assertRaisesRegex(ValueError, 'controller script changed'):
+            self.guard.run()
+        self.assertEqual(self.system.signals, [(200, signal.SIGSTOP), (300, signal.SIGSTOP)])
+        self.assertEqual(self.guard.state['status'], 'NEEDS_OPERATOR')
+        self.assertEqual(len(self.guard.state['groups']), 2)
+
+    def test_shutdown_before_three_recovery_samples_keeps_groups_stopped(self):
+        self.system.free = 1000; self.guard.tick()
+        self.system.free = 3072
+        self.system.sleep_error = G.GuardShutdown('stop')
+        with self.assertRaises(G.GuardShutdown):
+            self.guard.run()
+        self.assertEqual(self.system.signals, [(200, signal.SIGSTOP), (300, signal.SIGSTOP)])
+        self.assertEqual(self.guard.state['status'], 'NEEDS_OPERATOR')
+        self.assertEqual(self.guard.state['stable_samples'], 0)
+
+    def test_target_exit_never_continues_a_journaled_child(self):
+        self.system.free = 1000; self.guard.tick()
+        self.system.table.pop(200)
+        self.system.free = 7000
+        self.guard.run()
+        self.assertEqual(self.system.signals, [(200, signal.SIGSTOP), (300, signal.SIGSTOP)])
+        self.assertEqual(self.system.table[300].state, 'T')
+        self.assertEqual(self.guard.state['status'], 'NEEDS_OPERATOR')
+        self.assertEqual(len(self.guard.state['groups']), 2)
+
+    def test_resume_requires_recovery_reason_and_samples(self):
+        self.system.free = 1000; self.guard.tick()
+        with self.assertRaisesRegex(ValueError, 'verified capacity recovery'):
+            self.guard.resume('caught_guard_shutdown')
+        self.system.free = 3072
+        with self.assertRaisesRegex(ValueError, 'stable capacity samples'):
+            self.guard.resume('capacity_recovered')
+        self.assertEqual(self.system.signals, [(200, signal.SIGSTOP), (300, signal.SIGSTOP)])
 
     def test_second_guard_lock_fails_and_same_journal_can_reconcile_guard_death(self):
         with self.assertRaises(BlockingIOError):
@@ -343,7 +400,11 @@ finally:
             finally:
                 if guard is not None:
                     try:
-                        guard.resume('integration_cleanup')
+                        # Test-only cleanup of exact journaled process identities.
+                        for item in guard.state['groups']:
+                            leader = guard.verify_group(item['leader'], system.processes(), parent=False)
+                            if leader is not None:
+                                system.signal_group(leader.pgid, signal.SIGCONT)
                     finally:
                         guard.close()
                 if controller.poll() is None:

@@ -254,7 +254,10 @@ it rejects incompatible layout or parameters that would change on re-export.
 New checkpoints record the shuffle contract and reject output aliases to
 any input. Pilot and guard plans freeze hashes, budgets, and process identity;
 a capacity recovery continues the same process and never retries a terminal
-engine failure or statistical gate. See the
+engine failure or statistical gate. If guard supervision fails, journaled
+groups stay stopped. A new guard using the same frozen config verifies process
+identity, inputs, and three stable capacity samples before continuation; a
+missing controller with paused children needs operator inspection. See the
 [r8c1 recipe review](../docs/experiments/own_nnue_r8c1_recipe_v0.5.1/README.md)
 for the pilot evidence and diagnostic parameter comparison.
 

@@ -7,8 +7,9 @@ Incarnations use PID/start-time/session/command and are checked immediately
 before each signal. macOS has no portable atomic incarnation-bound signal API,
 so a very small check/signal race cannot be eliminated. Guard SIGKILL or OS
 failure may leave owned processes stopped; the same frozen config and journal
-can be inspected/reconciled by a later guard. Caught shutdown resumes owned
-paused groups. Old controller wall time continues to include the pause.
+can be inspected/reconciled by a later guard. A caught shutdown leaves owned
+paused groups stopped until a new guard verifies recovery. Old controller wall
+time continues to include the pause.
 """
 from __future__ import annotations
 import argparse
@@ -302,12 +303,16 @@ class Guard:
             require(sha(item['path']) == item['sha256'], 'pilot input changed before resume')
 
     def resume(self, reason):
-        if reason == 'capacity_recovered':
-            self.verify_resume_inputs()
-            if self.system.free_mib(self.trial) < 3072:
-                self.state['stable_samples'] = 0
-                self.persist()
-                return
+        require(reason == 'capacity_recovered', 'resume requires verified capacity recovery')
+        require(self.state['stable_samples'] >= self.config['stable_samples'],
+                'resume requires stable capacity samples')
+        require(self.watch_identity(self.system.processes()),
+                'target identity changed before resume')
+        self.verify_resume_inputs()
+        if self.system.free_mib(self.trial) < self.config['resume_at_mib']:
+            self.state['stable_samples'] = 0
+            self.persist()
+            return
         # A crash halfway through CONT must be reconciled by freezing again.
         self.state['status'] = 'RESUMING'
         self.persist()
@@ -346,14 +351,19 @@ class Guard:
         self.verify_files()
         table = self.system.processes()
         if not self.watch_identity(table):
-            self.resume('target_exit')
-            self.state['status'] = 'TARGET_EXITED'; self.persist()
+            # The controller may be gone while a journaled child still exists.
+            # Its remaining lifetime and input state need operator inspection.
+            self.state.update(status='NEEDS_OPERATOR' if self.state['groups']
+                              else 'TARGET_EXITED', stable_samples=0)
+            self.persist()
             return False
         free = self.system.free_mib(self.trial)
         self.state.update(free_mib=free, observation='AVAILABLE')
-        if self.state['status'] in ('PAUSING', 'PAUSED', 'RESUMING') or self.state['groups']:
-            # Reconcile an unfinished pause after guard death using the same journal.
-            if self.state['status'] in ('PAUSING', 'RESUMING'):
+        if (self.state['status'] in ('PAUSING', 'PAUSED', 'RESUMING', 'NEEDS_OPERATOR')
+                or self.state['groups']):
+            # Reconcile an unfinished pause or caught guard failure before
+            # counting new recovery samples. A partly continued child is frozen.
+            if self.state['status'] in ('PAUSING', 'RESUMING', 'NEEDS_OPERATOR'):
                 self.pause()
             for item in self.state['groups']:
                 leader = self.verify_group(item['leader'], self.system.processes(), parent=False)
@@ -375,12 +385,17 @@ class Guard:
             while self.tick():
                 self.system.sleep(self.config['poll_seconds'])
         except BaseException as error:
-            self.state.update(status='ERROR', error_type=type(error).__name__, error=str(error))
+            # Lost supervision cannot authorize CONT. The persisted group
+            # identities let a later guard verify the same process and inputs.
+            self.state.update(status='NEEDS_OPERATOR' if self.state['groups']
+                              else 'STOPPED', stable_samples=0,
+                              error_type=type(error).__name__, error=str(error))
             try:
-                self.resume('caught_guard_shutdown')
-            finally:
-                self.state.update(status='STOPPED' if not self.state['groups'] else 'NEEDS_OPERATOR')
                 self.persist()
+            except BaseException:
+                # Keep the original failure; pause intent was journaled before
+                # STOP, so a failed status update must not release a child.
+                pass
             raise
         finally:
             self.close()
