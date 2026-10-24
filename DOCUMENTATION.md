@@ -15,6 +15,7 @@ mistaken for current behavior.
 | [`docs/amateur_analysis_benchmark.md`](docs/amateur_analysis_benchmark.md) | Reproducible analysis-record format and comparison metrics; no published benchmark result |
 | [`docs/mobile_integration.md`](docs/mobile_integration.md) | Current native/mobile integration surface and known gaps |
 | [`crates/sekirei-wasm/README.md`](crates/sekirei-wasm/README.md) | Browser API, package installation, and bounded-search contracts |
+| [`docs/releases/npm_wasm.md`](docs/releases/npm_wasm.md) | npm and GitHub Release distribution, hashes, and verification |
 | [`scripts/README.md`](scripts/README.md) | Release, training, match, and diagnostic tool index |
 | [`scripts/DENRYU_REHEARSAL.md`](scripts/DENRYU_REHEARSAL.md) | Loopback CSA recovery and 14-game continuity rehearsal |
 
