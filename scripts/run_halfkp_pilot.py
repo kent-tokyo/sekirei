@@ -25,6 +25,7 @@ import time
 
 from freeze_material_gate_openings import identity_hash, canonical_identity, load_exclusions
 from split_gensfen_by_game import split_files, parse_record, validate_game_results
+from run_observed_process import cleanup_child, cleanup_preserving_error
 
 
 class PilotShutdown(RuntimeError):
@@ -173,7 +174,8 @@ def capacity_retained(plan):
     require(sha(plan['trainer']) == source_bound.get(str(Path(source['trainer']).resolve())),
             'active trainer differs from source recipe')
     for name in ('freeze_material_gate_openings.py', 'split_gensfen_by_game.py',
-                 'generate_search_diagnostic.py', 'paired_search_diagnostics.py', 'nps_threads.py'):
+                 'generate_search_diagnostic.py', 'paired_search_diagnostics.py', 'nps_threads.py',
+                 'run_observed_process.py'):
         active = Path(__file__).resolve().parent/name
         prior = Path(source['trainer']).resolve().parent/name
         require(source_bound.get(str(prior)) == bound.get(str(active)) == sha(active),
@@ -309,18 +311,8 @@ def observe_host_cpu():
 
 
 def terminate_child(proc):
-    """Deliver termination before CONT so even a capacity-stopped child exits."""
-    if proc.poll() is not None:
-        return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-        os.killpg(proc.pid, signal.SIGCONT)
-        proc.wait(timeout=20)
-    except ProcessLookupError:
-        proc.wait(timeout=20)
-    except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
-        proc.wait()
+    """Boundedly terminate an owned child; an incomplete cleanup raises."""
+    return cleanup_child(proc)
 
 
 def pause_child_for_capacity(proc, wait_capacity, restore_reserve, record):
@@ -352,8 +344,8 @@ def pause_child_for_capacity(proc, wait_capacity, restore_reserve, record):
         duration = time.monotonic() - paused_at
         record('resumed', duration)
         return duration
-    except BaseException:
-        terminate_child(proc)
+    except BaseException as error:
+        cleanup_preserving_error(error, proc)
         raise
 
 
@@ -557,13 +549,33 @@ def run_locked(plan_path):
         reserve.unlink(missing_ok=True)
         snapshot()
     except BaseException as error:
-        reserve.unlink(missing_ok=True)
         if proc is not None:
-            terminate_child(proc)
+            cleanup_preserving_error(error, proc)
+        cleanup_errors = list(getattr(error, 'cleanup_errors', []))
+        try:
+            reserve.unlink(missing_ok=True)
+        except OSError as cleanup_error:
+            cleanup_errors.append({'action':'reserve-unlink',
+                                   'error_type':type(cleanup_error).__name__,
+                                   'error':str(cleanup_error)})
         state['capacity_paused'] = False
         state.update(status='STOPPED_NOT_QUALIFIED',error_type=type(error).__name__,error=str(error),
                      completed_at=now(),adopted=False)
-        snapshot()
+        if cleanup_errors:
+            state['cleanup_errors'] = cleanup_errors
+        if getattr(error, 'cleanup_incomplete', False):
+            state['cleanup_incomplete'] = True
+        try:
+            snapshot()
+        except OSError as persistence_error:
+            # If even the exit journal cannot be written, stderr still retains
+            # the primary failure and independently observed cleanup failures.
+            try:
+                print(json.dumps(dict(state, terminal_persistence_error=str(persistence_error))),
+                      file=sys.stderr, flush=True)
+            except (OSError, ValueError):
+                # Even diagnostic output may share the exhausted filesystem.
+                pass
         raise
 
 
