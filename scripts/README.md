@@ -46,6 +46,7 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 | `check_release_manifest_layout.py` | Requires only the current manifest in the repository root and verified historical manifests under `docs/releases/manifests/`. |
 | `verify_release_publication.py` | After publication, checks every crate on crates.io (present, not yanked) and the WebAssembly asset's SHA-256 and size; `--write` records `publish.status=verified` and the workflow run in the manifest. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. The v2 HalfKP contract additionally requires hashed training-shard and whole-game hold-out manifests, raw 1/4-thread current-engine gate evidence, and an exact engine commit. |
+| `export_nnue_gate_evidence.py` | Builds a gate-evidence summary from a retained terminal match receipt and raw match JSON; it rejects incomplete or mismatched material gates. |
 | `validate_nnue_candidate_card.py` | Validates an unpublished self-NNUE candidate card and, with `--artifact`, its size, SHA-256, HalfKP header, descriptor, and FV scale. It cannot authorize distribution or a default evaluator. |
 | `validate_nnue_cpu_pilot.py` | Validates a frozen, short AWS CPU-pilot plan only after a colour-reversed material gate, complete candidate/data/resume evidence, and an observed CPU-dominant bottleneck. It does not provision cloud resources. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
@@ -310,13 +311,13 @@ checklist. Set `--completed-attempts` only from retained terminal evidence.
 
 ## Editing and cleanup
 
-Most Python tools use only the standard library and have a focused
-`test_<tool>.py`. After an edit, run that focused test, then:
-
 Shared byte hashing, canonical JSON hashing, and atomic JSON replacement live
 in `sekirei_tools.artifacts`. Maintained release and gate entry points should
 reuse these primitives; historical one-off experiment scripts remain frozen
 until their archived evidence no longer depends on their exact behavior.
+
+Most Python tools use only the standard library and have a focused
+`test_<tool>.py`. After an edit, run that focused test, then:
 
 ```bash
 python3 scripts/check_documentation_references.py

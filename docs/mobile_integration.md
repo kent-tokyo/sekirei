@@ -23,7 +23,7 @@ does not bundle a weight or expose the native engine's multi-threaded search.
 
 The default engine binary's direct dependency chain is small: `sekirei-usi`
 uses `sekirei-core` and `rayon`; `sekirei-core` uses `rayon`. `lineprior
-0.12.4` is included only with the optional `opening-book` feature. This is not
+0.12.6` is included only with the optional `opening-book` feature. This is not
 a transitive-license audit; inspect the resolved graph for a shipped app.
 
 ## USI options relevant to resource-constrained deployment
