@@ -55,6 +55,29 @@ class FactorizerTest(unittest.TestCase):
             expect = np.clip(np.rint((w[row] + p[piece]) * 127), -32768, 32767)
             self.assertTrue(np.array_equal(ft[row], expect.astype(np.int16)), (king, piece))
 
+    def test_folded_limit_matches_rows_export_and_plain_initialization(self):
+        with torch.no_grad():
+            self.net.ft.weight[0, :6] = torch.tensor([2, 4, 4, -2, -4, -4])
+            self.net.ftp.weight[0, :6] = torch.tensor([3, 2, 4, -3, -2, -4])
+        self.net.clamp_(24)  # Each term is legal, even when its folded sum is not.
+        idx = torch.tensor([0, th.PAD])
+        expected = torch.tensor([5, 6, 6, -5, -6, -6], dtype=torch.float32)
+        rows = self.net.rows(idx)
+        self.assertTrue(torch.equal(rows[0, :6], expected))
+        self.assertTrue(torch.equal(rows[1], torch.zeros(th.HALF)))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "net.bin")
+            th.export(self.net, path, 24, "folded limit")
+            integer_rows = ft_section(path)[0, :6].copy()
+            self.assertTrue(np.array_equal(integer_rows, expected.numpy().astype(np.int16) * 127))
+
+            plain = th.Net(24, fact=False)
+            th.load_init(plain, self.net.state_dict())
+            self.assertTrue(torch.equal(plain.rows(idx), rows))
+            th.export(plain, path, 24, "plain folded limit")
+            self.assertTrue(np.array_equal(ft_section(path)[0, :6], integer_rows))
+
     def test_plain_model_loads_a_factorized_state_folded(self):
         plain = th.Net(24, fact=False)
         th.load_init(plain, self.net.state_dict())
