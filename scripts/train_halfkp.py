@@ -10,7 +10,7 @@ usage:
   python3 scripts/train_halfkp.py --data train.bin [more.bin ...] --out net.bin
       [--val-data validation.bin ...] [--epochs 1] [--batch 8192] [--lr 5e-4]
       [--lam 1.0] [--scale 600] [--fv-scale 24] [--device mps|cpu]
-      [--init prev.pt] [--save state.pt] [--fact] [--max-train N]
+      [--init prev.pt | --init-bin prev.bin] [--save state.pt] [--fact] [--max-train N]
 
 Target: lam * sigmoid(score / scale) + (1 - lam) * (result + 1) / 2, loss the
 squared difference to sigmoid(prediction / scale), prediction in centipawns
@@ -22,6 +22,12 @@ integer file can represent (see `clamp_`), so export is a rounding step
 validation side of `split_gensfen_by_game.py`. Without it a random fraction
 (--val) of positions is held out, which lets adjacent positions of one game
 fall on both sides and makes the validation loss look better than it is.
+
+--init-bin reconstructs trainable parameters from a compatible quantized network
+with an explicitly supplied --fv-scale. This starts a fresh optimizer; it does
+not recover the original float state or resume its optimizer. Parameter values
+must survive trainer clamps and integer re-export unchanged. It cannot be
+combined with --init or an existing --ckpt resume file.
 
 --fact adds a king-independent row per piece-square that is summed with every
 king's row during training and folded into them at export, so the file format
@@ -355,6 +361,109 @@ def load_init(net, st):
         raise ValueError(f"incompatible state: missing {missing}, unexpected {unexpected}")
 
 
+def validate_fv_scale(fv_scale):
+    if type(fv_scale) is not int or not 1 <= fv_scale <= 128:
+        raise ValueError("FV scale must be an integer in 1..128")
+
+
+def validate_initialization(init, init_bin, checkpoint):
+    if init_bin and init:
+        raise ValueError("--init-bin and --init are mutually exclusive")
+    if init_bin and checkpoint and os.path.exists(checkpoint):
+        raise ValueError("--init-bin cannot be combined with an existing resume checkpoint")
+
+
+def load_init_bin(net, path, fv_scale):
+    """Warm-start from integer parameters with a fresh optimizer.
+
+    This reconstructs quantized parameters, not the original float model or
+    optimizer. Every parameter must survive the trainer's clamps and export
+    quantization unchanged. Validation uses bounded chunks before modifying
+    the model; the input stays read-only memory mapped.
+    """
+    validate_fv_scale(fv_scale)
+    if net.fv != fv_scale:
+        raise ValueError("network and supplied FV scale differ")
+    with open(path, "rb") as stream:
+        header = stream.read(12)
+        if len(header) != 12:
+            raise ValueError("truncated HalfKP header")
+        version, file_hash, arch_len = struct.unpack("<III", header)
+        if version != VERSION or file_hash != FILE_HASH:
+            raise ValueError("unsupported HalfKP version or file hash")
+        if arch_len > 4096:
+            raise ValueError("HalfKP architecture descriptor exceeds 4096 bytes")
+        expected = (12 + arch_len + 4 + HALF * 2 + N_IN * HALF * 2 + 4
+                    + HIDDEN * 4 + HIDDEN * (2 * HALF)
+                    + HIDDEN * 4 + HIDDEN * HIDDEN + 4 + HIDDEN)
+        if os.fstat(stream.fileno()).st_size != expected:
+            raise ValueError("HalfKP exact length mismatch (truncated or trailing data)")
+        try:
+            architecture = stream.read(arch_len).decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ValueError("HalfKP architecture descriptor is not UTF-8") from error
+        if struct.unpack("<I", stream.read(4))[0] != TRANSFORMER_HASH:
+            raise ValueError("unsupported HalfKP feature-transformer hash")
+        network_offset = 12 + arch_len + 4 + HALF * 2 + N_IN * HALF * 2
+        stream.seek(network_offset)
+        if struct.unpack("<I", stream.read(4))[0] != NETWORK_HASH:
+            raise ValueError("unsupported HalfKP network hash")
+        mapped = np.memmap(stream, dtype="u1", mode="r", shape=(expected,))
+    sections = []
+    offset = 12 + arch_len + 4
+
+    def section(parameter, dtype, shape, scale, shift=0, bound=None):
+        nonlocal offset
+        count = math.prod(shape)
+        raw = np.frombuffer(mapped, dtype=dtype, count=count, offset=offset)
+        offset += count * np.dtype(dtype).itemsize
+        if tuple(parameter.shape) != shape:
+            raise ValueError("incompatible HalfKP parameter dimensions")
+        sections.append((parameter, raw, scale, shift, bound))
+
+    section(net.ft_bias, "<i2", (HALF,), 127)
+    section(net.ft.weight[:N_IN], "<i2", (N_IN, HALF), 127, bound=FT_MAX)
+    offset += 4  # checked network hash
+    for layer, inputs in ((net.l1, 2 * HALF), (net.l2, HIDDEN)):
+        section(layer.bias, "<i4", (HIDDEN,), 64 * 127, shift=32)
+        section(layer.weight, "i1", (HIDDEN, inputs), 64, bound=HID_MAX)
+    section(net.out.bias, "<i4", (1,), fv_scale)
+    section(net.out.weight, "i1", (1, HIDDEN), fv_scale / 127,
+            bound=127.0 * 127.0 / fv_scale)
+    if offset != expected:
+        raise ValueError("incompatible HalfKP parameter length")
+
+    def chunks(parameter, raw, scale, shift, bound):
+        if parameter.dtype not in (torch.float32, torch.float64):
+            raise ValueError("HalfKP initialization requires float32 or float64 parameters")
+        dtype = np.float32 if parameter.dtype == torch.float32 else np.float64
+        for first in range(0, raw.size, 65536):
+            source = raw[first:first + 65536]
+            values = ((source.astype(np.float64) - shift) / scale).astype(dtype)
+            if bound is not None and np.any(np.abs(values) > np.asarray(bound, dtype=dtype)):
+                raise ValueError("HalfKP parameters would be changed by trainer clamp")
+            encoded = np.rint(values.astype(np.float64) * scale + shift)
+            if not np.array_equal(encoded, source):
+                raise ValueError("HalfKP parameters are not exactly representable for export")
+            yield first, values
+
+    # First validate all sections, so malformed parameters cannot partly load.
+    for entry in sections:
+        for _ in chunks(*entry):
+            pass
+    with torch.no_grad():
+        for parameter, raw, scale, shift, bound in sections:
+            target = parameter.view(-1)
+            for first, values in chunks(parameter, raw, scale, shift, bound):
+                target[first:first + len(values)].copy_(torch.from_numpy(values))
+        net.ft.weight[PAD].zero_()
+        if net.fact:
+            net.ftp.weight.zero_()
+    return {"architecture_descriptor": architecture,
+            "initialization": "quantized-bin-warm-start-fresh-optimizer",
+            "fv_scale": fv_scale}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", nargs="+", required=True)
@@ -364,10 +473,13 @@ def main():
     ap.add_argument("--lr", type=float, default=5e-4)
     ap.add_argument("--lam", type=float, default=1.0)
     ap.add_argument("--scale", type=float, default=600.0)
-    ap.add_argument("--fv-scale", type=int, default=24)
+    ap.add_argument("--fv-scale", type=int, default=None,
+                    help="output scale (default 24; must be explicit with --init-bin)")
     ap.add_argument("--val", type=float, default=0.02, help="held-out fraction")
     ap.add_argument("--device", default="mps" if torch.backends.mps.is_available() else "cpu")
-    ap.add_argument("--init", help="start from a saved state (.pt)")
+    initial = ap.add_mutually_exclusive_group()
+    initial.add_argument("--init", help="start from a saved state (.pt)")
+    initial.add_argument("--init-bin", help="warm-start quantized .bin parameters with a fresh optimizer; not float/optimizer resume")
     ap.add_argument("--save", help="write the float state here (.pt)")
     ap.add_argument("--threads", type=int, default=0)
     ap.add_argument("--seed", type=int, default=1)
@@ -378,8 +490,14 @@ def main():
     ap.add_argument("--ckpt-every", type=int, default=200, help="steps between checkpoints")
     ap.add_argument("--log-every", type=int, default=100)
     args = ap.parse_args()
+    if args.init_bin and args.fv_scale is None:
+        ap.error("--init-bin requires an explicitly supplied --fv-scale")
+    if args.fv_scale is None:
+        args.fv_scale = 24
+    validate_fv_scale(args.fv_scale)
+    validate_initialization(args.init, args.init_bin, args.ckpt)
     validate_io_paths(
-        [*args.data, *(args.val_data or []), args.init],
+        [*args.data, *(args.val_data or []), args.init, args.init_bin],
         [args.out, args.save, args.ckpt],
     )
     if args.threads:
@@ -423,6 +541,9 @@ def main():
     net = Net(args.fv_scale, args.fact)
     if args.init:
         load_init(net, torch.load(args.init, map_location="cpu"))
+    if args.init_bin:
+        metadata = load_init_bin(net, args.init_bin, args.fv_scale)
+        print(f"initialization {metadata['initialization']} from {args.init_bin}", flush=True)
     net.to(dev)
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
     steps_per_epoch = max(1, train_count // args.batch)

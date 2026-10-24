@@ -1,0 +1,100 @@
+{
+  "r6": {
+    "native_parity_mae_cp": 0.5504626694601029,
+    "native_parity_max_abs_cp": 3.9166717529296875,
+    "native_parity_over_2cp": 5,
+    "native_cp_mean": -3.388671875,
+    "float_cp_mean": -3.333341598510742
+  },
+  "r8c1": {
+    "native_parity_mae_cp": 0.566739175003022,
+    "native_parity_max_abs_cp": 3.1250152587890625,
+    "native_parity_over_2cp": 9,
+    "native_cp_mean": -6.67578125,
+    "float_cp_mean": -6.643562316894531
+  },
+  "r8c1_checkpoint": {
+    "native_parity_mae_cp": 0.5667491890490055,
+    "native_parity_max_abs_cp": 3.123321533203125
+  },
+  "candidate_native_change": {
+    "mean_cp": -3.287109375,
+    "mae_cp": 3.291015625,
+    "max_abs_cp": 10,
+    "changed_positions": 442
+  },
+  "data": {
+    "train_records": 44918,
+    "validation_records": 4975,
+    "train_games": 923,
+    "validation_games": 101,
+    "side_to_move_black": 22537,
+    "score_cp": {
+      "min": -2315.0,
+      "p10": -851.0,
+      "median": 18.0,
+      "p90": 839.3000000000029,
+      "max": 2566.0
+    },
+    "ply": {
+      "min": 24.0,
+      "p10": 30.0,
+      "median": 61.0,
+      "p90": 112.0,
+      "max": 255.0
+    },
+    "abs_score_ge_1000": 438,
+    "score_result_sign_agreement_nonzero": 0.752592526372251,
+    "active_ft_rows": 37761,
+    "total_ft_rows": 125388,
+    "active_king_buckets": 77,
+    "phase_counts": {
+      "endgame_ge80": 14209,
+      "middlegame_40_79": 20184,
+      "opening_lt40": 10525
+    },
+    "batch": 1024,
+    "steps": 43,
+    "consumed_records": 44032,
+    "unconsumed_tail_records": 886
+  },
+  "identity": {
+    "baseline": {
+      "path": "/Users/k_tanabe/.local/state/sekirei/nnue-public-qualification/20261018T202833Z-shared-host/nn_r6.bin",
+      "sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469"
+    },
+    "candidate": {
+      "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261020T221608Z-r8c1-capacity-continuation/nn_r8c1.bin",
+      "sha256": "6ef55f1e6906b84a1149eb3e5d66ba1fcb84250832b0ab494a713de136b8cbc1"
+    },
+    "checkpoint": {
+      "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261020T221608Z-r8c1-capacity-continuation/nn_r8c1.pt",
+      "sha256": "e96c1cd92aaa46fc031a739d0df648c66fcf2da8f6f691f7238772a8f7cc4a03"
+    },
+    "train_bin": {
+      "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261020T221608Z-r8c1-capacity-continuation/train.bin",
+      "sha256": "0ec74ac72b64d35d83839d9961ac25f59da32d9908146a8b039d020f21a0fdaf"
+    },
+    "train_txt": {
+      "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261020T221608Z-r8c1-capacity-continuation/train.txt",
+      "sha256": "16e4d5a64b7068faaa6b6c43e4b8ffab564a6ad9db5230f2eaf4823fde75e042"
+    },
+    "trainer": {
+      "path": "/Users/k_tanabe/.codex/worktrees/own-nnue-inference/sekirei/scripts/train_halfkp.py",
+      "sha256": "9bd83accc989694abf884b6dea10f810ff81e08ce0a7b4e3a6623d533822c337"
+    },
+    "packer": {
+      "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/20261020T204747Z-r8c1/bin/halfkp_pack",
+      "sha256": "0caae2010ea5218797ec033a2c475ef9c96ae2c0d8eb5ac780b1830c17faa84a"
+    },
+    "sample_train": {
+      "path": "/Users/k_tanabe/.local/state/sekirei/own-nnue-training/reviews/20261021T142048Z-r8c1/sample-train.txt",
+      "sha256": "5deffe8e388aa5e97d1f1a57646ff4cb4f46d95ddf022e203641bcf315982dca"
+    }
+  },
+  "schema": "sekirei.own-halfkp-recipe-review.v1",
+  "checked_at": "2026-10-21T14:20:49.688572+00:00",
+  "strength_claim": false,
+  "sample_rule": "512 evenly spaced rows of the frozen Codex-owned training split; diagnostic only. No gate roots or private historical hold-outs inspected.",
+  "torch_version": "2.12.1"
+}

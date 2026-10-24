@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Tests for train_halfkp.py (skipped when PyTorch or NumPy is unavailable)."""
 import importlib.util
+import io
 import os
+import struct
+from contextlib import contextmanager, redirect_stderr
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HAVE_DEPS = all(importlib.util.find_spec(m) is not None for m in ("torch", "numpy"))
@@ -205,6 +209,173 @@ class OutputSafetyTest(unittest.TestCase):
             with open(output, "rb") as f:
                 self.assertEqual(f.read(), b"previous")
             self.assertFalse(os.path.exists(th._temporary_sibling(output)))
+
+
+@unittest.skipUnless(HAVE_DEPS, "torch and numpy are required")
+class QuantizedWarmStartTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        torch.set_num_threads(1)
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.path = os.path.join(cls.tmp.name, "synthetic.bin")
+        cls.arch = b"synthetic complete parameter roundtrip"
+        cls.offsets = {}
+        with open(cls.path, "wb") as stream:
+            stream.write(struct.pack("<III", th.VERSION, th.FILE_HASH, len(cls.arch)))
+            stream.write(cls.arch)
+            stream.write(struct.pack("<I", th.TRANSFORMER_HASH))
+            cls.offsets["ft_bias"] = stream.tell()
+            np.linspace(-32768, 32767, th.HALF).astype("<i2").tofile(stream)
+            cls.offsets["ft"] = stream.tell()
+            for first in range(0, th.N_IN * th.HALF, 65536):
+                end = min(first + 65536, th.N_IN * th.HALF)
+                ((np.arange(first, end, dtype=np.int64) % 1525) - 762).astype("<i2").tofile(stream)
+            cls.offsets["network_hash"] = stream.tell()
+            stream.write(struct.pack("<I", th.NETWORK_HASH))
+            for name, inputs in (("l1", 2 * th.HALF), ("l2", th.HIDDEN)):
+                cls.offsets[name + "_bias"] = stream.tell()
+                (np.arange(th.HIDDEN, dtype=np.int32) * 17123 - 10000).astype("<i4").tofile(stream)
+                cls.offsets[name + "_weights"] = stream.tell()
+                ((np.arange(th.HIDDEN * inputs, dtype=np.int64) % 255) - 127).astype("i1").tofile(stream)
+            cls.offsets["out_bias"] = stream.tell()
+            stream.write(struct.pack("<i", 12345))
+            cls.offsets["out_weights"] = stream.tell()
+            np.linspace(-127, 127, th.HIDDEN).astype("i1").tofile(stream)
+        cls.net = th.Net(24, fact=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls.net
+        cls.tmp.cleanup()
+
+    @contextmanager
+    def changed_bytes(self, offset, replacement):
+        with open(self.path, "r+b") as stream:
+            stream.seek(offset)
+            previous = stream.read(len(replacement))
+            stream.seek(offset)
+            stream.write(replacement)
+        try:
+            yield
+        finally:
+            with open(self.path, "r+b") as stream:
+                stream.seek(offset)
+                stream.write(previous)
+
+    def test_complete_integer_parameters_roundtrip_and_clamp_unchanged(self):
+        with torch.no_grad():
+            self.net.ftp.weight.fill_(0.75)
+            self.net.ft.weight[th.PAD].fill_(0.5)
+        metadata = th.load_init_bin(self.net, self.path, 24)
+        self.assertEqual(metadata["architecture_descriptor"], self.arch.decode())
+        self.assertIn("fresh-optimizer", metadata["initialization"])
+        self.assertEqual(torch.count_nonzero(self.net.ftp.weight).item(), 0)
+        self.assertEqual(torch.count_nonzero(self.net.ft.weight[th.PAD]).item(), 0)
+        self.net.clamp_(24)
+        raw = np.memmap(self.path, mode="r", dtype="u1")
+        def verify(parameter, key, dtype, count, scale, shift=0):
+            expected = np.frombuffer(raw, dtype=dtype, count=count, offset=self.offsets[key])
+            actual = parameter.detach().numpy().reshape(-1)
+            for first in range(0, count, 65536):
+                values = actual[first:first + 65536].astype(np.float64)
+                encoded = np.rint(values * scale + shift)
+                self.assertTrue(np.array_equal(encoded, expected[first:first + 65536]), key)
+        verify(self.net.ft_bias, "ft_bias", "<i2", th.HALF, 127)
+        verify(self.net.ft.weight[:th.N_IN], "ft", "<i2", th.N_IN * th.HALF, 127)
+        for name, layer in (("l1", self.net.l1), ("l2", self.net.l2)):
+            verify(layer.bias, name + "_bias", "<i4", th.HIDDEN, 64 * 127, 32)
+            verify(layer.weight, name + "_weights", "i1", layer.weight.numel(), 64)
+        verify(self.net.out.bias, "out_bias", "<i4", 1, 24)
+        verify(self.net.out.weight, "out_weights", "i1", th.HIDDEN, 24 / 127)
+
+    def test_rejects_version_and_all_structural_hashes(self):
+        for offset in (0, 4, 12 + len(self.arch), self.offsets["network_hash"]):
+            with self.subTest(offset=offset), self.changed_bytes(offset, struct.pack("<I", 0)):
+                with self.assertRaisesRegex(ValueError, "version|hash"):
+                    th.load_init_bin(self.net, self.path, 24)
+
+    def test_rejects_architecture_length_and_invalid_utf8(self):
+        with self.changed_bytes(8, struct.pack("<I", 4097)):
+            with self.assertRaisesRegex(ValueError, "4096"):
+                th.load_init_bin(self.net, self.path, 24)
+        with self.changed_bytes(12, b"\xff"):
+            with self.assertRaisesRegex(ValueError, "UTF-8"):
+                th.load_init_bin(self.net, self.path, 24)
+
+    def test_rejects_truncated_and_trailing_images(self):
+        bad = os.path.join(self.tmp.name, "bad.bin")
+        for length in (4, os.path.getsize(self.path) - 1, os.path.getsize(self.path) + 1):
+            with self.subTest(length=length):
+                with open(bad, "wb") as stream:
+                    stream.write(struct.pack("<III", th.VERSION, th.FILE_HASH, len(self.arch)))
+                    stream.truncate(length)
+                with self.assertRaisesRegex(ValueError, "truncated|length"):
+                    th.load_init_bin(self.net, bad, 24)
+
+    def test_rejects_clipped_or_nonrepresentable_parameters_without_partial_load(self):
+        cases = [("ft", struct.pack("<h", 763), "clamp"),
+                 ("l1_weights", b"\x80", "clamp"),
+                 ("l2_weights", b"\x80", "clamp"),
+                 ("out_weights", b"\x80", "clamp"),
+                 ("l2_bias", struct.pack("<i", 2147483647), "representable")]
+        for key, value, message in cases:
+            before = self.net.ft_bias.detach().clone()
+            with self.subTest(key=key), self.changed_bytes(self.offsets[key], value):
+                with self.assertRaisesRegex(ValueError, message):
+                    th.load_init_bin(self.net, self.path, 24)
+            self.assertTrue(torch.equal(before, self.net.ft_bias))
+
+    def test_scale_is_explicit_positive_and_bounded(self):
+        for value in (0, -1, 129, 24.0, True):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "FV scale"):
+                th.load_init_bin(self.net, self.path, value)
+        with self.assertRaisesRegex(ValueError, "scale differ"):
+            th.load_init_bin(self.net, self.path, 16)
+
+    def test_warm_start_is_exclusive_with_float_init_or_existing_resume(self):
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            th.validate_initialization("old.pt", self.path, None)
+        with self.assertRaisesRegex(ValueError, "resume checkpoint"):
+            th.validate_initialization(None, self.path, self.path)
+        th.validate_initialization(None, self.path, os.path.join(self.tmp.name, "new.ckpt"))
+
+    def test_cli_requires_explicit_scale_before_accessing_inputs(self):
+        argv = ["train_halfkp.py", "--data", "/missing/data.bin", "--out", "/missing/out.bin",
+                "--init-bin", "/missing/parent.bin"]
+        with patch.object(sys, "argv", argv), patch.object(th, "validate_io_paths") as paths:
+            with redirect_stderr(io.StringIO()) as error, self.assertRaises(SystemExit) as stopped:
+                th.main()
+            self.assertEqual(stopped.exception.code, 2)
+            self.assertIn("explicitly supplied --fv-scale", error.getvalue())
+            paths.assert_not_called()
+
+    def test_cli_accepts_equals_scale_before_input_access(self):
+        argv = ["train_halfkp.py", "--data", "/missing/data.bin", "--out", "/missing/out.bin",
+                "--init-bin", "/missing/parent.bin", "--fv-scale=24"]
+        with patch.object(sys, "argv", argv), patch.object(th, "validate_fv_scale", wraps=th.validate_fv_scale) as scale:
+            with patch.object(th, "validate_io_paths", side_effect=RuntimeError("before input access")):
+                with self.assertRaisesRegex(RuntimeError, "before input access"):
+                    th.main()
+            scale.assert_called_once_with(24)
+
+    def test_cli_retains_default_scale_for_existing_modes(self):
+        argv = ["train_halfkp.py", "--data", "/missing/data.bin", "--out", "/missing/out.bin"]
+        with patch.object(sys, "argv", argv), patch.object(th, "validate_fv_scale", wraps=th.validate_fv_scale) as scale:
+            with patch.object(th, "validate_io_paths", side_effect=RuntimeError("before input access")):
+                with self.assertRaisesRegex(RuntimeError, "before input access"):
+                    th.main()
+            scale.assert_called_once_with(24)
+
+    def test_bin_input_cannot_alias_any_output(self):
+        with self.assertRaisesRegex(ValueError, "output aliases input"):
+            th.validate_io_paths([self.path], [self.path])
+        alias = os.path.join(self.tmp.name, "alias.bin")
+        os.link(self.path, alias)
+        try:
+            with self.assertRaisesRegex(ValueError, "output aliases input"):
+                th.validate_io_paths([self.path], [alias])
+        finally:
+            os.unlink(alias)
 
 
 if __name__ == "__main__":

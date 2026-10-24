@@ -91,9 +91,25 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-24: Codex owns self-NNUE generation, training code, weights, and candidate evaluation. Earlier Claude ownership assignments are superseded. Preserve active jobs, prior training work, hold-outs, and frozen evidence; qualify each candidate independently before adoption or publication.
+
+* 2026-10-23: Manually continue nn_r8c3 after its observer capacity failure, retaining all 123 completed pairs, the unplayed-root order, 400-pair cap and original deadline; use the validated observer fix and file necessary issues without publishing private trial artifacts.
+
+* 2026-10-22: Manually start the previously unplayed nn_r8c3 formal screen after the user requested resumption; preserve the old c2/c3 stop records, frozen 400-root order, weights, conditions, cap and original deadline. Never automatically retry an engine failure.
+
+* 2026-10-21: While the user sleeps, autonomously revise plans and advance bounded self-NNUE generation, training and fresh-root candidate gates. Preserve registered verdicts and limits, audit failures without automatic trial retries, and keep publication/default changes separate.
+
+* 2026-10-21: Review the nn_r8c1 training recipe using owned-data and exported-parameter diagnostics; isolate a batch-size ablation from existing strength trials, and require independent fresh-root gates before adoption.
+
+* 2026-10-21: Manually continue the interrupted nn_r8c1 screen after auditing all completed pairs; preserve the stop record, original weights, corpus order, SPRT and total deadline. Do not enable automatic trial retries.
+
+* 2026-10-21: Report self-NNUE progress in this thread every30 minutes, including live job state, completed pairs, SPRT status, and resource-wait or termination reasons.
+
+* 2026-10-21: Implement automatic pause and continuation after NNUE output-capacity recovery, preserving completed games and exact active process state. Persist pause/resume and failure evidence; never automatically retry engine failures or statistical gates.
+
 * 2026-10-20: Organize or delete verified-obsolete files and refactor the repository, preserving historical release and measurement evidence, unrelated NNUE work, and observable behavior.
 
-* 2026-10-19: Transfer `nn_r6` evidence production to Codex. Generate and qualify only from an isolated worktree and dedicated evidence output; preserve the candidate identity, use material-only colour-reversed current-source gates, and do not alter unrelated Claude training work or hold-outs.
+* 2026-10-19: Transfer `nn_r6` evidence production to Codex. Generate and qualify only from an isolated worktree and dedicated evidence output; preserve the candidate identity, use material-only colour-reversed current-source gates, and do not alter unrelated prior training work or hold-outs.
 
 * 2026-10-19: Prepare qualified nn_r6 for the next release as a separate optional native NNUE asset; bind hashes, license and evidence, confirm release-build compatibility, and keep publication and default adoption separate.
 
@@ -142,8 +158,6 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 * 2026-10-01: Release v0.3.55 after verifying SearchMode Auto/Lazy SMP, bounded CSA operation, six-crate publication, manifest, and GitHub Release; make no general strength claim.
 * 2026-09-27: Do not use Suisho5 executables, nn.bin files, evaluation outputs, or derived labels for Sekirei training, candidate selection, or public artifacts unless the user later reverses this instruction.
 * 2026-10-07: Tune search constants (SPSA) and screen search changes with material-only evaluation and Sekirei-generated openings; use Suisho5 only to measure Sekirei against YaneuraOu, never to choose constants or defaults.
-* 2026-10-10: Claude owns self-NNUE training, weights, and candidate selection. Codex must not modify that lane concurrently; focus on search, parallelism, TT, quiescence, and their measurement tooling in an isolated worktree.
-* 2026-10-12: Continue Claude's self-NNUE lane, but keep it isolated to data generation, training, provenance, and candidate gates. Codex owns search, parallelism, WASM/mobile analysis contracts, and integration. Do not interrupt Claude jobs or reuse their hold-out; freeze and reproduce the best candidate on current main before expanding an open-ended generation loop.
 * When writing newsletter articles, use natural, concrete prose and avoid formulaic or promotional AI-sounding language. State the actual observations and their limits plainly; avoid stock disclaimer phrasing and abstract caveats.
 * Where practical, support article claims with relevant data and links to their sources. Make clear which statements are verified facts and which are estimates or interpretation.
 * Always fact-check articles before delivery. Verify factual claims, especially figures, dates, quotations, and rules, against reliable sources; correct or remove claims that cannot be verified.
@@ -153,5 +167,3 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 * Format Substack articles for easy scanning with restrained headings, emphasis, and lists. Use only formatting the editor reliably supports, and avoid emoji except where genuinely necessary.
 * Write Japan Condo Markets for non-Japanese readers in English. Briefly explain Japan-specific geography, price units, market terms, and financing eligibility where they matter; do not assume readers know the Japanese housing market.
 * Treat Tokyo as a set of distinct condominium submarkets, not one uniform price trend. Separate waterfront areas, central districts, and residential areas such as Setagaya; compare like-for-like properties and do not generalize a small sample across areas, building types, or price bands.
-
-* 2026-10-17: Cooperate with Claude on self-NNUE improvement: Claude retains training, weights and candidate selection; Codex validates frozen evidence and current-main integration without interrupting active jobs, reusing hold-out or adopting an unqualified candidate.

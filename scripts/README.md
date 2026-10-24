@@ -50,7 +50,8 @@ For a frozen HalfKP candidate versus its incumbent, use
 `--candidate-evalfile NEW --baseline-evalfile BEST --evalfile none`,
 `--openings-manifest`, and `--result-json` with `run_ab_match.py`. The binary
 hashes must match, the weight hashes must differ, and both loaders must
-acknowledge the exact weights before a paired-SPRT verdict is accepted.
+acknowledge the exact weights. Evaluator checks and durable paired-SPRT
+replay must both pass before a verdict is accepted.
 
 The supervised gate requires a fresh output namespace. Its attempt directory
 remains after completion and prevents accidental replay. On interruption, the
@@ -177,14 +178,18 @@ each candidate run. Finalize only complete artifacts; keep `PASS`, `FAIL`,
 | `gate_orchestrator.py`, `*_strength_gate_*` | Freeze declarations and terminal gate evidence. |
 | `record_resume_run.py`, `attach_resume_manifest.py` | Preserve checkpoint and resume lineage. |
 | `split_gensfen_by_game.py` | Split current six-column gensfen by whole game; reject legacy five-column rows. |
-| `train_halfkp.py` | Train from separate read-only packed shards with a game-level `--val-data` split. Validation loss alone does not select a candidate. |
+| `train_halfkp.py` | Train from separate read-only packed shards with a game-level `--val-data` split. `--init-bin` imports compatible quantized weights with a fresh optimizer and explicit `--fv-scale`; validation loss alone does not select a candidate. |
+| `run_halfkp_pilot.py` | Run one hash-bound generation/training pilot with whole-game hold-out exclusion, durable status, bounded capacity pause/continuation of the same child, and no automatic failure or gate retry. |
+| `guard_halfkp_capacity.py` | Supervise disk capacity for an already running frozen pilot using verified process identities and a pause journal; it never starts a trainer. |
+| `compare_halfkp_parameters.py` | Compare integer HalfKP sections with bounded memory and strict input checks; changed parameter counts are diagnostic only. |
 | `export_gate_observations.py` | Export eligible independent gate manifests as lineprior `GateObservation` JSONL. |
 | `validate_book_ab_bundle.py`, `prepare_book_ab_split.py`, `summarize_book_coverage_preflight.py` | Verify held-out opening-book comparison and selection coverage. |
 
 The observer distinguishes an observed signal from its unknown cause.
 An unclosed attempt remains unknown; it must not be replayed while a child
-may still be alive. Its 8 MiB journal reserve permits one ENOSPC retry;
-a second persistence failure stops the owned child, never a statistical trial.
+may still be alive. It reserves 8 MiB for a journal retry and another 8 MiB
+for terminal records. A second persistence failure stops the owned child,
+never a statistical trial.
 Keep the OS job's exit status as a second observation layer.
 
 For the preregistered 10-core shared-host policy, three samples with at most
@@ -210,8 +215,18 @@ cargo run -p sekirei-train --bin validate_gate_observations -- \
 
 Historical book and gate pilots under [`docs/experiments/`](../docs/experiments/)
 retain their recorded scope. `train_halfkp.py --help` documents packed-shard
-training and checkpoint-resume options; new checkpoints record the shuffle
-contract and reject output aliases to any input.
+training, checkpoint resume, and `--init-bin` warm starts. A warm start
+reconstructs quantized parameters, not the previous float optimizer state;
+it rejects incompatible layout or parameters that would change on re-export.
+New checkpoints record the shuffle contract and reject output aliases to
+any input. Pilot and guard plans freeze hashes, budgets, and process identity;
+a capacity recovery continues the same process and never retries a terminal
+engine failure or statistical gate. If guard supervision fails, journaled
+groups stay stopped. A new guard using the same frozen config verifies process
+identity, inputs, and three stable capacity samples before continuation; a
+missing controller with paused children needs operator inspection. See the
+[r8c1 recipe review](../docs/experiments/own_nnue_r8c1_recipe_v0.5.1/README.md)
+for the pilot evidence and diagnostic parameter comparison.
 
 ## Local self-play and CSA
 
