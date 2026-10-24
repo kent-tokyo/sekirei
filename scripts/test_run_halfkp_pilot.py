@@ -206,7 +206,18 @@ class PilotIntegrityTest(unittest.TestCase):
     def test_terminal_reserve_allocation_failure_prevents_owned_launch(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            pilot.save(root/'plan.json', {'schema':'bad', 'bound_inputs':[]})
+            inputs = [root/name for name in ('generator', 'packer', 'trainer', 'baseline')]
+            for path in inputs:
+                path.write_text('fixture')
+            generator, packer, trainer, baseline = inputs
+            pilot.save(root/'plan.json', {
+                'schema':'sekirei.own-halfkp-pilot-plan.v1',
+                'generator':str(generator), 'packer':str(packer), 'trainer':str(trainer),
+                'baseline':str(baseline), 'baseline_sha256':pilot.sha(baseline),
+                'generation':{'seeds':[7], 'games_per_shard':1, 'depth':1, 'nodes':1,
+                              'random_plies':0, 'min_training_ply':24, 'max_ply':64},
+                'training':{}, 'max_wall_hours':1, 'exclusions':[], 'spent_manifests':[],
+                'bound_inputs':[pilot.ref(path) for path in inputs]})
             with patch.object(pilot.EmergencyReserve, 'allocate',
                               side_effect=OSError(errno.ENOSPC, 'terminal reserve full')), \
                  patch.object(pilot.subprocess, 'Popen') as spawn:
