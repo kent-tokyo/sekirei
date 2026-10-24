@@ -21,6 +21,23 @@ env:
   RUSTFLAGS: ""
 
 jobs:
+  lmr-stat-lazy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Feature compilation and lazy-read boundaries
+        run: |
+          cargo clippy -p sekirei-core -p sekirei --all-targets --features lmr_stat_lazy -- -D warnings
+          cargo test -p sekirei-core --features lmr_stat_lazy --lib lmr_stat_lazy -- --test-threads=1
+      - name: Isolated material and synthetic-NNUE search identity
+        run: |
+          cargo test -p sekirei-core --features tune --test lmr_stat_lazy -- --ignored --nocapture --test-threads=1
+          cargo test -p sekirei-core --features tune --lib search::v2::tests::lmr_stat_lazy_search_reaches_skipped_and_consumed_paths -- --ignored --exact --nocapture --test-threads=1
+
   see-lva-groups:
     runs-on: ubuntu-latest
     steps:

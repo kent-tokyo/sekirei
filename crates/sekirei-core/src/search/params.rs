@@ -573,6 +573,9 @@ search_params! {
     V2_CUT_R = 3028, 0, 5000;
     /// SEARCH_V2 history weight of reductions (per 8192).
     V2_STAT_R = 1251, 200, 3000;
+    /// Skip the pre-move history score when this move cannot consume it in LMR.
+    /// CPU experiment only; the native feature fixes this ON without tuning.
+    V2_LMR_STAT_LAZY = 0, 0, 1;
     /// SEARCH_V2 ordering bonus of a quiet move giving a safe check.
     V2_CHECK_BONUS = 16000, 0, 32000;
     /// SEARCH_V2 shape options (bits): 1 PV-like nodes prune over a depth
