@@ -345,13 +345,16 @@ impl UsiEngine {
         self.send(position_cmd)?;
         self.send(go_cmd)?;
 
-        let timeout = parse_byoyomi_ms(go_cmd)
-            .or_else(|| parse_clock_ms(go_cmd))
-            .map(|ms| Duration::from_millis(ms) + MOVE_GRACE)
-            .unwrap_or(MOVE_FALLBACK);
-
-        wait_for_bestmove(&self.rx, timeout)
+        wait_for_bestmove(&self.rx, response_timeout_budget(go_cmd))
     }
+}
+
+/// The response wait budget used by `go`, also recorded on a failed move.
+pub(crate) fn response_timeout_budget(go_cmd: &str) -> Duration {
+    parse_byoyomi_ms(go_cmd)
+        .or_else(|| parse_clock_ms(go_cmd))
+        .map(|ms| Duration::from_millis(ms) + MOVE_GRACE)
+        .unwrap_or(MOVE_FALLBACK)
 }
 
 /// Collect one USI search response within a single wall-clock budget.
@@ -370,7 +373,7 @@ fn wait_for_bestmove(rx: &Receiver<String>, timeout: Duration) -> io::Result<GoR
             let mv = line
                 .split_whitespace()
                 .nth(1)
-                .unwrap_or("resign")
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bestmove has no move"))?
                 .to_string();
             let mut info = completed_primary.unwrap_or_default();
             info.root_mate_safety = root_mate_safety;

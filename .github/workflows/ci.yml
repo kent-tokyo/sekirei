@@ -21,6 +21,19 @@ env:
   RUSTFLAGS: ""
 
 jobs:
+  see-lva-groups:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Feature compilation and exact SEE differential
+        run: |
+          cargo clippy -p sekirei-core -p sekirei --all-targets --features see_lva_groups -- -D warnings
+          cargo test -p sekirei-core --features see_lva_groups --lib see_lva_groups -- --test-threads=1
+
   probcut-see-bound:
     runs-on: ubuntu-latest
     steps:

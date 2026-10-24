@@ -31,7 +31,7 @@ KNOWN_FIXTURES = (
         "sfen": "k8/2K6/9/9/4R4/9/9/9/9 b - 1",
         "expected_move": "5e9e",
         "expected": "mate_in_one",
-        "source": "crates/sekirei-core/src/search.rs MATE_IN_1_SFEN",
+        "source": "crates/sekirei-core/src/search/regression_tests.rs MATE_IN_1_SFEN",
     },
     {
         "id": "known-hanging-rook-capture",

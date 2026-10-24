@@ -422,6 +422,19 @@ cargo llvm-cov -p sekirei-core \
   --ignored \
   --exact
 
+# Exercise the compile-time least-attacker picker against the scalar oracle.
+# Preserve the existing exclusions and 98% coverage threshold.
+cargo llvm-cov -p sekirei-core \
+  --features see_lva_groups \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/see-lva-groups-summary.json" \
+  -- see_lva_groups \
+  --test-threads=1
+
 # The repetition filter is a compile-time CPU experiment: exercise its
 # alternative bit rule without a runtime mode change or release counters.
 cargo llvm-cov -p sekirei-core \

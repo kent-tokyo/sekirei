@@ -46,6 +46,7 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 | `check_release_manifest_layout.py` | Requires only the current manifest in the repository root and verified historical manifests under `docs/releases/manifests/`. |
 | `verify_release_publication.py` | After publication, checks every crate on crates.io (present, not yanked) and the WebAssembly asset's SHA-256 and size; `--write` records `publish.status=verified` and the workflow run in the manifest. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. The v2 HalfKP contract additionally requires hashed training-shard and whole-game hold-out manifests, raw 1/4-thread current-engine gate evidence, and an exact engine commit. |
+| `export_nnue_gate_evidence.py` | Builds a gate-evidence summary from a retained terminal match receipt and raw match JSON; it rejects incomplete or mismatched material gates. |
 | `validate_nnue_candidate_card.py` | Validates an unpublished self-NNUE candidate card and, with `--artifact`, its size, SHA-256, HalfKP header, descriptor, and FV scale. It cannot authorize distribution or a default evaluator. |
 | `validate_nnue_cpu_pilot.py` | Validates a frozen, short AWS CPU-pilot plan only after a colour-reversed material gate, complete candidate/data/resume evidence, and an observed CPU-dominant bottleneck. It does not provision cloud resources. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
@@ -59,12 +60,12 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
 | `check_rust_coverage.sh` | Runs the default workspace, opening-book tests, isolated tunable-search contracts, a bounded trainer smoke, and native WASM API contracts under `cargo-llvm-cov`; emits LCOV/JSON and fails below the documented 98% engine/library line-coverage contract. |
 
-For a frozen HalfKP candidate versus its incumbent, combine
-`--candidate-evalfile NEW --baseline-evalfile BEST --evalfile none` with
-`--openings-manifest` and `--result-json`. Both engine binaries must have the
-same SHA, both weights must differ, and both exact loader acknowledgements
-are required. Evaluator checks and durable paired-SPRT replay both run before
-a verdict is accepted.
+For a frozen HalfKP candidate versus its incumbent, use
+`--candidate-evalfile NEW --baseline-evalfile BEST --evalfile none`,
+`--openings-manifest`, and `--result-json` with `run_ab_match.py`. The binary
+hashes must match, the weight hashes must differ, and both loaders must
+acknowledge the exact weights. Evaluator checks and durable paired-SPRT
+replay must both pass before a verdict is accepted.
 
 The supervised gate requires a fresh output namespace. Its attempt directory
 remains after completion and prevents accidental replay. On interruption, the
@@ -72,22 +73,9 @@ terminal result is `error` with null Elo/SPRT verdict and separate observed and
 verified game counts; raw match artifacts are retained. SIGTERM to the outer
 supervisor is handled, while its own SIGKILL requires an OS-level observer.
 
-### Before an EC2 CPU pilot
-
-Keep a pilot plan outside the repository with every referenced artifact next to
-it, then validate it before provisioning anything:
-
-```bash
-python3 scripts/validate_nnue_cpu_pilot.py /path/to/frozen-pilot.json
-```
-
-The plan is intentionally rejected unless the candidate has passed a
-colour-reversed material gate, the data/whole-game hold-out/checkpoint-resume
-evidence hashes match, and a local measurement resolves correctness, teacher,
-and model-design concerns before identifying one CPU-dominant phase. It also
-requires a bounded AWS CPU workload, duration, required throughput/RSS/resume
-metrics, and hard stop conditions. Passing this check defines a pilot; it does
-not provision infrastructure or approve the candidate for release.
+`validate_nnue_cpu_pilot.py /path/to/frozen-pilot.json` checks a bounded CPU
+pilot plan against prior material-gate, data, hold-out, resume, and bottleneck
+evidence. A valid plan neither provisions resources nor approves a candidate.
 
 ## Measurement and rules diagnostics
 
@@ -132,45 +120,25 @@ retains its separate hang timeout.
 
 ### Waiting for a quiet host before timing
 
-Future counter-free `paired_search_diagnostics.py` movetime runs can opt into
-bounded admission with `--idle-wait-seconds 300`, `--idle-poll-seconds 10`
-and `--idle-stable-samples 3`. The default wait is zero and retains immediate
-preflight behavior. This option changes measurement admission, not search
-policy, the 25% per-process CPU threshold, an evaluator or a default.
+For a new counter-free, movetime `paired_search_diagnostics.py` run, use
+`--idle-wait-seconds 300 --idle-poll-seconds 10 --idle-stable-samples 3`.
+Three consecutive idle samples admit dispatch; busy or unavailable samples
+reset the count. Add `--idle-min-free-mib 1024 --idle-stable-samples 5` to
+require five joint CPU and free-space samples. The default wait is zero.
+These options cannot be combined with `--allow-busy`, fixed-depth/node
+budgets, or counter-enabled runs.
 
-The enabled lane records every initial/busy/unknown/idle snapshot before any
-engine launch. Three consecutive idle snapshots are needed by default; a
-busy or unavailable snapshot resets the count. A deadline closes the new
-output as `blocked_host_busy` with zero searches. Interruption and frozen-input
-drift also refuse dispatch. No external process is stopped, and `--allow-busy`,
-fixed-depth/node budgets or counter-enabled lanes cannot use this admission.
-The wait deadline uses a monotonic clock; an OS inspection can add its command
-timeout, so it is not a hard real-time bound.
+The manifest records samples and admission. A timeout produces
+`blocked_host_busy` or `blocked_host_resources` with zero searches. Capacity
+is checked again before dispatch, between ABBA searches, and at postflight;
+loss invalidates timing or leaves an incomplete run. Frozen inputs are
+rechecked before and after search. Samples do not prove continuous host
+isolation or reserve disk space, and this admission does not reopen an old
+study. Use a fresh output directory and keep match-input exclusions separate.
 
-Add `--idle-min-free-mib 1024 --idle-stable-samples 5` to require both an
-idle CPU snapshot and at least 1 GiB free on the output filesystem for five
-consecutive samples. The capacity option defaults to zero and requires a
-positive idle wait. Low or unavailable capacity resets the joint count while
-the original CPU state/count remain separate. A timeout closes the output as
-`blocked_host_resources` with zero searches. Capacity is checked again after
-input verification, before each ABBA search and at postflight. A refusal before
-the first dispatch returns `blocked_capacity_before_dispatch`; loss before a
-later search leaves an incomplete run with its completed-search count. A low
-postflight sample disqualifies timing even when all searches completed. These
-are sampled checks, not disk reservation or monitoring inside a search.
-
-The manifest retains the request, sample history and final admission decision.
-Enabled idle runs atomically replace the manifest using the fingerprinted
-artifact helper; a failure before replacement preserves the earlier document.
-Frozen engines/corpus and measurement-source hashes are rechecked before and
-after searching. The usual postflight load guard remains required. Samples do
-not prove continuous host isolation. Use a new output directory under a
-prospective protocol; this feature does not reopen or qualify previously closed studies,
-and does not replace independent match-input/exclusion requirements.
-
-Historical reports in `benchmark_reports/` apply only to their recorded host,
-revision, corpus, and operation. They are neither general speed rankings nor
-Elo claims.
+Historical [benchmark reports](../docs/experiments/benchmark_reports/README.md)
+apply only to their recorded host, revision, corpus, and operation. They are
+neither general speed rankings nor Elo claims.
 
 Example material-only tactical-line capture (repeat `--nodes` for a budget
 ladder):
@@ -190,141 +158,86 @@ report hashes both executables, the case file, and the optional weights.
 
 ## JSONL ingestion and audit
 
-`train --positions` keeps in-memory storage by default. Use
-`--positions-storage disk` to snapshot accepted JSONL rows in an anonymous
-system-temporary file and decode one position at a time. Source caps, the legacy
-SFEN split, exact seeded shuffle, teacher-cache update timing and resume recipe
-stay the same across both modes. Disk storage uses temporary space proportional
-to accepted input bytes and an O(N) row-offset index; shuffle indices and teacher
-caches also remain O(N). It does not change the HalfKP packed-data trainer.
+`train --positions` stores rows in memory by default.
+`--positions-storage disk` snapshots accepted rows to a temporary file,
+using disk space proportional to the input and an O(N) offset index. Both
+modes retain source caps, seeded shuffle, teacher-cache timing, and resume
+identity. The packed-data HalfKP trainer is unchanged.
 
-Every successful ingestion writes `<output stem>.positions-manifest.json`
-(or `--positions-manifest PATH`) atomically after all inputs reach EOF and
-requested SHA-256 checks pass. Counts precede source caps, splits and training
-filters. The manifest includes exact input hashes, accepted/skipped counts,
-rejection categories and up to eight examples with decoded line numbers,
-zero-based decoded byte offsets, row hashes and 256-character previews. Row hashes
-include original line endings. Strict, I/O, callback and hash failures do not
-publish a new complete manifest. Pre-existing audit evidence is left intact.
+After EOF and requested hash checks, ingestion atomically writes
+`<output stem>.positions-manifest.json` or `--positions-manifest PATH`.
+It records input hashes, accepted/skipped counts, rejection reasons, and
+bounded row examples. A failed ingest leaves prior audit evidence intact.
 
 ```bash
 cargo run --release -p sekirei-train -- --positions /path/to/positions.jsonl \
   --positions-storage disk --positions-audit-only \
   --positions-manifest data/runs/ingest/audit.json
-python3 scripts/benchmark_positions_ingest.py --binary target/release/train \
-  --output data/runs/ingest-benchmark --records 10000 --repeats 2
-TRAIN_BIN="$PWD/target/release/train" python3 -B scripts/test_positions_ingest.py
 ```
 
-Audit-only exits before evaluator initialization or training. The benchmark
-creates synthetic data, alternates the storage modes, checks matching reports,
-and records binary/input hashes, host/toolchain, elapsed time and maximum RSS.
-Its results measure ingestion only, not epoch throughput or playing strength.
-The [initial storage comparison](../docs/experiments/positions_ingestion_v0.4.1/README.md)
-retains synthetic-input RSS/time measurements and compatibility checks.
+`--positions-audit-only` exits before training. The
+[ingestion comparison](../docs/experiments/positions_ingestion_v0.4.1/README.md)
+measures synthetic-input time and RSS, not training throughput or strength.
 
-### Optional compressed JSONL
+### Compressed JSONL
 
-Build `sekirei-train` with `positions-gzip`, `positions-zstd`, or both. They are
-independent and disabled by default. Gzip uses
-[flate2 1.1.10](https://docs.rs/flate2/1.1.10/flate2/) with the explicit
-`miniz_oxide` backend; zstd uses [ruzstd 0.9.1](https://docs.rs/ruzstd/0.9.1/ruzstd/).
-Both decoders use Rust implementations without C/C++ bindings. The adapter uses
-safe Rust; this does not assert that all transitive dependencies contain no unsafe.
+Build with `positions-gzip`, `positions-zstd`, or both; neither is enabled
+by default. The safe-Rust adapter uses Rust gzip/zstd decoders without C/C++
+bindings; this does not characterize all transitive dependencies.
 
 ```bash
 cargo build --release -p sekirei-train --bin train \
   --features positions-gzip,positions-zstd
-target/release/train --positions /path/to/positions.jsonl.zst \
-  --positions-storage disk --positions-audit-only \
-  --positions-manifest data/runs/compressed-ingest/audit.json
-TRAIN_BIN="$PWD/target/release/train" POSITIONS_CODECS=gzip,zstd \
-  python3 -B scripts/test_positions_compression.py
 ```
 
-Content magic takes precedence over the filename. A `.gz`/`.gzip` or
-`.zst`/`.zstd` suffix also selects the corresponding decoder when magic is missing,
-so truncated headers do not silently become skipped JSONL. Disabled codecs report
-the required Cargo feature. Concatenated gzip members and zstd frames are decoded
-as one stream, including zstd skippable frames. Checksum errors, truncated streams,
-invalid trailing data and unsupported frames fail the entire ingest, even without
-`--strict-positions`, before publishing a complete audit. Zstd dictionaries are
-unsupported, and the decoder window is limited to 8 MiB.
-
-`report.sha256`, `report.input_bytes`, `--positions-sha256` and
-`--validation-positions-sha256` always identify the physical file bytes before
-decoding. `report.decoded_sha256` and `report.decoded_bytes` identify the exact JSONL
-stream, including blank lines and original line endings; `report.compression`
-records the selected codec. Rejection offsets, line numbers and row hashes refer
-to that decoded stream. Plain input has identical physical and decoded identities.
-The existing resume identity uses the physical hash: recompressing or switching
-codecs requires a new run even if the decoded JSONL is unchanged. Changing only
-memory/disk storage still permits resume.
-The [compression validation](../docs/experiments/positions_compression_v0.4.1/README.md)
-records the six-way audit/training comparisons and local coverage result.
+Content magic takes precedence over suffix. Truncation, bad checksums,
+unsupported frames, and invalid trailing data fail the whole ingest.
+Zstd dictionaries are unsupported and its window is limited to 8 MiB.
+Physical-file hashes govern resume, so recompression needs a new run;
+decoded hashes and row offsets refer to the JSONL stream. See the
+[compression validation](../docs/experiments/positions_compression_v0.4.1/README.md).
 
 ## NNUE candidates and gates
 
-`run_observed_process.py --state-dir /path/to/run/observer -- COMMAND ...`
-launches exactly one child with no automatic retry. It fsyncs attempt-specific
-stdout/stderr files, append-only start/exit events, and an atomic status file
-with periodic free-space/CPU/RSS observations. A separate observer can record
-`SIGKILL` even when the child cannot log; that signal alone does not prove an
-OOM cause. An observer killed together with the child cannot record its own
-exit, so launch it under the OS supervisor and retain the OS job's last exit
-status as a second layer. A later observer records a previous unclosed attempt
-as unknown and refuses to duplicate a child PID that may still be alive.
-An interrupted `starting` state is also blocked because the spawn may have
-succeeded before its PID was persisted. The tool observes the direct child
-leader; it does not certify that descendants which detach into other process
-groups have exited. The structured runner must own and inspect those workers.
-It does not resume a qualification, select outcomes, or modify gate evidence.
-The observer physically reserves 8 MiB for its journal. On ENOSPC it releases
-that reserve and retries only the failed journal write once, recording the
-recovery. Partial event appends are rolled back. A second persistence failure
-stops the owned child; it never retries a child or a statistical trial.
+Freeze input, evaluator, hashes, factor change, and decision rule before
+each candidate run. Finalize only complete artifacts; keep `PASS`, `FAIL`,
+`INCONCLUSIVE`, and resource-censored outcomes distinct. The
+[weight contract](../docs/nnue_weights.md) covers release eligibility.
 
-`nnue_gate_host.py` provides shared-host **strength** trial admission. On the
-preregistered 10-core policy, three consecutive observations at no more than
-300% foreign CPU (three cores) and at least 512 MiB free admit the next
-colour-reversed pair. CPU activity during a pair is telemetry only: finish
-and retain both games, regardless of outcome or transient load, then wait
-before the next pair if needed. Missing observations defer the next dispatch.
-Do not use these rules to qualify idle-host speed/NPS, discard loaded games,
-reopen historical invalid trials, or reinterpret a failed strength verdict.
-Pin the policy and its source before a fresh trial. Engine/weight identities,
-load acknowledgements, complete paired records and artifact validation remain
-required; actual protocol or I/O failures still stop the trial.
+| Tool | Role |
+|---|---|
+| `run_observed_process.py` | Launch one child and record fsynced start/exit events, output, status, and resource samples. No automatic retry. |
+| `nnue_gate_host.py` | Admit the next colour-reversed strength pair after the preregistered shared-host resource checks. |
+| `gate_orchestrator.py`, `*_strength_gate_*` | Freeze declarations and terminal gate evidence. |
+| `record_resume_run.py`, `attach_resume_manifest.py` | Preserve checkpoint and resume lineage. |
+| `split_gensfen_by_game.py` | Split current six-column gensfen by whole game; reject legacy five-column rows. |
+| `train_halfkp.py` | Train from separate read-only packed shards with a game-level `--val-data` split. `--init-bin` imports compatible quantized weights with a fresh optimizer and explicit `--fv-scale`; validation loss alone does not select a candidate. |
+| `run_halfkp_pilot.py` | Run one hash-bound generation/training pilot with whole-game hold-out exclusion, durable status, bounded capacity pause/continuation of the same child, and no automatic failure or gate retry. |
+| `guard_halfkp_capacity.py` | Supervise disk capacity for an already running frozen pilot using verified process identities and a pause journal; it never starts a trainer. |
+| `compare_halfkp_parameters.py` | Compare integer HalfKP sections with bounded memory and strict input checks; changed parameter counts are diagnostic only. |
+| `export_gate_observations.py` | Export eligible independent gate manifests as lineprior `GateObservation` JSONL. |
+| `validate_book_ab_bundle.py`, `prepare_book_ab_split.py`, `summarize_book_coverage_preflight.py` | Verify held-out opening-book comparison and selection coverage. |
 
+The observer distinguishes an observed signal from its unknown cause.
+An unclosed attempt remains unknown; it must not be replayed while a child
+may still be alive. It reserves 8 MiB for a journal retry and another 8 MiB
+for terminal records. A second persistence failure stops the owned child,
+never a statistical trial.
+Keep the OS job's exit status as a second observation layer.
 
-Freeze the input, evaluator, hashes, factor change, and decision rule before a
-candidate run. Finalize only complete artifacts, and keep `PASS`, `FAIL`,
-`INCONCLUSIVE`, and resource-censored outcomes distinct. Useful entry points:
+For the preregistered 10-core shared-host policy, three samples with at most
+300% foreign CPU and at least 512 MiB free admit the next colour-reversed
+pair. Load during a pair is telemetry: retain both games and wait before
+dispatching another pair. Missing samples defer dispatch. This is a strength
+trial admission rule, not an idle-host speed qualification or a reason to
+discard played games. Keep exact evaluator acknowledgements and paired records.
 
-- `gate_orchestrator.py` and the `*_strength_gate_*` scripts manage gate
-  declarations and terminal evidence.
-- `record_resume_run.py` and `attach_resume_manifest.py` preserve resumable
-  training lineage.
-- `split_gensfen_by_game.py` creates whole-game train/validation splits from
-  current six-column gensfen data. Legacy five-column rows fail closed.
-- `train_halfkp.py` trains the in-house HalfKP network. Use `--val-data` with a
-  game-level split; validation loss alone does not select a candidate.
-- `export_gate_observations.py` converts independent terminal gate manifests
-  into lineprior `GateObservation` JSONL. It rejects outcome-derived features,
-  missing or changed declaration hashes, missing groups, incompatible feature
-  sets, and conflicting retries. A non-empty export remains contract evidence
-  until at least 20 independent groups are available; automated acquisition is
-  never enabled. Use `--allow-empty` to archive a deterministic zero-row
-  readiness report when no historical run is eligible.
-- `validate_book_ab_bundle.py` verifies hashes, arm symmetry, decision-to-
-  terminal joins, book coverage, fallbacks, uncertainty, and cost for an
-  archived held-out `UseBook=false`/`true` diagnostic.
-- `prepare_book_ab_split.py` freezes disjoint CSA subsets for opening-book
-  training and held-out evaluation. `summarize_book_coverage_preflight.py`
-  validates a preregistered, one-ply decision-log probe and stops before the
-  full A/B gate when actual book selection coverage is too low.
-
-Validate exported observations with:
+`export_gate_observations.py` rejects changed declarations, outcome-derived
+features, incomplete groups, and conflicting retries. Its output remains
+contract evidence until 20 independent groups are available; it does not
+enable automated acquisition or deployment. `candidate_id` identifies one
+artifact/configuration, while `group_id` keeps shared lineage in one
+cross-validation group. GateModel output is advisory.
 
 ```bash
 python3 scripts/export_gate_observations.py run*/final.json \
@@ -333,116 +246,33 @@ cargo run -p sekirei-train --bin validate_gate_observations -- \
   data/gates/history.jsonl
 ```
 
-`candidate_id` identifies one exact artifact/configuration; `group_id` keeps a
-shared recipe, lineage, and dataset in one cross-validation group. GateModel
-output is advisory and never authorizes deployment or a strength claim.
-
-Historical book and GateObservation pilots are under `docs/experiments/`.
-They preserve their original scope and are not current strength evidence.
-
-```bash
-python3 scripts/split_gensfen_by_game.py data/selfplay/part*.txt \
-  --train-out data/selfplay/train.txt \
-  --validation-out data/selfplay/validation.txt \
-  --manifest data/selfplay/split-manifest.json \
-  --validation-ratio 0.10 --seed 42 --max-positions-per-game 64
-cargo run --release -p sekirei-core --example halfkp_pack -- \
-  pack data/selfplay/train.bin data/selfplay/train.txt
-cargo run --release -p sekirei-core --example halfkp_pack -- \
-  pack data/selfplay/validation.bin data/selfplay/validation.txt
-```
-
-`compare_halfkp_parameters.py PARENT.bin CANDIDATE.bin --output NEW.json`
-compares integer sections with bounded memory and strict format/input checks.
-It reports changed weights and biases separately; changed counts do not imply
-strength. It refuses input aliases and overwriting an existing report. See the
-[r8c1 recipe review](../docs/experiments/own_nnue_r8c1_recipe_v0.5.1/README.md).
-
-`train_halfkp.py` consumes packed shards. `--init-bin weights.bin --fv-scale 24`
-starts a fresh optimizer from an existing compatible quantized HalfKP file.
-It validates the complete layout and exact integer parameter re-export,
-rejecting values that training clamps would change. This recovers the
-quantized starting parameters, not the original float or optimizer state.
-It is exclusive with `--init` and an existing `--ckpt` resume file.
-
-`run_halfkp_pilot.py --plan /absolute/path/plan.json` runs one frozen,
-bounded generation/training pilot in that plan's dedicated directory. It
-requires input hashes, fresh outputs and known identity-only exclusions,
-removes whole games touching known holdouts, normalizes SFEN move counters
-before game-level splitting, and records durable progress or a terminal
-failure. Each phase waits for three host samples with at most 400% total CPU.
-Generation/data preparation/training require 2 GiB free, packing
-1.5 GiB, and export loading 768 MiB; 128 MiB is physically reserved for
-emergency exit records. During any active child phase, free space below
-2 GiB pauses its independent process group with `SIGSTOP`. The same process
-continues with `SIGCONT` after three stable samples at 3 GiB free and at most
-400% total CPU, reserve restoration, and input-hash checks. RNG state, optimizer,
-open files and completed games stay in place. Atomic capacity-event files and
-`PAUSED_CAPACITY` status record each pause and continuation. Paused time is
-excluded from the phase timeout; the total run cap still includes waiting.
-Cancellation terminates a stopped child; abnormal exits are never relaunched.
-Large exclusion sets live only in a separate preparation process after
-generation. A trained output remains unqualified until a separate independent
-strength gate; the runner neither promotes nor publishes it.
-
-Pilot plans may set a safe `candidate_id` to bind the `.bin`, `.pt`, load check
-and candidate card to the same network (legacy default: `nn_r8c1`). Optional
-`quality_floors` require minimum train/validation positions and games after the
-whole-game split, before packing/training; insufficient data stops without
-extra generation. Optional SHA-pinned `parameter_diff_tool` runs the integer
-parameter diagnostic after training and records its artifact in the card.
-These diagnostics and data floors never replace independent strength gates.
-
-An operator-frozen `manual_capacity_continuation` plan can carry forward
-completed games after a cooperative low-disk stop with native return code 0,
-before any data preparation or training. It binds the original plan/status,
-raw shards and logs, preserves every completed game and the original total
-budget, and uses a distinct seed for the unfinished suffix. The old run stays
-untouched. This exception does not retry engine failures or statistical gates.
-
-`guard_halfkp_capacity.py --config /absolute/path/guard-config.json` adds disk
-supervision to an already running frozen pilot without changing its plan,
-controller or model. Its separate state directory records the frozen plan,
-observer/controller incarnations and a write-ahead pause journal. Below 2 GiB
-it stops the verified controller and owned child groups; after three samples
-at 3 GiB it continues those same processes. The observer stays live. Identity
-mismatches fail closed; this tool never starts a training job or retries a gate.
-The old controller's original wall-time cap continues to include this pause.
-A guard killed by the OS may leave its journaled groups stopped; a later guard
-with the same frozen configuration can reconcile them. This is distinct from
-restarting a terminated generator or trainer.
-
-`train_halfkp.py` consumes packed shards. `--init` resumes a float checkpoint;
-`--fact` folds in a king-independent factor. Inputs remain separate read-only
-memory maps and only one batch is copied at a time. Outputs are written by
-atomic replacement, and direct, symlink, or hardlink aliases to an input are
-rejected. New checkpoints record the shuffle contract. Resume a legacy
-full-memory checkpoint only at an epoch boundary.
-
-```bash
-python3 scripts/train_halfkp.py --data data/selfplay/train.bin \
-  --val-data data/selfplay/validation.bin --init data/selfplay/prev.pt \
-  --out data/selfplay/next.bin --save data/selfplay/next.pt
-```
+Historical book and gate pilots under [`docs/experiments/`](../docs/experiments/)
+retain their recorded scope. `train_halfkp.py --help` documents packed-shard
+training, checkpoint resume, and `--init-bin` warm starts. A warm start
+reconstructs quantized parameters, not the previous float optimizer state;
+it rejects incompatible layout or parameters that would change on re-export.
+New checkpoints record the shuffle contract and reject output aliases to
+any input. Pilot and guard plans freeze hashes, budgets, and process identity;
+a capacity recovery continues the same process and never retries a terminal
+engine failure or statistical gate. See the
+[r8c1 recipe review](../docs/experiments/own_nnue_r8c1_recipe_v0.5.1/README.md)
+for the pilot evidence and diagnostic parameter comparison.
 
 ## Local self-play and CSA
 
-- `spsa.py` tunes search parameters with paired self-play. It requires the
-  explicit `--baseline material` contract, starts both Sekirei arms without
-  evaluator files, and fixes `Threads=1`, `SpecTopN=0`, and `UseBook=false`.
-  External evaluators are deliberately unsupported by this entry point.
-- `run_local_selfplay.py` collects offline games with explicit weights and
-  openings, recording evaluator identity, options, kifu/CSA, PV data, and a
-  durable summary. Material/startpos mode is smoke-only.
-- `build_selfplay_ledger.py` and `profile_nnue_transcript.py` audit replayable
-  records and evaluator provenance. They are not training exporters or Elo
-  estimators.
+- `spsa.py` tunes search parameters with paired, material-only self-play;
+  it fixes one thread, `SpecTopN=0`, and `UseBook=false`.
+- `run_local_selfplay.py` records offline games, evaluator identity,
+  options, kifu/CSA, PV data, and a durable summary. Material/startpos is
+  smoke-only; same-engine self-play alone does not show a strength gain.
+- `build_selfplay_ledger.py` and `profile_nnue_transcript.py` audit
+  replayable records and evaluator provenance.
 - `floodgate_supervisor.py`, `record_floodgate_manifest.py`, and
-  `finalize_csa_run_manifest.py` preserve external-game execution evidence.
-  Supply credentials only at runtime; never store `FLOODGATE_TRIP` in Git,
-  manifests, plist files, commands, or logs.
+  `finalize_csa_run_manifest.py` preserve one-shot external-game evidence.
+  Supply credentials only at runtime; do not store `FLOODGATE_TRIP` in
+  Git, manifests, plist files, commands, or logs.
 
-For a bounded Floodgate run, let the client own the game limit:
+For a bounded Floodgate run, let the client own the cumulative game limit:
 
 ```bash
 sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
@@ -451,37 +281,23 @@ sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
   --status-file data/floodgate/run/status.json
 ```
 
-`--max-games` persists across reconnects. After a completed game, the client
-may recover an authenticated transport close up to three times in-process;
-protocol, recording, and mid-game failures remain terminal. Exhausted recovery
-is recorded as `post_game_reconnect_exhausted` without discarding completed
-records. A non-zero one-shot child exit is also persisted to status and the
-run manifest; an active game is retained as an uncounted `incomplete_game`.
-During an active game, the client emits receive-idle diagnostics with the
-expected response, elapsed wait and buffered partial-line byte count. Its
-absolute response deadline uses the opponent's advertised time control and
-remaining time inferred from received move echoes. Our move echo has a
-2-minute deadline. `--active-receive-deadline-seconds` can
-override it for a controlled run. Between games the 70-minute read timeout
-still applies. A waiting-state `WouldBlock` or `TimedOut` read records
-`between_game_receive_timeout` with the raw error kind/errno, time since the
-last server line, and buffered partial-line size. It ends the bounded run
-without replay; the status and one-shot receipt retain the completed count.
-The server's silence and any link to a storage failure still need independent
-evidence. An active-game deadline records
-`active_receive_deadline` and ends the one-shot run with the active game
-incomplete; it does not declare a CSA result or retry that game.
-The supervisor records event and log write failures with their errno in the
-one-shot receipt and on stderr. It emits `logging_failed` while the child is
-running. If a child log fails, it still drains the
-pipe and marks the receipt `log_persistence_failed`; the child is not replayed.
-If the completion receipt itself cannot be saved, the supervisor exits with
-an error instead of claiming a durable completion. A pre-spawn marker prevents
-automatic or manual replay when the receipt is missing; such a run needs
-operator inspection. Existing terminal client status or run manifests also
-prevent replay when a run predates the marker.
-For launchd, render the one-shot template with `KeepAlive=false` and start it
-through the idempotent helper:
+Set `--fv-scale` from the model card (the optional `nn_r6` release asset
+requires 24; the CSA default is 16). The run manifest records the selected
+value before connection. The client permits up to three authenticated
+post-game transport reconnects without resetting `--max-games`.
+Protocol, recording, and mid-game failures remain terminal. An active game
+at a terminal failure is retained as uncounted `incomplete_game`.
+
+While waiting, status records receive-idle diagnostics and periodic
+heartbeats. An active-game deadline records `active_receive_deadline`;
+a between-game timeout records `between_game_receive_timeout` with OS
+error details, elapsed silence, and partial-line size. Neither declares
+a game result or proves why the server stopped responding.
+
+The one-shot supervisor records log/receipt failures and never replays a
+child after an uncertain spawn or terminal status. A missing completion
+receipt requires inspection of the pre-spawn marker and child state.
+To launch the checked-in `RunAtLoad=true`, `KeepAlive=false` template:
 
 ```bash
 python3 scripts/launch_floodgate_once.py \
@@ -489,17 +305,12 @@ python3 scripts/launch_floodgate_once.py \
   --runtime-dir "$HOME/.local/state/sekirei/floodgate/RUN_ID"
 ```
 
-The checked-in template has `RunAtLoad=true`, so the helper runs `bootstrap`
-only. Do not follow it with `kickstart -k`. For a custom plist with
-`RunAtLoad=false`, the helper registers it and performs one non-forcing
-`kickstart`. It refuses an already registered label, prints the runtime
-directory, and writes `launchd-start.json`. A bounded run is accepted only
-when `launchctl print` reports `runs = 1`; a duplicate launch remains recorded
-with `accepted=false`. Unload an intentionally stopped old label before using
-a new runtime. The client-side `--max-games` remains the sole cumulative game
-cap; do not wrap launchd or the client in an external restart loop.
+The helper uses `bootstrap` without an extra `kickstart` and refuses
+registered labels. For `RunAtLoad=false`, it performs one non-forcing
+`kickstart`. Its receipt accepts a bounded run only when launchd reports
+one launch. Do not add an external restart loop.
 
-Before tournament deployment, run the loopback-only two-process rehearsal:
+Before tournament deployment, run the loopback two-process rehearsal:
 
 ```bash
 python3 scripts/run_denryu_rehearsal.py \
@@ -507,24 +318,18 @@ python3 scripts/run_denryu_rehearsal.py \
   --output data/rehearsals/denryu-$(date +%Y%m%d-%H%M%S)
 ```
 
-It runs 7 games, restarts the real client, then runs 7 more while preserving
-the cumulative ceiling. See
-[`DENRYU_REHEARSAL.md`](DENRYU_REHEARSAL.md) for the recovery
-checklist. `--completed-attempts` is an explicit resume input and must come
-from a retained terminal status or manifest, never from an estimate.
-
-Same-engine self-play supports training and regression work. It does not show
-that either revision is stronger.
+[`DENRYU_REHEARSAL.md`](DENRYU_REHEARSAL.md) contains the recovery
+checklist. Set `--completed-attempts` only from retained terminal evidence.
 
 ## Editing and cleanup
-
-Most Python tools use only the standard library and have a focused
-`test_<tool>.py`. After an edit, run that focused test, then:
 
 Shared byte hashing, canonical JSON hashing, and atomic JSON replacement live
 in `sekirei_tools.artifacts`. Maintained release and gate entry points should
 reuse these primitives; historical one-off experiment scripts remain frozen
 until their archived evidence no longer depends on their exact behavior.
+
+Most Python tools use only the standard library and have a focused
+`test_<tool>.py`. After an edit, run that focused test, then:
 
 ```bash
 python3 scripts/check_documentation_references.py
@@ -536,7 +341,8 @@ python3 scripts/check_release_manifest_layout.py
 Prefer one parameterized tool over near-duplicate wrappers. Retire one-off
 instrumentation only after its evidence is retained and no live workflow or
 document references it. `cleanup_runs.sh` is dry-run by default and requires
-`APPLY=1` for deletion.
+`APPLY=1` for deletion. Its protection scan includes Python and shell scripts
+under `scripts/`, including the historical single-run tools in [`archive/`](archive/README.md).
 
 ## Experiment playbooks
 

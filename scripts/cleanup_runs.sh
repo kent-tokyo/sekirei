@@ -11,10 +11,10 @@
 # Skips:
 #   - any run directory with no manifest.json (still running, or ad-hoc --
 #     not safe to assume it's done)
-#   - any run directory referenced by name in scripts/*.sh (e.g.
-#     train_with_loss_mining.sh's BASE_POSITIONS/BASE_SCORED pointing at an
-#     older run's *_10k.jsonl derived files) -- those are live cross-run
-#     dependencies even though the run itself finished long ago
+#   - any run directory referenced by name in a shell or Python file under
+#     scripts/. For example, train_with_loss_mining.sh's BASE_POSITIONS and
+#     BASE_SCORED may point at derived files from an older run. Those are live
+#     cross-run dependencies even if the older run has finished.
 #   - runs newer than MIN_AGE_DAYS, so a just-finished run stays inspectable
 #     (e.g. to debug a gate failure) before its stage dirs disappear
 #
@@ -35,7 +35,8 @@ SCRIPT_DIR="$(dirname "$0")"
 [ -d "$RUNS_DIR" ] || exit 0
 
 PROTECTED=$(
-  grep -ohE 'data/runs/[A-Za-z0-9_.-]+' "$SCRIPT_DIR"/*.sh 2>/dev/null \
+  find "$SCRIPT_DIR" -type f \( -name '*.sh' -o -name '*.py' \) \
+    -exec grep -ohE 'data/runs/[A-Za-z0-9_.-]+' {} + 2>/dev/null \
     | sed 's#data/runs/##' | sort -u
 )
 

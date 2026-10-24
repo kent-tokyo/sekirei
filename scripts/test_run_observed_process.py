@@ -191,6 +191,22 @@ class ObservedProcessTests(unittest.TestCase):
             with (root / 'observer.lock').open('a') as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
+    def test_ordinary_reserve_unlink_failure_keeps_original_enospc(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reserve = O.EmergencyReserve(root)
+            reserve.allocate()
+
+            def fail_write(_path, _document):
+                raise OSError(errno.ENOSPC, 'original journal full')
+
+            with mock.patch.object(reserve, 'close',
+                                   side_effect=OSError(errno.EIO, 'reserve unlink failed')):
+                with self.assertRaisesRegex(OSError, 'original journal full') as caught:
+                    reserve.write(fail_write, root / 'observer-status.json', {})
+            self.assertEqual(caught.exception.errno, errno.ENOSPC)
+            reserve.close()
+
     def test_child_exit_during_cleanup_escalation_still_persists_primary_error(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

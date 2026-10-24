@@ -9,11 +9,10 @@
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.5.1` exposes
-WASM package provenance before search and adds a checked npm publishing path.
-The default search policy and material evaluator are unchanged. The optional
-`nn_r6` HalfKP artifact remains available in the v0.5.0 GitHub Release; it is
-not selected by default or a general playing-strength claim.
+Sekirei is an experimental Pure Rust shogi engine. Release `0.5.1` uses
+material evaluation by default. Optional NNUE weights require an explicit
+file path; see [weights and evidence](docs/nnue_weights.md). Release changes
+are in the [changelog](CHANGELOG.md).
 
 ## Quick start
 
@@ -32,13 +31,10 @@ cargo run --release -p sekirei
 
 Register `sekirei` in a USI-compatible GUI. Without `EvalFile`, the engine
 uses material evaluation. External HalfKP 256x2-32-32 files use `FV_SCALE`
-and remain subject to their own licenses.
-[NNUE weights](docs/nnue_weights.md) records supported formats, checksums, and
-the evidence boundary. `nn_r6` passed independent colour-reversed material
-gates at 1T and 4T on a pinned source commit, and its released evidence bundle
-passes the strict artifact validator. It is not selected by default; those
-gates are neither an external rating nor a general current-release strength
-claim.
+and remain subject to their own licenses. The optional `nn_r6` weight needs
+`FV_SCALE=24`; its pinned 1T/4T material gates do not establish an external
+rating or general playing-strength gain. Loading and evidence details are in
+[NNUE weights](docs/nnue_weights.md).
 
 ## Components
 
@@ -80,28 +76,17 @@ python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 python3 scripts/check_release_manifest_layout.py
 ```
 
-The current release manifest stays in the repository root; earlier verified
-evidence is kept in [the manifest archive](docs/releases/manifests/README.md).
-
 The coverage command requires `cargo-llvm-cov 0.8.7`,
-`llvm-tools-preview`, and `jq`. It enforces at least 98% line coverage for
-reusable Rust code and the shipped USI runtime. CI runs this gate for
-Rust/Cargo changes, every main update, and release tags; documentation-only
-and ordinary script-only pull requests skip it. See the
-[script index](scripts/README.md) for benchmark, gate, release, and training
-tools. Changes to the published `sekirei-core` API are checked against
-v0.3.73 before merge and again before publication; the 0.4 version bump does
-not by itself authorize a compatibility break. Component timings are not
-overall speed or strength rankings.
+`llvm-tools-preview`, and `jq`; it enforces the 98% line-coverage gate.
+The current release manifest stays in the repository root and older ones in
+the [archive](docs/releases/manifests/README.md). CI checks published
+`sekirei-core` API compatibility against v0.3.73.
 
-Dedicated PGO binaries exceeded the pinned YaneuraOu build on Apple M4:
-**8T +4.65%** (95% interval: +2.55% to +6.69%) and **4T +7.1%**
-(+5.1% to +9.0%). The [8T study](docs/experiments/compiler_pgo_8t_v0.4.2/README.md)
-and [4T study](docs/experiments/compiler_pgo_4t_v0.4.1/README.md) independently
-qualify their pinned binaries and workloads. Ordinary Cargo builds do not use
-these profiles.
-A separate [v0.4.4 own-HalfKP PGO study](docs/experiments/own_halfkp_pgo_8t_v0.4.4/README.md)
-measured **8T +3.09%** (+0.76% to +5.40%) for its pinned artifact.
+The [8T](docs/experiments/compiler_pgo_8t_v0.4.2/README.md),
+[4T](docs/experiments/compiler_pgo_4t_v0.4.1/README.md), and
+[own-HalfKP 8T](docs/experiments/own_halfkp_pgo_8t_v0.4.4/README.md)
+PGO reports give the pinned binaries, workloads, and uncertainty. These
+measurements do not describe ordinary Cargo builds or playing strength.
 
 ## Matches and training
 
@@ -114,15 +99,13 @@ python3 scripts/run_local_selfplay.py --games 1000 \
   --positions data/gate/openings_standard.sfen
 ```
 
-Runs store manifests, records, CSA, search data, and deduplication metadata
-under ignored `data/runs/`. Same-engine results are regression evidence, not
-Floodgate or human ratings. `sekirei-csa` accepts credentials only at runtime.
+Runs store manifests, records, CSA, and search data under ignored `data/runs/`.
+Same-engine results are regression evidence, not Floodgate or human ratings.
+See the [script index](scripts/README.md) for match and gate tooling.
 
 For NNUE training, run `cargo run --release -p sekirei-train -- --help`.
-Training pins `lineprior 0.12.6` and `shogiesa-core 0.11.6`; external wrappers
-are checked against `shogiesa 0.11.6`. Data and weights remain outside Git.
-Recipes, hashes, resume rules, and whole-game split requirements are in the
-[script index](scripts/README.md).
+Data and weights remain outside Git. Recipes, hashes, resume rules, and
+whole-game split requirements are in the [script index](scripts/README.md).
 
 Opening-book support is build-time and runtime opt-in:
 
@@ -138,8 +121,6 @@ manifests so inputs, settings, and outputs can be audited.
 
 - [Documentation index](DOCUMENTATION.md)
 - [Changelog](CHANGELOG.md) and [archived history](CHANGELOG_ARCHIVE.md)
-- [NNUE weights and licensing](docs/nnue_weights.md)
-- [Script and validation-tool index](scripts/README.md)
 
 Implementation, tests, measurements, and released artifacts are separate
 claims. Historical reports keep their original version and scope unless they

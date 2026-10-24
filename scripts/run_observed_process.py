@@ -84,7 +84,12 @@ class EmergencyReserve:
                 os.fsync(stream.fileno())
             self.available = True
         except BaseException:
-            self.close()
+            try:
+                self.close()
+            except OSError:
+                # The allocation failure is the reason no child may start.
+                # A failed cleanup must not replace that primary error.
+                pass
             raise
 
     def write(self, operation, path: Path, document: dict) -> None:
@@ -93,7 +98,12 @@ class EmergencyReserve:
         except OSError as error:
             if error.errno != errno.ENOSPC or not self.available:
                 raise
-            self.close()
+            try:
+                self.close()
+            except OSError as release_error:
+                # Keep the original journal ENOSPC when unlink fails. The
+                # observer then stops the child and tries terminal recording.
+                raise error from release_error
             self.recovery = {"at": now(), "reason": "ENOSPC",
                              "released_bytes": self.size,
                              "automatic_child_retry": False}

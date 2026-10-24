@@ -52,6 +52,7 @@ impl<R: Read> CsaLineReader<R> {
                         error.kind(),
                         io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
                     ) && (!self.pending.is_empty() || self.discarding_oversized)
+                        && deadline.is_none()
                         && consecutive_partial_timeouts == 0 =>
                 {
                     consecutive_partial_timeouts += 1;
@@ -182,6 +183,24 @@ mod tests {
             reader.read_line().unwrap_err().kind(),
             io::ErrorKind::TimedOut
         );
+    }
+
+    #[test]
+    fn deadline_returns_at_first_partial_timeout_and_keeps_the_buffer() {
+        let mut reader = CsaLineReader::new(ScriptedRead(VecDeque::from([
+            Step::Bytes(b"Game_"),
+            Step::Error(io::ErrorKind::TimedOut),
+            Step::Bytes(b"ID:next\n"),
+        ])));
+        assert_eq!(
+            reader
+                .read_line_until(Some(Instant::now() + Duration::from_secs(1)))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::TimedOut
+        );
+        assert_eq!(reader.pending_bytes(), 5);
+        assert_eq!(reader.read_line().unwrap().as_deref(), Some("Game_ID:next"));
     }
 
     #[test]
