@@ -405,7 +405,11 @@ def observe(command: list[str], directory: Path, poll_seconds: float = 10,
             except OSError:
                 # Keep the original error and independently try the other journal.
                 pass
-        print(json.dumps(failure), file=sys.stderr, flush=True)
+        try:
+            print(json.dumps(failure), file=sys.stderr, flush=True)
+        except (OSError, ValueError):
+            # A full or closed diagnostic stream cannot replace the failure.
+            pass
         raise
     finally:
         # A failed unlink must not hide the primary error or prevent restoring

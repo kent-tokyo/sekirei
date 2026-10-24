@@ -140,6 +140,25 @@ class PilotIntegrityTest(unittest.TestCase):
             self.assertEqual(record['error'], 'unknown plan schema')
             self.assertIn('terminal journal full', record['terminal_persistence_error'])
 
+    def test_failed_terminal_stderr_does_not_replace_primary_error(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pilot.save(root/'plan.json', {'schema':'bad', 'bound_inputs':[]})
+            save = pilot.save
+
+            def fail_terminal(path, document):
+                if document.get('status') == 'STOPPED_NOT_QUALIFIED':
+                    raise OSError(errno.ENOSPC, 'terminal journal full')
+                save(path, document)
+
+            stderr = Mock()
+            stderr.write.side_effect = OSError(errno.ENOSPC, 'stderr full')
+            with patch.object(pilot, 'save', side_effect=fail_terminal), \
+                 patch.object(pilot.sys, 'stderr', stderr):
+                with self.assertRaisesRegex(ValueError, 'unknown plan schema'):
+                    pilot.run(root/'plan.json')
+
     def test_candidate_id_is_bounded_ascii_and_cannot_escape_or_replace_data(self):
         self.assertEqual(pilot.candidate_name({}), 'nn_r8c1')
         self.assertEqual(pilot.candidate_name({'candidate_id':'nn_r8c3'}), 'nn_r8c3')

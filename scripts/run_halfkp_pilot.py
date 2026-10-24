@@ -570,8 +570,12 @@ def run_locked(plan_path):
         except OSError as persistence_error:
             # If even the exit journal cannot be written, stderr still retains
             # the primary failure and independently observed cleanup failures.
-            print(json.dumps(dict(state, terminal_persistence_error=str(persistence_error))),
-                  file=sys.stderr, flush=True)
+            try:
+                print(json.dumps(dict(state, terminal_persistence_error=str(persistence_error))),
+                      file=sys.stderr, flush=True)
+            except (OSError, ValueError):
+                # Even diagnostic output may share the exhausted filesystem.
+                pass
         raise
 
 

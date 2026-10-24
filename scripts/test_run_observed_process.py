@@ -334,9 +334,12 @@ class ObservedProcessTests(unittest.TestCase):
                     raise primary
                 original_save(path, document)
 
+            stderr = mock.Mock()
+            stderr.write.side_effect = OSError(errno.ENOSPC, 'stderr full')
             with mock.patch.object(O, 'snapshot', return_value={}), \
                  mock.patch.object(O, 'save', side_effect=fail_running), \
                  mock.patch.object(O.subprocess, 'Popen', return_value=child) as spawn, \
+                 mock.patch.object(O.sys, 'stderr', stderr), \
                  mock.patch.object(O.os, 'killpg',
                                    side_effect=PermissionError(errno.EPERM, 'group denied')):
                 with self.assertRaises(OSError) as caught:
