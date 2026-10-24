@@ -27,11 +27,33 @@ cargo test -p sekirei-core --features tune --lib \
   --ignored --exact --nocapture --test-threads=1
 ```
 
-Speed is not yet qualified. A single preregistered independent own-r3
-runtime study uses current-source native OFF/ON builds (no PGO/tune/counters),
-fresh material-generated 32 roots, exact 1T depth-12 ABBA and then 8T ABBA,
-Hash64 MiB and 1000ms. Whole host-clean quartets only; at least 24 eligible
-positions, 700ms minimum per arm and a 5000-draw bootstrap lower95% bound
-above1 are required. Bootstrap seed20261025; no partial statistics or
-mixed-candidate results. The SEE feature remains OFF in both arms.
-No automatic default adoption, external-evaluator selection or strength claim.
+The 2026-10-25 native 8T study did **not** pass the speed gate. The feature
+remains OFF. ON/OFF wall-NPS was **0.990565589** (about **0.94% slower**),
+with a 5000-draw bootstrap 95% interval of **[0.983260174, 0.997138830]**.
+This is a comparison against the same-source OFF build, not YaneuraOu.
+
+[Qualification receipt](qualification.json) pins source `117abcdc9ee9`,
+binaries, evaluator, corpus, protocol and local raw-evidence hashes. The
+[32 CPU roots](cpu_roots32.sfen) were generated once with material evaluation,
+selecting the first 16 per side without scores or timings. This corpus is
+not an NNUE-owner holdout. Native builds used opt3, Thin LTO, one codegen unit,
+panic-abort and target-cpu=native; no PGO, tuning or diagnostic counters.
+
+The fresh 1T depth-12 ABBA passed all 128 calls: bestmove, score, PV, nodes,
+completed depth and bound matched. The subsequent 8T ABBA completed all 32
+quartets: 33 attempts, one whole-quartet host rejection, 128 accepted calls.
+One position was excluded by the preregistered 700ms minimum, leaving 31.
+The fixed gate required at least 24 eligible positions, point >=1 and lower
+95% bound >1. Complete raw and bootstrap verification passed; the speed gate
+failed. Hash64 MiB, 1000ms, own-r3 HalfKP/FV24 and options are in the receipt.
+
+Two earlier wrapper failures are retained with null speed summaries. After
+fixing a missing diagnostic argument and a host-admission race, both final
+captures were run afresh. No old rows were pooled or rescued. All 260 PVs from the final captures,
+including host-rejected calls, passed requested-root replay and an illegal-move
+negative control. Source and input hashes matched before and after capture.
+
+No default adoption, external-evaluator selection, YaneuraOu speed claim or
+playing-strength claim follows from this result. Historical PGO results and
+1T/4T/8T measurements remain separate. Local raw files stay under ignored
+`results/lmr-stat-20261025`; their identities are retained in the receipt.
