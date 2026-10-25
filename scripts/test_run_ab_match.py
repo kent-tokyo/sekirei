@@ -100,6 +100,67 @@ class SprtTest(unittest.TestCase):
         self.assertIsNone(identity["commit"])
         self.assertIsNone(identity["dirty"])
 
+    def test_runner_identity_without_source_manifest_is_explicitly_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "run_ab_match.ROOT", Path(directory)
+        ), patch("run_ab_match.subprocess.run", side_effect=FileNotFoundError):
+            identity = runner_identity()
+        self.assertIsNone(identity["version"])
+        self.assertEqual(identity["version_status"], "unavailable")
+        self.assertEqual(identity["version_unavailable_reason"], "FileNotFoundError")
+        self.assertIsNone(identity["commit"])
+        self.assertIsNone(identity["dirty"])
+        self.assertEqual(identity["source_status"], "unavailable")
+
+    def test_runner_identity_unreadable_manifest_does_not_block_receipts(self):
+        for error in (PermissionError("denied"), UnicodeError("invalid text")):
+            with self.subTest(error=type(error).__name__), patch(
+                "run_ab_match.Path.read_text", side_effect=error
+            ), patch("run_ab_match.subprocess.run", side_effect=FileNotFoundError):
+                identity = runner_identity()
+            self.assertIsNone(identity["version"])
+            self.assertEqual(identity["version_unavailable_reason"], type(error).__name__)
+
+    def test_runner_identity_never_borrows_an_enclosing_repository(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "standalone"
+            root.mkdir()
+            with patch("run_ab_match.ROOT", root), patch(
+                "run_ab_match.subprocess.run",
+                return_value=subprocess.CompletedProcess([], 0, stdout=directory + "\n"),
+            ) as git:
+                identity = runner_identity()
+        git.assert_called_once()
+        self.assertIsNone(identity["commit"])
+        self.assertIsNone(identity["dirty"])
+        self.assertEqual(identity["source_unavailable_reason"], "repository_root_mismatch")
+
+    def test_runner_identity_preserves_available_source_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "crates/sekirei-usi/Cargo.toml"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('[package]\nversion = "0.1.2"\n')
+            with patch("run_ab_match.ROOT", root), patch(
+                "run_ab_match.subprocess.run",
+                side_effect=[subprocess.CompletedProcess([], 0, stdout=value)
+                             for value in (directory + "\n", "a" * 40 + "\n", " M file.py\n")],
+            ):
+                identity = runner_identity()
+        self.assertEqual(identity["version"], "0.1.2")
+        self.assertEqual(identity["version_status"], "available")
+        self.assertEqual(identity["commit"], "a" * 40)
+        self.assertTrue(identity["dirty"])
+        self.assertEqual(identity["source_status"], "available")
+
+    def test_runner_identity_manifest_without_version_has_no_guessed_value(self):
+        with patch("run_ab_match.Path.read_text", return_value="[package]\n"), patch(
+            "run_ab_match.subprocess.run", side_effect=FileNotFoundError
+        ):
+            identity = runner_identity()
+        self.assertIsNone(identity["version"])
+        self.assertEqual(identity["version_unavailable_reason"], "version_not_found")
+
     def test_unexpected_process_failure_overrides_a_numerical_sprt_verdict(self):
         status = classify_terminal_status(
             20, 2000, 2, None, "H1 accepted", True, True
@@ -936,6 +997,64 @@ class SprtTest(unittest.TestCase):
         self.assertEqual(result["result"]["games_played"], 3)
         self.assertEqual(result["evidence"]["openings"]["position_count"], 1)
         self.assertIsNone(result["result"]["sprt"])
+
+    def test_standalone_runtime_writes_full_terminal_receipt_without_cargo(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {name: root / name for name in ("engine-a", "engine-b", "runner", "weights.bin")}
+            for name, path in paths.items():
+                path.write_bytes(name.encode())
+            output = root / "output"
+            result_path = output / "receipt.json"
+
+            def persist_results(_index, _line):
+                (output / "standalone.json").write_text(json.dumps({
+                    "status": "complete", "games": 2, "engine1_wins": 1,
+                    "engine2_wins": 1, "draws": 0, "artifact_files_expected": 2,
+                    "artifact_write_failures": [], "invalid_games": [],
+                }) + "\n")
+                (output / "standalone.jsonl").write_text("\n".join(
+                    json.dumps({"id": f"game{index:04}", "result": result})
+                    for index, result in enumerate(("candidate_win", "baseline_win"), 1)
+                ) + "\n")
+                kifu = output / "kifu_standalone"
+                kifu.mkdir(exist_ok=True)
+                for index in (1, 2):
+                    (kifu / f"game{index:04}.txt").write_text("synthetic recorded game\n")
+
+            process = _FakeMatchProcess(["→ Engine1 Win\n", "→ Engine2 Win\n"], before_yield=persist_results)
+            argv = ["run_ab_match.py", "selfplay", "--engine-a", str(paths["engine-a"]),
+                    "--engine-b", str(paths["engine-b"]), "--match-binary", str(paths["runner"]),
+                    "--evalfile", str(paths["weights.bin"]), "--games", "2", "--name", "standalone",
+                    "--out-dir", str(output), "--result-json", str(result_path)]
+            with patch.object(sys, "argv", argv), patch("run_ab_match.ROOT", root), patch(
+                "run_ab_match.subprocess.Popen", return_value=process
+            ) as popen, patch("run_ab_match.subprocess.run", side_effect=FileNotFoundError), patch(
+                "run_ab_match.validate_raw_match_evidence", wraps=validate_raw_match_evidence
+            ) as validate, patch(
+                "sys.stdout", new_callable=io.StringIO
+            ):
+                self.assertEqual(main(), 0)
+            payload = json.loads(result_path.read_text())
+            self.assertEqual(payload["terminal_state"], "completed")
+            self.assertEqual(payload["result"]["games_played"], 2)
+            self.assertEqual(payload["result"]["wins"], 1)
+            self.assertEqual(payload["result"]["losses"], 1)
+            evidence = payload["evidence"]
+            self.assertTrue(evidence["complete"])
+            self.assertEqual(evidence["process_exit_code"], 0)
+            self.assertEqual(evidence["runner"]["version_status"], "unavailable")
+            self.assertEqual(evidence["runner"]["source_status"], "unavailable")
+            for item, path in ((evidence["engines"]["a"], paths["engine-a"]),
+                               (evidence["engines"]["b"], paths["engine-b"]),
+                               (evidence["match_binary"], paths["runner"]),
+                               (evidence["evaluation"]["file"], paths["weights.bin"]),
+                               (evidence["outputs"]["raw_match_json"], output / "standalone.json"),
+                               (evidence["outputs"]["raw_match_jsonl"], output / "standalone.jsonl")):
+                self.assertEqual(item["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
+            self.assertEqual(evidence["outputs"]["kifu_manifest"]["file_count"], 2)
+            validate.assert_called_once()
+            popen.assert_called_once()
 
     def test_result_json_carries_validated_prospective_gate_declaration(self):
         process = _FakeMatchProcess(["→ Draw\n"])
