@@ -138,15 +138,37 @@ def kifu_manifest_identity(directory: Path) -> dict[str, object]:
 
 
 def runner_identity() -> dict[str, object]:
-    """Describe the checked-out runner revision without requiring Git."""
+    """Describe optional source metadata, including standalone runtimes."""
     manifest = ROOT / "crates/sekirei-usi/Cargo.toml"
-    version_match = re.search(
-        r'^version\s*=\s*"([^"]+)"', manifest.read_text(encoding="utf-8"), re.MULTILINE
-    )
     identity: dict[str, object] = {
-        "version": version_match.group(1) if version_match else None,
+        "version": None,
+        "version_status": "unavailable",
+        "commit": None,
+        "dirty": None,
+        "source_status": "unavailable",
     }
     try:
+        version_match = re.search(
+            r'^version\s*=\s*"([^"]+)"', manifest.read_text(encoding="utf-8"), re.MULTILINE
+        )
+    except (OSError, UnicodeError) as error:
+        identity["version_unavailable_reason"] = type(error).__name__
+    else:
+        if version_match:
+            identity.update(version=version_match.group(1), version_status="available")
+        else:
+            identity["version_unavailable_reason"] = "version_not_found"
+    try:
+        source_root = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout.strip()
+        if Path(source_root).resolve() != ROOT.resolve():
+            identity["source_unavailable_reason"] = "repository_root_mismatch"
+            return identity
         identity["commit"] = subprocess.run(
             ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
             check=True,
@@ -163,9 +185,11 @@ def runner_identity() -> dict[str, object]:
                 timeout=5,
             ).stdout.strip()
         )
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        identity["source_status"] = "available"
+    except (OSError, UnicodeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         identity["commit"] = None
         identity["dirty"] = None
+        identity["source_unavailable_reason"] = type(error).__name__
     return identity
 
 
