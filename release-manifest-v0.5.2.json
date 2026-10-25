@@ -42,9 +42,15 @@
     "asset": "sekirei-wasm-0.5.2.tgz",
     "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.5.2/sekirei-wasm-0.5.2.tgz",
     "status": "verified",
-    "npm_registry_status": "not_published",
+    "npm_registry_status": "published",
     "sha256": "89e11ac2231f0c96bf9b1f034366078c08d735dcb20f95b37c2516a020c94f74",
-    "size": 546805
+    "size": 546805,
+    "npm_publish_attempt": {
+      "workflow_run": "40188410346",
+      "result": "verified"
+    },
+    "npm_registry_version": "0.5.2",
+    "npm_registry_integrity": "sha512-CEFYR2YfiGft+emJwdGAj5aysr2MJEHnZIYdq8U5o633Bq8K0/99RlkLFgda2aW/3BVus4RapR4x5hBdRGO+wQ=="
   },
   "internal_measurement": {
     "spec_top_n": 0,
@@ -60,7 +66,6 @@
     "configuration": "No external opponent, evaluator, weights, labels, or derived positions were used to select this release."
   },
   "known_limitations": [
-    "Publication, hosted CI, GitHub Release assets, and npm registry parity are not verified by this planned manifest.",
     "Source commit and binary checksum identify this local preparation build, not distributed byte identity or playing strength.",
     "Optional nn_r6 weights remain a separate v0.5.0 artifact; this release does not select or change a checkpoint.",
     "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0."
