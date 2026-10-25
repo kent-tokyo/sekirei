@@ -3,15 +3,15 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.5.1-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.1)
+[![Release](https://img.shields.io/badge/release-v0.5.2-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.2)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.5.1`は
-既定で駒得評価を使います。NNUE重みを使う場合はファイルを明示します。
-対応形式と測定範囲は
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.5.2`は
+既定で駒得評価を使います。NNUE重みを使う場合はファイルを明示します。今回の変更は
+データ・判定用依存と単独対局ランナーの受領証跡であり、棋力向上は主張しません。対応形式と測定範囲は
 [NNUE重み](docs/nnue_weights.md)、リリースごとの変更は
 [変更履歴](CHANGELOG.md)を参照してください。
 
@@ -59,9 +59,9 @@ USIの`usi`で全オプションを確認できます。`SearchMode=Auto`は1ワ
 
 [`sekirei-wasm`](crates/sekirei-wasm/README.md)は、SFEN解析、合法手、
 検証付き着手、呼出側が渡す任意評価器を使う上限付き1ワーカー探索、最大4本の
-MultiPV、最短詰み解析を提供します。検証済みのv0.5.1 ESモジュールは
-`npm install sekirei-wasm@0.5.1`で導入できます。配布ファイルを固定する場合は
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.1/sekirei-wasm-0.5.1.tgz)
+MultiPV、最短詰み解析を提供します。検証済みのv0.5.2 ESモジュールは
+`npm install sekirei-wasm@0.5.2`で導入できます。配布ファイルを固定する場合は
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.2/sekirei-wasm-0.5.2.tgz)
 を利用してください。版とファイルの照合方法は[配布記録](docs/releases/npm_wasm.md)にあります。
 
 ## ビルドと検証

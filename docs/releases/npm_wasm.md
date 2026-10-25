@@ -1,8 +1,8 @@
 # npm distribution for `sekirei-wasm`
 
-The [v0.5.1 release manifest](../../release-manifest-v0.5.1.json) records a
+The [v0.5.2 release manifest](../../release-manifest-v0.5.2.json) records a
 verified npm publication, registry version and integrity, and GitHub Release
-archive hash. Install that version with `npm install sekirei-wasm@0.5.1`.
+archive hash. Install that version with `npm install sekirei-wasm@0.5.2`.
 
 The GitHub Release `sekirei-wasm-X.Y.Z.tgz` remains the primary, hashed release
 asset. The npm workflow publishes that same archive and then compares every

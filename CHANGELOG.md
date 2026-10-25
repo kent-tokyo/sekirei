@@ -4,10 +4,18 @@ This file summarizes recent releases. The
 [archived detailed history](CHANGELOG_ARCHIVE.md)
 preserves older per-change notes.
 
-## [Unreleased]
+## [0.5.2] – 2026-10-25
+
+Version 0.5.2 updates release-facing data and statistical-gate dependencies,
+and preserves terminal evidence when a standalone match runner cannot recover
+its own source metadata. The default search and material evaluator are
+unchanged; this release makes no playing-strength claim.
 
 ### Changed
 
+- Update `shogiesa-core` to 0.11.8 and `veridict` to 0.19.7.
+- Record the current-source own-HalfKP 8T PGO gate as inconclusive rather than
+  treating it as a speed or strength result.
 - Move v0.4.0–v0.4.3 release notes to the archive and preserve historical
   benchmark reports and release smoke transcripts under documentation.
 - Share DFPN/SharedMcts abort timer setup and USI diagnostic-context creation.
@@ -20,6 +28,9 @@ preserves older per-change notes.
 
 ### Fixed
 
+- Keep a runner's terminal receipt when executable and evaluator identities are
+  valid but its copied source tree has no recoverable Cargo metadata. The
+  missing source fields are explicitly recorded as unavailable.
 - Allow the CSA client to select and record a validated HalfKP `FV_SCALE`
   divisor before loading weights or connecting. The default remains 16; the
   optional `nn_r6` artifact requires an explicit value of 24.
