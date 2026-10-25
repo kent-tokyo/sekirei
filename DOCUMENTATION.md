@@ -41,6 +41,9 @@ preregistrations, exact run conditions, hashes, and results. Their dates and
 revisions are part of the record. Do not reuse an old verdict as evidence for
 the current engine without re-running the stated contract.
 
+The [2026-10-25 own-HalfKP 8T PGO study](docs/experiments/own_halfkp_pgo_8t_v0.5.1/README.md)
+records an inconclusive speed result; the candidate was not adopted.
+
 The [archived benchmark reports](docs/experiments/benchmark_reports/README.md)
 follow the same rule: they compare only the recorded revision, host, corpus,
 evaluator, and operation.
