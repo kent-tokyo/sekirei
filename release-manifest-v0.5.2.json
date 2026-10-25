@@ -1,0 +1,66 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.5.2",
+  "commit": "c23976bbb2132b2e6ff41732b2ccd7437835500e",
+  "branch_at_release": "main",
+  "candidate_state": "planned from the verified release-preparation commit",
+  "packages": {
+    "sekirei": "0.5.2",
+    "sekirei-core": "0.5.2",
+    "sekirei-bench": "0.5.2",
+    "sekirei-csa": "0.5.2",
+    "sekirei-match-runner": "0.5.2",
+    "sekirei-train": "0.5.2"
+  },
+  "dependencies": {
+    "lineprior": "0.12.6",
+    "shogiesa-core": "0.11.8",
+    "veridict": "0.19.7"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "a40bbe4c5254974d083c6f0d655a8fef6d13905d1c8eae991cbbf1f084c4e41a"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.5.2",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.5.2.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.5.2/sekirei-wasm-0.5.2.tgz",
+    "status": "planned",
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_preparation",
+    "strength_claim": false,
+    "evaluator": "material-only native USI smoke",
+    "results": "The release-mode USI binary built from the preparation commit answered usiok and readyok. Workspace tests, Clippy, formatting, match-receipt regression tests, and release metadata checks passed. This is not a playing-strength measurement."
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external opponent, evaluator, weights, labels, or derived positions were used to select this release."
+  },
+  "known_limitations": [
+    "Publication, hosted CI, GitHub Release assets, and npm registry parity are not verified by this planned manifest.",
+    "Source commit and binary checksum identify this local preparation build, not distributed byte identity or playing strength.",
+    "Optional nn_r6 weights remain a separate v0.5.0 artifact; this release does not select or change a checkpoint.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0."
+  ]
+}
