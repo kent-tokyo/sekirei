@@ -860,7 +860,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "lineprior",
  "rayon",
@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-bench"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "criterion",
  "rayon",
@@ -885,7 +885,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-core"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "rayon",
  "web-time",
@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-csa"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "dotenvy",
  "sekirei-core",
@@ -902,7 +902,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-match-runner"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "sekirei-core",
  "serde_json",
@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-train"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "flate2",
  "lineprior",
@@ -926,7 +926,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-wasm"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "js-sys",
  "sekirei-core",
@@ -1023,9 +1023,9 @@ checksum = "3d0a7de4ff7c66bf0b6346bda1d530c94a496f8aa3317938923886c58191aa14"
 
 [[package]]
 name = "shogiesa-core"
-version = "0.11.6"
+version = "0.11.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9ea1b18e1aad02598ea3b5cdd2fd48c70cb7c0eb594b6699b216e2b1760702e"
+checksum = "64ad04b7ddf80b2b5d07c46b82a7a02487b6f53805164036b647bd53e9edc28d"
 dependencies = [
  "serde",
  "serde_json",
@@ -1191,9 +1191,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "veridict"
-version = "0.19.5"
+version = "0.19.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "487d4513b22f7cb94bff7f13aa741bf0b1ebf325a0999a321554f98b41575203"
+checksum = "a4bd85a0ed74aa8408e8d256729321bc65015b2f6862aaa3e70921229ba892d5"
 dependencies = [
  "clap",
  "csv",

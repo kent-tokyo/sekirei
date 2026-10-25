@@ -1,6 +1,6 @@
 [package]
 name = "sekirei-train"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 description = "NNUE training pipeline for the Sekirei shogi engine"
 license = "MIT OR Apache-2.0"
@@ -16,12 +16,12 @@ name = "verify-shogiesa-label-run"
 path = "src/bin/verify_shogiesa_label_run.rs"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core", version = "0.5.1" }
+sekirei-core = { path = "../sekirei-core", version = "0.5.2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 lineprior = "0.12.6"
-shogiesa-core = "0.11.6"
+shogiesa-core = "0.11.8"
 tempfile = "3"
 flate2 = { version = "=1.1.10", optional = true, default-features = false, features = ["miniz_oxide"] }
 ruzstd = { version = "=0.9.1", optional = true, default-features = false, features = ["std", "hash"] }

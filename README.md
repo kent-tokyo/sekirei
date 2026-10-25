@@ -3,16 +3,18 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.5.1-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.1)
+[![Release](https://img.shields.io/badge/release-v0.5.2-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.2)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.5.1` uses
+Sekirei is an experimental Pure Rust shogi engine. Release `0.5.2` uses
 material evaluation by default. Optional NNUE weights require an explicit
-file path; see [weights and evidence](docs/nnue_weights.md). Release changes
-are in the [changelog](CHANGELOG.md).
+file path; see [weights and evidence](docs/nnue_weights.md). This release
+updates data and verdict dependencies plus standalone-match receipt handling;
+it makes no playing-strength claim. Release changes are in the
+[changelog](CHANGELOG.md).
 
 ## Quick start
 
@@ -61,9 +63,9 @@ deterministic diagnostics, use `Threads=1` and `SpecTopN=0`.
 [`sekirei-wasm`](crates/sekirei-wasm/README.md) provides SFEN parsing, legal
 moves, validated move application, bounded one-worker search with an optional
 caller-supplied evaluator, up to four MultiPV lines, and bounded shortest-mate
-analysis. Install the verified v0.5.1 ES-module package with
-`npm install sekirei-wasm@0.5.1`, or pin the
-[GitHub Release archive](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.1/sekirei-wasm-0.5.1.tgz).
+analysis. Install the verified v0.5.2 ES-module package with
+`npm install sekirei-wasm@0.5.2`, or pin the
+[GitHub Release archive](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.2/sekirei-wasm-0.5.2.tgz).
 See the [distribution record](docs/releases/npm_wasm.md) for package identity
 and verification.
 
