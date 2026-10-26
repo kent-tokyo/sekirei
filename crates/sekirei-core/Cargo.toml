@@ -22,6 +22,8 @@ see_lva_groups = []
 lmr_stat_lazy = []
 # Opt-in ProbCut SEE comparison bound, without runtime tuning atomics.
 probcut_see_bound = []
+# Opt-in CPU experiment: retain one exact ProbCut SEE for normal ordering.
+probcut_see_reuse = []
 # Opt-in CPU experiment: two bits in the existing repetition Bloom filter.
 # A compile-time mode prevents mixed filter rules during an active search.
 repetition_filter2 = []
