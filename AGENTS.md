@@ -91,6 +91,12 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-29: Keep learning data out of GitHub. Store retained but infrequently used data on the external SSD at `/Volumes/ESD-EPA/Projects/sekirei_data`; verify archives and record restoration steps before removing local copies.
+
+* 2026-10-28: Resume the self-NNUE improvement lane in a separately recorded recovery attempt; retain failed evidence and verify resource recovery before starting new generation or games.
+
+* 2026-10-26: Remove the blanket prohibition on automatic NNUE retries. After fixing and verifying a failure cause or resource recovery, resume autonomously in a new recorded attempt; preserve failed evidence and past limits/verdicts, prevent duplicate runs, and never pool failed results or promote unqualified candidates.
+
 * 2026-10-24: Codex owns self-NNUE generation, training code, weights, and candidate evaluation. Earlier Claude ownership assignments are superseded. Preserve active jobs, prior training work, hold-outs, and frozen evidence; qualify each candidate independently before adoption or publication.
 
 * 2026-10-23: Manually continue nn_r8c3 after its observer capacity failure, retaining all 123 completed pairs, the unplayed-root order, 400-pair cap and original deadline; use the validated observer fix and file necessary issues without publishing private trial artifacts.
