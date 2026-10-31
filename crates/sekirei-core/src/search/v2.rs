@@ -47,6 +47,11 @@ use crate::mv::{Move, MoveToken};
 use crate::piece::PieceKind;
 use crate::tt::Bound;
 
+mod probcut_see_cache;
+
+#[cfg(all(test, feature = "tune"))]
+mod probcut_see_reuse_test;
+
 /// Scores at or beyond this magnitude are mates.
 const MATE_BOUND: i32 = MATE_SCORE - 1000;
 const INF: i32 = MATE_SCORE + 1;
@@ -2001,6 +2006,11 @@ fn node(
     let mut any_generated_move = !moves.is_empty() || quiet_tt.is_some();
     let tt_move = quiet_tt.or_else(|| tt_move.filter(|t| moves.contains(t)));
 
+    // Exact SEE depends on the restored parent board, not capture history.
+    // Retain at most one non-TT, non-capture-up value for ordinary classification.
+    let mut pc_see_cache = None;
+    let reuse_pc_see = cfg!(feature = "probcut_see_reuse") || p::V2_PC_SEE_REUSE() != 0;
+
     // ProbCut.
     let pc_beta = beta + p::V2_PC_MARGIN() - p::V2_PC_IMP() * i32::from(improving);
     if !pv
@@ -2026,7 +2036,16 @@ fn node(
                 cfg!(feature = "probcut_see_bound") || p::V2_PC_SEE_BOUND() != 0,
                 pc_beta - static_eval,
                 || captures_up(board, m),
-                || see2(board, m),
+                || {
+                    probcut_see_cache::remember(
+                        &mut pc_see_cache,
+                        reuse_pc_see && quiet_tt.is_none(),
+                        m,
+                        tt_move,
+                        || captures_up(board, m),
+                        || see2(board, m),
+                    )
+                },
             ) {
                 continue;
             }
@@ -2142,7 +2161,10 @@ fn node(
             let (se, proven) = if s >= 0 && captures_up(board, m) {
                 (i32::MIN, p::V2_SEE_BOUND_CACHE() != 0)
             } else {
-                (see2(board, m), false)
+                (
+                    probcut_see_cache::reuse(pc_see_cache, m, || see2(board, m)),
+                    false,
+                )
             };
             let flags = 4 | if proven { 8 } else { 0 };
             if se == i32::MIN || se >= -s / p::V2_GOODCAP_DIV().max(1) {

@@ -1,0 +1,152 @@
+{
+  "schema": "sekirei.probcut-see-reuse-correctness.v1",
+  "base_source_commit": "15479124993aee9d2f756ac9cb3d135f37ba99de",
+  "date": "2026-10-27",
+  "result": "correctness_passed_speed_not_measured",
+  "feature_default": false,
+  "tune_parameter_default": 0,
+  "development_roots": 8,
+  "black_roots": 4,
+  "white_roots": 4,
+  "depths": [
+    3,
+    6,
+    8
+  ],
+  "searches": 288,
+  "unit_tests": 6,
+  "exact_fields": [
+    "bestmove",
+    "score",
+    "PV",
+    "nodes",
+    "completed_depth",
+    "bound",
+    "completed_bound"
+  ],
+  "legal_PV_replay": true,
+  "root_restoration": [
+    "SFEN",
+    "hash",
+    "acc",
+    "HalfKP_acc",
+    "occupancy"
+  ],
+  "saved_call_proofs": [
+    {
+      "configuration": "material bound=0 quietTT=0",
+      "searches": 48,
+      "off_exact_instrumented_paths": 38773,
+      "on_exact_instrumented_paths": 38603,
+      "writes": 310,
+      "saved_exact_calls": 170
+    },
+    {
+      "configuration": "material bound=1 quietTT=0",
+      "searches": 48,
+      "off_exact_instrumented_paths": 38707,
+      "on_exact_instrumented_paths": 38537,
+      "writes": 310,
+      "saved_exact_calls": 170
+    },
+    {
+      "configuration": "material bound=0 quietTT=1",
+      "searches": 48,
+      "off_exact_instrumented_paths": 38390,
+      "on_exact_instrumented_paths": 38232,
+      "writes": 298,
+      "saved_exact_calls": 158
+    },
+    {
+      "configuration": "own synthetic HalfKP random11 bound=0 quietTT=0",
+      "searches": 48,
+      "off_exact_instrumented_paths": 78639,
+      "on_exact_instrumented_paths": 77800,
+      "writes": 983,
+      "saved_exact_calls": 839
+    },
+    {
+      "configuration": "own synthetic HalfKP random11 bound=1 quietTT=0",
+      "searches": 48,
+      "off_exact_instrumented_paths": 78430,
+      "on_exact_instrumented_paths": 77591,
+      "writes": 983,
+      "saved_exact_calls": 839
+    },
+    {
+      "configuration": "own synthetic HalfKP random11 bound=0 quietTT=1",
+      "searches": 48,
+      "off_exact_instrumented_paths": 75734,
+      "on_exact_instrumented_paths": 74946,
+      "writes": 909,
+      "saved_exact_calls": 788
+    }
+  ],
+  "instrumented_paths_only": true,
+  "instrumentation_in_native_builds": false,
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6\n",
+  "verification": [
+    {
+      "name": "fmt-final",
+      "exit_code": 0
+    },
+    {
+      "name": "identity-and-unit-final",
+      "exit_code": 0
+    },
+    {
+      "name": "clippy-feature",
+      "exit_code": 0
+    },
+    {
+      "name": "clippy-default",
+      "exit_code": 0
+    },
+    {
+      "name": "fmt-check",
+      "exit_code": 0
+    },
+    {
+      "name": "diff-check",
+      "exit_code": 0
+    }
+  ],
+  "independent_static_review": "passed; balanced roots and three parameter configurations reviewed",
+  "evidence_files": {
+    "verification-final.json": {
+      "sha256": "908e35d2cf4dcf64202ca8685168c77faabf2e456e0b9ece15078d13d1b700c1",
+      "size_bytes": 2228
+    },
+    "identity-and-unit-final.stdout": {
+      "sha256": "fc6ea07f657699d83d00540a963f640cfd92629e2322c559497c3314b6d5efef",
+      "size_bytes": 884
+    },
+    "identity-and-unit-final.stderr": {
+      "sha256": "9e0e5649e25230f119c66260911550af9d6d8469746338539a06d48b89df29af",
+      "size_bytes": 916
+    },
+    "clippy-feature.stderr": {
+      "sha256": "74a7e7cf47cbd7b2830d7eb2c04d9cf9f35c726073572e2a7496b839584a1116",
+      "size_bytes": 785
+    },
+    "clippy-default.stderr": {
+      "sha256": "73e534da95278d30b4d7e45f762a9e9c9427cccd5f783c0085b899d10bcec320",
+      "size_bytes": 300
+    },
+    "source-inputs.json": {
+      "sha256": "0ad911d4475a542e24c69a4cb8c7581b77464296d560676818a89157028e6847",
+      "size_bytes": 24698
+    }
+  },
+  "native_speed_measured": false,
+  "eight_thread_result": null,
+  "default_adoption": false,
+  "external_comparison": false,
+  "strength_claim": false,
+  "limitations": [
+    "one-worker development identity and call-saving proof only",
+    "three configurations: SEE-bound/quiet-TT=(0,0),(1,0),(0,1)",
+    "no 8T, NPS, useful-depth, YaneuraOu or playing-strength conclusion",
+    "local named checks only; full workspace and hosted coverage not yet confirmed"
+  ]
+}

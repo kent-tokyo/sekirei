@@ -431,6 +431,20 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Exact ProbCut SEE reuse uses process-global params and a synthetic network.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-probcut-see-reuse-summary.json" \
+  -- search::v2::probcut_see_reuse_test::probcut_see_reuse_preserves_tree_and_saves_exact_calls \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # Isolate the completed-score aspiration flag while checking real activation,
 # fixed-root/MultiPV exclusions and observer noninterference.
 cargo llvm-cov -p sekirei-core \
