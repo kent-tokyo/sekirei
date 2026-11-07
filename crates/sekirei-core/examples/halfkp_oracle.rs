@@ -11,6 +11,8 @@
 //! output also certifies incremental/refresh agreement. The printed scores can
 //! be compared with any other implementation of the format
 //! (`scripts/check_halfkp_oracle.py`).
+//! With `halfkp_plus_kings`, `eval` and `dump` also accept the distinct
+//! experimental dense format. `write-net` always writes the legacy fixture.
 
 use sekirei_core::board::Board;
 use sekirei_core::eval::evaluate;
@@ -64,6 +66,8 @@ fn main() {
 fn load(path: &str) {
     match load_evaluator(Path::new(path)) {
         Ok(EvalFileFormat::HalfKp) => {}
+        #[cfg(feature = "halfkp_plus_kings")]
+        Ok(EvalFileFormat::HalfKpPlusKingsV1) => {}
         Ok(other) => panic!("{path} is {}, not HalfKP", other.as_str()),
         Err(e) => panic!("cannot load {path}: {e}"),
     }

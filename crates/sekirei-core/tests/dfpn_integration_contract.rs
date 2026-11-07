@@ -326,6 +326,42 @@ fn normal_search_checks_game_history_before_even_a_mating_tt_receipt() {
 }
 
 #[test]
+fn completed_perpetual_check_loss_is_not_replaced_by_a_legal_fallback() {
+    for (origin, cycle) in [
+        (
+            "4k4/9/5R3/9/9/9/9/9/K8 b - 1",
+            ["4c5c", "5a4a", "5c4c", "4a5a"],
+        ),
+        (
+            "8k/9/9/9/9/9/3r5/9/4K4 w - 1",
+            ["6g5g", "5i6i", "5g6g", "6i5i"],
+        ),
+    ] {
+        let command = format!("sfen {origin} moves {}", cycle.repeat(3).join(" "));
+        let (mut board, history) = parse_position_cmd_with_history(&command).unwrap();
+        assert_eq!(
+            history.outcome_at_current_position(),
+            Some(RepetitionOutcome::PerpetualCheck(board.side_to_move))
+        );
+        let before = board_to_sfen(&board);
+        let result = Searcher::new(Tt::new(1)).search_with_history(
+            &mut board,
+            SearchConfig {
+                max_depth: 1,
+                node_limit: Some(100),
+                ..SearchConfig::default()
+            },
+            &history,
+        );
+        assert_eq!(result.best_move, None);
+        assert_eq!(result.score, -MATE_SCORE);
+        assert_eq!(result.depth, 1);
+        assert!(result.pv.is_empty());
+        assert_eq!(board_to_sfen(&board), before);
+    }
+}
+
+#[test]
 fn completed_mate_branch_with_later_abort_is_still_not_a_book_certificate() {
     let board = Board::from_sfen(GOLD_MATE).unwrap();
     let complete = DfpnSolver.solve(&board, one_ply_config());

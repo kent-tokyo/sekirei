@@ -1,4 +1,4 @@
-//! Build bounded cyclic-book artifacts from an explicit, versioned position set.
+//! Build bounded cyclic-book artifacts from versioned positions or trajectories.
 //! This example never expands missing positions or changes engine defaults.
 
 #[cfg(feature = "cyclic-book")]
@@ -34,18 +34,21 @@ mod enabled {
         board::Board,
         book_graph::{
             BookGraph, BookGraphNode, BookGraphSuccessor, BookGraphTarget, MAX_GRAPH_EDGES,
-            MAX_GRAPH_NODES, MAX_PROOF_NODES, MAX_PROOF_PLIES,
+            MAX_GRAPH_NODES, MAX_HISTORY_PLIES, MAX_PROOF_NODES, MAX_PROOF_PLIES,
         },
         color::Color,
         movegen::{generate_legal_moves, is_in_check},
         piece::PieceKind,
-        sfen::{board_to_sfen, move_to_usi},
+        sfen::{PositionHistory, RepetitionOutcome, board_to_sfen, move_from_usi, move_to_usi},
     };
     use serde::{Deserialize, Serialize};
     use sha2::{Digest, Sha256};
 
     const MAX_BYTES: usize = 1_048_576;
     const INPUT_SCHEMA: &str = "sekirei.cyclic-book-positions";
+    const TRAJECTORY_SCHEMA: &str = "sekirei.cyclic-book-trajectories";
+    const MAX_GAMES: usize = 64;
+    const MAX_REPLAY_PLIES: usize = 4096;
     const ARTIFACT_SCHEMA: &str = "sekirei.cyclic-book";
     const PROVENANCE_SCHEMA: &str = "sekirei.cyclic-book-provenance";
     const RULES: &str = "exact-history-checkmate-only-v1";
@@ -74,6 +77,38 @@ mod enabled {
         source_declaration: String,
         verification: Verification,
         positions: Vec<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct TrajectoryInput {
+        schema: String,
+        version: u32,
+        producer: String,
+        source: Source,
+        source_declaration: String,
+        verification: Verification,
+        games: Vec<Game>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Game {
+        origin: String,
+        moves: Vec<String>,
+        source_sha256: String,
+        source_declaration: String,
+    }
+
+    #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+    #[serde(deny_unknown_fields)]
+    struct TrajectoryReceipt {
+        source_sha256: String,
+        source_hash_verified: bool,
+        source_declaration: String,
+        trajectory_sha256: String,
+        plies: usize,
+        terminal: Option<String>,
     }
 
     #[derive(Serialize)]
@@ -120,6 +155,7 @@ mod enabled {
         legal_successors: usize,
         unknown_successors: usize,
         verification: Verification,
+        trajectories: Vec<TrajectoryReceipt>,
     }
 
     fn sha(bytes: &[u8]) -> String {
@@ -156,9 +192,217 @@ mod enabled {
             .join(" ")
     }
 
+    fn parse_board(sfen: &str) -> Result<Board, String> {
+        if sfen.len() > 256 {
+            return Err("input SFEN exceeds 256 bytes".into());
+        }
+        let mut board = Board::from_sfen(sfen)?;
+        board.ply = 0;
+        if [Color::Black, Color::White]
+            .into_iter()
+            .any(|side| board.pieces(side, PieceKind::Ou).popcount() != 1)
+            || is_in_check(&board, board.side_to_move.flip())
+        {
+            return Err("invalid king presence or non-moving king in check".into());
+        }
+        Ok(board)
+    }
+
+    fn exact_repetition(visits: &[(String, Option<Color>, bool)]) -> Option<RepetitionOutcome> {
+        let current = &visits.last()?.0;
+        let start = visits
+            .iter()
+            .enumerate()
+            .rev()
+            .filter(|(_, visit)| &visit.0 == current)
+            .nth(3)?
+            .0;
+        let checking = |color| {
+            let mut moves = visits[start + 1..]
+                .iter()
+                .filter(|visit| visit.1 == Some(color))
+                .peekable();
+            moves.peek().is_some() && moves.all(|visit| visit.2)
+        };
+        Some(match (checking(Color::Black), checking(Color::White)) {
+            (true, false) => RepetitionOutcome::PerpetualCheck(Color::Black),
+            (false, true) => RepetitionOutcome::PerpetualCheck(Color::White),
+            _ => RepetitionOutcome::Draw,
+        })
+    }
+
+    fn adjudication(
+        board: &Board,
+        visits: &[(String, Option<Color>, bool)],
+        history: &PositionHistory,
+    ) -> Result<Option<String>, String> {
+        let repeated = exact_repetition(visits);
+        if repeated != history.outcome_at_current_position() {
+            return Err("exact repetition and engine hash history disagree".into());
+        }
+        let color = |side| {
+            if side == Color::Black {
+                "black"
+            } else {
+                "white"
+            }
+        };
+        if let Some(result) = repeated {
+            return Ok(Some(match result {
+                RepetitionOutcome::Draw => "repetition_draw".into(),
+                RepetitionOutcome::PerpetualCheck(loser) => {
+                    format!("perpetual_check:{}", color(loser))
+                }
+            }));
+        }
+        if generate_legal_moves(&mut board.clone()).is_empty() {
+            return Ok(Some(if is_in_check(board, board.side_to_move) {
+                format!("checkmate:{}", color(board.side_to_move.flip()))
+            } else {
+                "no_legal_moves_unclassified".into()
+            }));
+        }
+        Ok(None)
+    }
+
+    fn add_position(
+        board: &Board,
+        positions: &mut Vec<String>,
+        ids: &mut HashMap<String, usize>,
+    ) -> Result<(), String> {
+        let key = exact_key(board);
+        if !ids.contains_key(&key) {
+            if positions.len() >= MAX_GRAPH_NODES {
+                return Err("replayed trajectories exceed 256 exact positions".into());
+            }
+            ids.insert(key, positions.len());
+            let mut normalized = board.clone();
+            normalized.ply = 0;
+            positions.push(board_to_sfen(&normalized));
+        }
+        Ok(())
+    }
+
+    fn parse_input(bytes: &[u8]) -> Result<(Input, Vec<TrajectoryReceipt>), String> {
+        #[derive(Deserialize)]
+        struct SchemaProbe {
+            schema: String,
+        }
+        let probe: SchemaProbe =
+            serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+        // Deserialize the original bytes again, rather than passing through
+        // Value: typed parsing must still reject duplicate fields.
+        match probe.schema.as_str() {
+            INPUT_SCHEMA => {
+                return serde_json::from_slice(bytes)
+                    .map(|input| (input, vec![]))
+                    .map_err(|error| error.to_string());
+            }
+            TRAJECTORY_SCHEMA => {}
+            _ => return Err("unsupported input schema".into()),
+        }
+        let input: TrajectoryInput =
+            serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+        if input.version != 1 || input.games.is_empty() || input.games.len() > MAX_GAMES {
+            return Err("trajectory version must be 1 and game count 1..=64".into());
+        }
+        let mut total = 0usize;
+        for game in &input.games {
+            total = total
+                .checked_add(game.moves.len())
+                .ok_or("trajectory move count overflow")?;
+            if game.moves.len() > MAX_HISTORY_PLIES || total > MAX_REPLAY_PLIES {
+                return Err("trajectory limit is 512 moves per game and 4096 total".into());
+            }
+            if game.source_sha256.len() != 64
+                || !game
+                    .source_sha256
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                || game.source_declaration.is_empty()
+                || game.source_declaration.len() > 512
+            {
+                return Err("game needs a lowercase SHA-256 source declaration and 1..=512 declaration bytes".into());
+            }
+        }
+        let mut positions = Vec::new();
+        let mut ids = HashMap::new();
+        let mut receipts = Vec::new();
+        for (index, game) in input.games.into_iter().enumerate() {
+            let mut board = if game.origin == "startpos" {
+                Board::startpos()
+            } else {
+                let parts = game.origin.split_whitespace().collect::<Vec<_>>();
+                if parts.len() != 4 || parts[3] != "1" {
+                    return Err(format!(
+                        "game {index} requires startpos or a complete SFEN origin at move 1"
+                    ));
+                }
+                parse_board(&game.origin)?
+            };
+            #[derive(Serialize)]
+            struct CanonicalTrajectory<'a> {
+                origin: String,
+                moves: &'a [String],
+            }
+            let canonical = serde_json::to_vec(&CanonicalTrajectory {
+                origin: board_to_sfen(&board),
+                moves: &game.moves,
+            })
+            .map_err(|error| error.to_string())?;
+            let mut history = PositionHistory::initial(board.hash());
+            let mut visits = vec![(exact_key(&board), None, false)];
+            add_position(&board, &mut positions, &mut ids)?;
+            let mut terminal = adjudication(&board, &visits, &history)?;
+            for (ply, action) in game.moves.iter().enumerate() {
+                if terminal.is_some() {
+                    return Err(format!(
+                        "game {index} continues after adjudication at ply {ply}"
+                    ));
+                }
+                if action.len() > 5 {
+                    return Err(format!("game {index} has an oversized USI action"));
+                }
+                let mv = move_from_usi(action, &board)
+                    .map_err(|error| format!("game {index} ply {}: {error}", ply + 1))?;
+                if move_to_usi(mv) != *action {
+                    return Err(format!("game {index} has a noncanonical USI action"));
+                }
+                let mover = board.side_to_move;
+                board.do_move(mv);
+                let check = is_in_check(&board, board.side_to_move);
+                visits.push((exact_key(&board), Some(mover), check));
+                history.push_after_move(board.hash(), mover, check);
+                add_position(&board, &mut positions, &mut ids)?;
+                terminal = adjudication(&board, &visits, &history)?;
+            }
+            receipts.push(TrajectoryReceipt {
+                source_sha256: game.source_sha256,
+                source_hash_verified: false,
+                source_declaration: game.source_declaration,
+                trajectory_sha256: sha(&canonical),
+                plies: game.moves.len(),
+                terminal,
+            });
+        }
+        Ok((
+            Input {
+                schema: input.schema,
+                version: input.version,
+                producer: input.producer,
+                source: input.source,
+                source_declaration: input.source_declaration,
+                verification: input.verification,
+                positions,
+            },
+            receipts,
+        ))
+    }
+
     fn prepare(bytes: &[u8]) -> Result<(Vec<u8>, Provenance), String> {
-        let input: Input = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
-        if input.schema != INPUT_SCHEMA || input.version != 1 {
+        let (input, trajectories) = parse_input(bytes)?;
+        if !matches!(input.schema.as_str(), INPUT_SCHEMA | TRAJECTORY_SCHEMA) || input.version != 1
+        {
             return Err("unsupported position-input schema or version".into());
         }
         if input.producer.is_empty()
@@ -181,20 +425,7 @@ mod enabled {
         let mut boards = Vec::new();
         let mut ids = HashMap::new();
         for sfen in &input.positions {
-            if sfen.len() > 256 {
-                return Err("input SFEN exceeds 256 bytes".into());
-            }
-            let mut board = Board::from_sfen(sfen)?;
-            board.ply = 0;
-            // Cheap shape checks precede movegen. The shared verifier below
-            // owns the complete admission policy, including inventory/nifu.
-            if [Color::Black, Color::White]
-                .into_iter()
-                .any(|side| board.pieces(side, PieceKind::Ou).popcount() != 1)
-                || is_in_check(&board, board.side_to_move.flip())
-            {
-                return Err("invalid king presence or non-moving king in check".into());
-            }
+            let board = parse_board(sfen)?;
             if ids.insert(exact_key(&board), boards.len()).is_some() {
                 return Err("duplicate exact position, including alternate move numbers".into());
             }
@@ -263,8 +494,8 @@ mod enabled {
         let output = encode(&artifact)?;
         let provenance = Provenance {
             schema: PROVENANCE_SCHEMA.into(),
-            version: 1,
-            input_schema: INPUT_SCHEMA.into(),
+            version: 2,
+            input_schema: input.schema,
             input_sha256: sha(bytes),
             artifact_schema: ARTIFACT_SCHEMA.into(),
             artifact_file: "book.json".into(),
@@ -279,6 +510,7 @@ mod enabled {
             legal_successors: total,
             unknown_successors: unknown,
             verification: input.verification,
+            trajectories,
         };
         Ok((output, provenance))
     }
@@ -319,7 +551,7 @@ mod enabled {
         let bytes = read_bounded(input, MAX_BYTES)?;
         let (expected_artifact, expected_provenance) = prepare(&bytes)?;
         let artifact = read_bounded(&output.join("book.json"), MAX_BYTES)?;
-        let receipt = read_bounded(&output.join("provenance.json"), 16_384)?;
+        let receipt = read_bounded(&output.join("provenance.json"), MAX_BYTES)?;
         let provenance: Provenance =
             serde_json::from_slice(&receipt).map_err(|error| error.to_string())?;
         if provenance != expected_provenance || artifact != expected_artifact {

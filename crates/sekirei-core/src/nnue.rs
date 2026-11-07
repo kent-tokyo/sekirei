@@ -276,6 +276,9 @@ pub enum EvalFileFormat {
     Sekirei,
     /// External `HalfKP 256x2-32-32` network (`nn.bin`).
     HalfKp,
+    /// Experimental versioned dense HalfKP with both king features.
+    #[cfg(feature = "halfkp_plus_kings")]
+    HalfKpPlusKingsV1,
 }
 
 impl EvalFileFormat {
@@ -284,15 +287,36 @@ impl EvalFileFormat {
         match self {
             Self::Sekirei => "SEKIRW01",
             Self::HalfKp => "HalfKP 256x2-32-32",
+            #[cfg(feature = "halfkp_plus_kings")]
+            Self::HalfKpPlusKingsV1 => "HalfKpPlusKingsV1 256x2-32-32",
         }
     }
 }
 
 /// Detect the file format from its header and activate it process-wide.
 ///
-/// This is the loader used by `EvalFile`: a file starting with the HalfKP
-/// version word is read by [`crate::halfkp`], anything else as `SEKIRW01`.
+/// This is the loader used by `EvalFile`. HalfKP's version word selects its
+/// legacy parser; `SEKHK001` selects the explicitly enabled king-feature format
+/// (or is rejected if disabled). Other images use the `SEKIRW` parser.
 pub fn load_evaluator(path: &Path) -> io::Result<EvalFileFormat> {
+    use std::io::Read;
+    let mut magic = [0u8; 8];
+    if std::fs::File::open(path)?.read_exact(&mut magic).is_ok()
+        && &magic == crate::halfkp::PLUS_KINGS_MAGIC
+    {
+        #[cfg(not(feature = "halfkp_plus_kings"))]
+        return load_plus_kings(&magic);
+        #[cfg(feature = "halfkp_plus_kings")]
+        {
+            if std::fs::metadata(path)?.len() != crate::halfkp::PLUS_KINGS_FILE_BYTES as u64 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "incorrect HalfKpPlusKingsV1 file length",
+                ));
+            }
+            return load_plus_kings(&std::fs::read(path)?);
+        }
+    }
     if crate::halfkp::is_halfkp_file(path)? {
         crate::halfkp::load_network(path)?;
         Ok(EvalFileFormat::HalfKp)
@@ -307,6 +331,9 @@ pub fn load_evaluator(path: &Path) -> io::Result<EvalFileFormat> {
 /// Parsing is side-effect free. Process-wide evaluator state changes only
 /// after the entire image has passed format, size, and numeric validation.
 pub fn load_evaluator_bytes(bytes: &[u8]) -> io::Result<EvalFileFormat> {
+    if bytes.starts_with(crate::halfkp::PLUS_KINGS_MAGIC) {
+        return load_plus_kings(bytes);
+    }
     if crate::halfkp::is_halfkp_bytes(bytes) {
         let network = crate::halfkp::HalfKpNetwork::from_bytes(bytes)?;
         crate::halfkp::install_network(network)?;
@@ -316,6 +343,33 @@ pub fn load_evaluator_bytes(bytes: &[u8]) -> io::Result<EvalFileFormat> {
         install_weights(weights)?;
         Ok(EvalFileFormat::Sekirei)
     }
+}
+
+fn load_plus_kings(bytes: &[u8]) -> io::Result<EvalFileFormat> {
+    #[cfg(feature = "halfkp_plus_kings")]
+    {
+        let network = crate::halfkp::HalfKpNetwork::from_plus_kings_bytes(bytes)?;
+        crate::halfkp::install_network(network)?;
+        Ok(EvalFileFormat::HalfKpPlusKingsV1)
+    }
+    #[cfg(not(feature = "halfkp_plus_kings"))]
+    {
+        let _ = bytes;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "HalfKpPlusKingsV1 requires the halfkp_plus_kings Cargo feature",
+        ))
+    }
+}
+
+#[cfg(all(test, not(feature = "halfkp_plus_kings")))]
+#[test]
+fn plus_kings_disabled_build_rejects_before_activation() {
+    let before = (crate::halfkp::is_active(), weights_active());
+    let error = load_evaluator_bytes(crate::halfkp::PLUS_KINGS_MAGIC).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+    assert!(error.to_string().contains("halfkp_plus_kings"));
+    assert_eq!((crate::halfkp::is_active(), weights_active()), before);
 }
 
 /// Parses a SEKIRW01 (or legacy JANOSW03) binary weights file into an

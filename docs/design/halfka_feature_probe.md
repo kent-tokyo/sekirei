@@ -1,8 +1,10 @@
 # King-feature prototype
 
-Status: **synthetic mechanical prototype only**. This experiment is separate from
-the production evaluator, trainer, existing weight files and B-small decision.
-Its format cannot be selected through `EvalFile`.
+Status: **experimental, synthetic validation only**. The standalone sparse
+prototype remains separate from the evaluator. A distinct dense format now has
+a default-off native integration under the `halfkp_plus_kings` Cargo feature.
+Existing weights, default evaluation, training and the B-small decision are
+unchanged. The sparse diagnostic format cannot be selected through `EvalFile`.
 
 The [B-small record](nnue_architecture_next_candidate.md) remains
 `MECHANICAL_PASS / EXPERIMENTAL_HOLD`. B-small adds nine own-king zones to the
@@ -29,6 +31,10 @@ own king:      125388 + k * 162 + s
 opponent king: 125388 + k * 162 + 81 + s
 ```
 
+When consuming a packed record whose two king indices are each expressed from
+that king's own perspective, convert the other king with `s = 80 - other_king`.
+Using the other packed index directly would mix the two coordinate systems.
+
 There are 13,122 addressable added rows and exactly two added active features per
 perspective. Some rows are unreachable: an own-king feature always has `s=k`,
 and the two kings cannot share a square. This prototype keeps a uniform index
@@ -41,7 +47,10 @@ Each perspective retains 256 FT channels, followed by concatenation in
 side-to-move/opponent order and layers `512 → 32 → 32 → 1`. FT addition wraps
 as signed i16. FT activation clips to `[0,127]`; each hidden layer uses arithmetic
 division by 64 followed by the same clipping. Output division truncates toward
-zero using the file's explicit FV_SCALE, followed by the existing ±30000 clamp.
+zero using explicit FV_SCALE, followed by the existing ±30000 clamp. Sparse
+diagnostic images store the scale; the native dense format retains the existing
+runtime `FV_SCALE` option (default 16, allowed 1..=128) and never changes it when
+loaded.
 Stored integer biases are already quantized; the loader does not add another
 rounding offset. Conservative i32 headroom checks protect every affine partial
 sum, including weights of -128.
@@ -155,52 +164,73 @@ Keep images and raw SFEN/trace evidence private. The smoke requires a new output
 directory and a free-space floor; it never reads external weights or starts
 training/search/games. All existing NNUE and hold-out pauses remain in effect.
 
-## Minimum production integration
+## Native opt-in integration
 
-The current code establishes several concrete boundaries:
+Build the USI engine with `--features halfkp_plus_kings` and supply an explicit
+`EvalFile` to select the new evaluator. Without this Cargo feature the new magic
+is rejected with `Unsupported`, before evaluator activation. There are no trained
+weights or recommended candidate in this change.
 
-| Existing path | Required king-feature behavior |
+`HalfKpNetwork::from_plus_kings_bytes` parses only the distinct dense format;
+`from_bytes` retains its legacy-only contract. `feature_set()` records immutable
+`HalfKpFriend` or `HalfKpPlusKingsV1` identity. `to_bytes()` writes the matching
+format; legacy bytes remain unchanged. `nnue::load_evaluator{,_bytes}` reports the
+new format explicitly and installs it into the existing HalfKP `OnceLock`.
+Loading either architecture cannot replace the other or an active flat network.
+
+The native integration reuses the existing Board accumulator and move paths:
+
+| Existing path | Opt-in behavior |
 |---|---|
-| `HalfKpAcc::board_delta` in `halfkp.rs` | Its current king branch dirties only the mover perspective and returns. Add old/new opponent-king column updates for the other clean perspective. Preserve the legacy branch for old files. |
-| `refresh_full` and Finny refresh in `halfkp.rs` | Include both king features in cold refresh. Warm cache differences must process old/new kings rather than dropping them through the legacy `board_feature(...Ou) -> None`. |
-| `Board::save_halfkp_before_king_move` / matching restore | Keep saving/restoring the mover perspective. The opponent perspective must receive inverse king deltas on undo, including captures. |
-| Fused capture/promotion/hand updates | Keep the existing non-king operations and integer wrapping. King captures use the changed king path plus captured-piece/hand deltas. |
-| `board/quiet_halfkp.rs` | The eligible path excludes kings, drops, captures and promotions, so added king features are unchanged during a quiet move. Network type/identity, dirty-state restoration and materialize-once behavior still need tests for the new evaluator. |
-| `Board::do_move_for_search`, null move, clone and evaluation fallback | Preserve side-to-move ordering, eager/deferred contracts, saved-king stack ownership and evaluator identity. No silent fallback to material after a new-format load failure. |
+| `HalfKpAcc::board_delta` | The moving king dirties its own perspective. Its old/new columns are removed/added in the other clean perspective. Feature-off builds retain the old king branch. |
+| `refresh_full` | Adds both king features only for the new map; both scalar-column and tiled refresh paths share the mapping. |
+| `Board::save_halfkp_before_king_move` / matching restore | Existing owner save/restore remains unchanged; opponent king deltas are reversed through the ordinary undo path. |
+| Fused capture/promotion/hand updates | Existing non-king operations and wrapping remain unchanged. King captures use the changed king path plus captured-piece/hand deltas. |
+| `board/quiet_halfkp.rs` | Eligible quiet moves do not change king features. Existing dirty flags, immutable evaluation fallback and idempotent materialization reuse the same network identity. |
+| Search move, null move and clone | The existing active-HalfKP dispatch selects this network. Null moves retain accumulator values and swap forward ordering; clones own their saved-king stacks. |
+| Finny | New-format calls bypass cache lookup/update and use a full refresh. Legacy entries cannot receive new-format sums. |
 
-A minimal internal API can retain the existing 256-channel accumulator layout:
+Architecture selection occurs outside scalar-vector arithmetic. Feature-off
+builds contain no new feature-map field or king-delta branch. The existing dense
+head, Board storage, default evaluator and legacy file arithmetic are unchanged.
 
-```text
-FeatureSet = HalfKpFriend | HalfKpPlusKingsV1
-feature_set(network) -> FeatureSet
-column(network, feature_id) -> &[i16; 256]
-refresh_perspective(network, perspective, mailbox, hands)
-apply_king_transition(network, mover, from, to, accumulators)
-```
+### Dense file contract
 
-The feature set must be immutable and tied to the loaded network. Dispatch once
-per accumulator operation (or through const-specialized implementations), rather
-than testing a runtime architecture flag for every scalar. The existing dense
-head can be shared because its dimensions and arithmetic do not change. A
-default-off Cargo feature would add the new loader variant and native dispatch;
-ordinary builds must retain their existing loader, NNUE defaults and hot path.
-The required changes extend beyond this standalone example into the core
-feature table/accumulator, evaluator dispatch, Board paths and Cargo feature
-propagation. No such production feature is enabled by this prototype.
+Magic is ASCII `SEKHK001`; all numeric fields are little-endian. Exact file
+length is **70,935,372 bytes**. No descriptor string, sparse rows or trailing
+extension bytes are accepted.
 
-The production file needs a distinct dense format with a feature-map version,
-exact dimensions/length, integer encoding and FV_SCALE contract. It must reject
-legacy `nn.bin`, flat/B-small checkpoints and sparse `SKXK0001` fixtures when the
-wrong architecture is requested. Keep existing format bytes unchanged. A new
-trainer/export/resume contract is required; adding implicit zero rows to a
-trained checkpoint is an initialization decision, not a qualified candidate.
+| Field | Representation |
+|---|---|
+| Header | 8-byte magic followed by eight u32 values |
+| Header values | version=1, feature-map=1, input=138510, FT=256, hidden1=32, hidden2=32, hidden shift=6, FV policy=1 |
+| FV policy 1 | Runtime FV_SCALE 1..=128, initial default 16; file load does not change the selected value |
+| FT bias | 256 i16 |
+| FT weights | 138510 × 256 i16, feature-major order |
+| Hidden layer 1 | 32 i32 biases, then 32 × 512 i8 weights, output-major order |
+| Hidden layer 2 | 32 i32 biases, then 32 × 32 i8 weights, output-major order |
+| Output | One i32 bias, then 32 i8 weights |
+
+The parser rejects wrong magic, version, feature map, dimensions, shift, FV
+policy, length and affine biases without sufficient i32 headroom. For a layer
+with `n` inputs, biases must lie in
+`[i32::MIN + n*128*127, i32::MAX - n*128*127]`. This conservatively protects all
+dense/pair partial sums over clipped inputs and signed i8 weights. FT overflow
+retains modular i16 semantics. Legacy `nn.bin`, flat/B-small and sparse
+`SKXK0001` images cannot be parsed as this architecture. Integrity hashes belong
+in the external artifact manifest; this format contains no checksum.
+
+`random_plus_kings` is a deterministic synthetic fixture constructor. It is not
+a trainer or a conversion policy for trained checkpoints. A new owned-data
+trainer/export/resume contract remains required before any real candidate.
 
 Finny entries already retain a mailbox and hand counts, so the opponent-king
 position can be derived without widening the cache key to 81×81 king pairs.
-The cache must be isolated by network and feature-map identity, and the warm
-mailbox diff must apply the king columns. The first integration should use full
-refresh for the new format until cold/warm cache parity and inverse transitions
-are independently verified. Existing HalfKP cache behavior need not change.
+Any future new-format cache must be isolated by network and feature-map identity,
+and its warm mailbox diff must apply the king columns. This integration uses full
+refresh for the new format; the cost of that bypass is **unmeasured**. Existing
+HalfKP cache behavior is unchanged. Synthetic tests also check that new-format
+refresh leaves every previously populated legacy cache entry untouched.
 
 If production reuses `Board.hkp`, the two accumulator vectors remain 1,024
 payload bytes; they do not require an additional vector per perspective. The
@@ -211,12 +241,63 @@ and cache entries must be measured separately. The prototype itself adds a
 1,024-byte sidecar plus Vec/String frame storage and allocates a 512-byte boxed
 snapshot for each outstanding king move; it is not a hot-path memory design.
 
-Before enabling native selection, add independent tests for default-off format
-rejection, cold/warm Finny equivalence, king captures, promotion/demotion and
-hand thresholds, clone/undo stacks, quiet materialized/unmaterialized undo, null
-move ordering, overflow contracts and concurrent evaluator identity. Then verify
-exported real weights and measure memory/throughput under fresh admission. None
-of those checks alone permits adoption or establishes playing strength.
+Native selection remains opt-in and unqualified for strength. New-format warm
+Finny, real exported weights, trainer/resume compatibility and measured memory
+or throughput remain outside this change. Default-off format rejection and
+bounded synthetic Board/forward contracts do not qualify a candidate for
+adoption. This format is **native-only**: the WASM byte loader explicitly rejects
+its magic with `unsupported_evaluator_format`, even if workspace feature
+unification enables the core feature. WASM's existing size/default contracts
+are not expanded.
+
+### Native synthetic validation
+
+Run the ordinary non-global contracts first, then each activation contract in
+its own fresh process. The activation tests are deliberately ignored by the
+ordinary suite because evaluator installation is process-global and one-shot.
+
+```sh
+cargo test --offline -j 1 -p sekirei-core --lib --features halfkp_plus_kings \
+  plus_kings -- --test-threads=1
+cargo test --offline -j 1 -p sekirei-core --lib --features halfkp_plus_kings \
+  halfkp::plus_kings::tests::plus_kings_active_board_do_undo_clone_null_quiet_and_loader_contract \
+  -- --ignored --exact --test-threads=1 --nocapture
+cargo test --offline -j 1 -p sekirei-core --lib --features halfkp_plus_kings \
+  halfkp::plus_kings::tests::plus_kings_legacy_active_rejects_new_network \
+  -- --ignored --exact --test-threads=1
+cargo test --offline -j 1 -p sekirei-core --lib plus_kings_disabled \
+  -- --test-threads=1
+```
+
+Four ordinary contracts cover the dense image, legacy round-trip/zero-extension
+equivalence, scalar/tiled full refresh with complete legacy Finny isolation, and
+king-capture deltas under i16 wrapping and all four dirty-flag combinations.
+The active-new-format test loads serialized bytes and checks six owned composed
+fixtures through both public and search move APIs: **88 do/undo transitions**,
+clone branches, null ordering, **six deferred quiet cases** (zero/one/two
+materializations), immutable fallback and two workers sharing the immutable
+network. A separate wide-integer reference checks accumulator sums, both dense
+and pair kernels, and final evaluation. Reload attempts cannot replace an active
+new network with legacy/flat weights, or an active legacy network with the new
+format. These are bounded mechanical checks, not a random-position or strength
+qualification.
+
+For a trainer's independently exported synthetic dense file, the native oracle
+entry point is:
+
+```sh
+cargo build --offline -j 1 -p sekirei-core --features halfkp_plus_kings \
+  --example halfkp_oracle
+target/debug/examples/halfkp_oracle eval /PRIVATE/SYNTHETIC.sekhk 24 \
+  < /PRIVATE/FIXTURES.sfen
+```
+
+It emits `SFEN<TAB>score` through the actual file loader, Board refresh and native
+integer forward. Compare those scores to an independent integer reader of the
+same exported bytes. This CLI checks final scores; the core tests above check
+intermediate accumulators and independent wide affine arithmetic. Its existing
+`write-net` command still generates a legacy synthetic image. No real trained
+weight or training run is produced by these commands.
 
 A later architecture trial needs owned labels with the same teacher, game-level
 split and hold-out exclusions; matching fixed-width initialization/training

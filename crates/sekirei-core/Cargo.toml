@@ -30,6 +30,8 @@ correction_key_unroll = []
 # Opt-in CPU experiment: reuse the existing correction pawn key in V2.
 pawn_key_reuse = []
 king_relative_b_small = []
+# Distinct experimental dense HalfKP+both-kings evaluator; never enabled by default.
+halfkp_plus_kings = []
 nnue_l1_384 = []
 nnue_l1_128 = []
 nnue_l2_64 = []

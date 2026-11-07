@@ -14,6 +14,15 @@ IDLE = {"available": True, "busy_process_threshold_percent": 25,
         "busy_processes": [], "load_average": [0, 0, 0]}
 
 
+def legal_probe(_binary, boards):
+    """Synthetic move sets, never an engine execution or rule-oracle claim."""
+    return ["7g7f" if board.split()[1] == "b" else "3c3d" for board in boards]
+
+
+def legal_pv(root):
+    return {"bestmove": "7g7f", "pv": ["7g7f", "3c3d"]} if root == "startpos" else {"bestmove": "3c3d", "pv": ["3c3d"]}
+
+
 def handshake(options):
     return ["id name Sekirei synthetic"] + [
         "option name " + name + (" type combo default Auto var Auto var Speculative var LazySMP"
@@ -223,10 +232,10 @@ class Contracts(unittest.TestCase):
 
     def test_complete_counter_manifest_keeps_timings_unqualified_and_no_paired_performance_delta(self):
         def fake_slot(binary, root, config, movetime, timeout, directory):
-            return driver.parse_result(lines(config["side"], config["configured_search_workers"], "counters"), 310, config, movetime)
+            return {**driver.parse_result(lines(config["side"], config["configured_search_workers"], "counters"), 310, config, movetime), **legal_pv(root)}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            with patch.object(driver, "run_slot", side_effect=fake_slot), patch.object(driver, "host_activity", return_value=IDLE):
+            with patch.object(driver, "run_slot", side_effect=fake_slot), patch.object(driver, "host_activity", return_value=IDLE), patch.object(pv_validator, "probe", side_effect=legal_probe):
                 self.assertEqual(driver.main(self.fixture(root) + ["--lane", "counters", "--threads", "4,8"]), 0)
             manifest = json.loads((root / "out/manifest.json").read_text())
             summary = json.loads((root / "out/summary.json").read_text())
@@ -262,7 +271,7 @@ class Contracts(unittest.TestCase):
             engine = run / "engine"
             engine.write_bytes(b"frozen synthetic engine")
             (run / "manifest.json").write_text(json.dumps({
-                "schema": driver.SCHEMA + ".manifest", "status": "complete",
+                "schema": "sekirei.speculative-paired-diagnostic.v1.manifest", "status": "complete",
                 "positions_sha256": driver.sha256(corpus),
                 "engine": {"path": str(engine), "sha256": driver.sha256(engine)},
                 "expected_searches": 1, "completed_searches": 1,
@@ -274,18 +283,23 @@ class Contracts(unittest.TestCase):
             legal.write_bytes(b"frozen legal move checker fixture")
             output = root / "validation.json"
             argv = ["validate_paired_pv.py", "--legal-moves", str(legal), "--output", str(output), str(run)]
-            with patch("sys.argv", argv), patch.object(pv_validator, "probe", return_value=["3c3d"]):
+            with patch("sys.argv", argv), patch.object(pv_validator, "probe", return_value=["7g7f", "3c3d"]):
                 self.assertFalse(pv_validator.main())
             report = json.loads(output.read_text())
             self.assertEqual(report["pv_moves"], 1)
+            self.assertEqual(report["root_history_moves"], 1)
+            self.assertTrue(report["valid"])
+            self.assertFalse(report["runs"][0]["strict_row_identity_verified"])
             self.assertEqual(report["violations"], [])
             self.assertEqual(report["runs"][0]["engine_sha256"], {"A": driver.sha256(engine), "B": driver.sha256(engine)})
 
     def fixture(self, root):
         binary, positions = root / "binary", root / "roots.sfen"
+        legal = root / "legal-moves"
+        legal.write_bytes(b"frozen synthetic legal-move tool; must never execute")
         binary.write_bytes(b"frozen synthetic binary; must never execute")
         positions.write_text("startpos\nstartpos moves 7g7f\n")
-        return ["--binary", str(binary), "--positions", str(positions),
+        return ["--binary", str(binary), "--positions", str(positions), "--legal-moves", str(legal),
                 "--output", str(root / "out"), "--repeats", "1",
                 "--resource-root", str(root), "--minimum-free-mib", "1"]
 
@@ -392,11 +406,11 @@ class Contracts(unittest.TestCase):
         def fake_slot(binary, root, config, movetime, timeout, directory):
             seen.append((str(binary), root, config, movetime, directory))
             return {"depth": 10 if config["side"] == "A" else 12, "nodes": 100,
-                    "elapsed_ms": 301, "response_overrun_ms": 1}
+                    "elapsed_ms": 301, "response_overrun_ms": 1, **legal_pv(root)}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             args = self.fixture(root) + ["--threads", "4,8"]
-            with patch.object(driver, "run_slot", side_effect=fake_slot), patch.object(driver, "host_activity", return_value=IDLE):
+            with patch.object(driver, "run_slot", side_effect=fake_slot), patch.object(driver, "host_activity", return_value=IDLE), patch.object(pv_validator, "probe", side_effect=legal_probe):
                 self.assertEqual(driver.main(args), 0)
             manifest = json.loads((root / "out/manifest.json").read_text())
             summary = json.loads((root / "out/summary.json").read_text())

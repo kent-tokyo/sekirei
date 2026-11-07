@@ -9,6 +9,9 @@ starting engines; execution requires the recorded resource root and capacity.
 --lane counters uses different observers for the two modes, so its durations and
 node counts are not comparable performance measurements. Use a separate output
 directory and --lane timing (the default) for counter-free comparisons.
+Version 2 requires --legal-moves and successful, hash-bound root-history/PV
+replay before a completed run can qualify its timing. This is a same-rules
+contract check, not an independent shogi oracle or a playing-strength gate.
 """
 from __future__ import annotations
 
@@ -32,9 +35,10 @@ from nps_threads import parse_lazy_smp, parse_search_result
 from paired_search_diagnostics import freeze, host_activity, idle_snapshot_state, schedule
 
 
-SCHEMA = "sekirei.speculative-paired-diagnostic.v1"
+SCHEMA = "sekirei.speculative-paired-diagnostic.v2"
 MOVE = re.compile(r"(?:[1-9][a-i][1-9][a-i]\+?|[PLNSGBR]\*[1-9][a-i])\Z")
-SOURCES = ("paired_speculative_diagnostics.py", "paired_search_diagnostics.py", "nps_threads.py")
+SOURCES = ("paired_speculative_diagnostics.py", "paired_search_diagnostics.py", "nps_threads.py",
+           "validate_paired_pv.py", "generate_search_diagnostic.py")
 SPEC_FIELDS = tuple("version configured_workers background_cap candidates admitted started completed aborted unwound unstarted cap_rejected peak_in_flight outstanding_after_join background_nodes elapsed_ns scope_join_wait_ns deadline_overrun_ns cancellation_latency_samples cancellation_latency_ns_sum cancellation_latency_ns_max aborted_without_observed_cancel cancellation_scope".split())
 TT_USE_COUNTERS = tuple("score_hits_from_speculation move_hits_from_speculation unattributed_score_hits main_cutoffs_from_speculation quiescence_cutoffs_from_speculation slack_cutoffs_from_speculation probcut_cutoffs_from_speculation nonroot_move_first_started nonroot_move_first_completed nonroot_move_first_beta_cuts".split())
 TT_USE_FIELDS = ("version", "available") + TT_USE_COUNTERS + ("source_scope", "consumer_scope", "ordering_scope", "benefit_scope")
@@ -451,6 +455,7 @@ def summarize(rows: list[dict], expected: list[tuple], lane: str = "timing") -> 
         }
     return {
         "schema": SCHEMA + ".summary", "measurement_lane": lane, "diagnostic_only": True, "strength_gain_proven": False,
+        "performance_comparison_eligible": False,
         "interpretation": "B minus A within each root/repeat ABBA block; depth and node counts do not establish move quality or Elo",
         "by_workers": {workers: {"complete_blocks": len(blocks), "median_paired_delta": {
             key: statistics.median(block[key] for block in blocks) for key in blocks[0]
@@ -476,15 +481,69 @@ def verify_frozen_inputs(manifest: dict, output: Path) -> None:
     if (sha256(Path(manifest["engine"]["path"])) != manifest["engine"]["sha256"]
             or sha256(output / "positions.input") != manifest["positions_sha256"]):
         raise ValueError("frozen inputs changed")
+    if manifest.get("legal_moves") is not None:
+        tool = manifest["legal_moves"]
+        if sha256(Path(tool["path"])) != tool["sha256"]:
+            raise ValueError("frozen legal-move tool changed")
     for name, expected_digest in manifest["measurement_source_sha256"].items():
         if sha256(Path(__file__).parent / name) != expected_digest:
             raise ValueError("measurement driver changed: " + name)
+
+
+def configuration_digest(manifest: dict) -> str:
+    keys = ("configurations", "roots", "repeats", "budget", "evaluator", "measurement_lane", "worker_order")
+    encoded = json.dumps({key: manifest[key] for key in keys}, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def validate_completed_run(manifest: dict, output: Path) -> None:
+    """Only a present, successful receipt for these exact bytes admits completion."""
+    from validate_paired_pv import SCHEMA as PV_SCHEMA, validate_runs
+    report_path = output / "pv-validation.json"
+    stage_hash = sha256(output / "manifest.json")
+    manifest["pv_validation"] = {"status": "error", "valid": False, "path": str(report_path.resolve())}
+    try:
+        returned = validate_runs(Path(manifest["legal_moves"]["path"]), report_path, [output], allow_pending=True)
+    finally:
+        if report_path.is_file():
+            manifest["pv_validation"]["sha256"] = sha256(report_path)
+    report = json.loads(report_path.read_bytes())
+    if (report != returned or report.get("schema") != PV_SCHEMA or report.get("status") != "complete"
+            or report.get("valid") is not True or report.get("violations") != [] or report.get("errors") != []):
+        raise ValueError("legal-PV validation failed, unknown, or incomplete; see pv-validation.json")
+    records = report.get("runs")
+    if not isinstance(records, list) or len(records) != 1:
+        raise ValueError("legal-PV validation lacks the exact run receipt")
+    record = records[0]
+    rows = [json.loads(line) for line in (output / "rows.jsonl").read_text().splitlines()]
+    expected_history_moves = sum(len(roots.split(" moves ", 1)[1].split()) if " moves " in roots else 0
+                                 for roots in (manifest["roots"][row["position"]] for row in rows))
+    if (record.get("path") != str(output.resolve()) or record.get("strict_row_identity_verified") is not True
+            or record.get("source_manifest_sha256") != stage_hash
+            or sha256(Path(record["source_manifest_snapshot"])) != stage_hash
+            or sha256(output / "manifest.json") != stage_hash
+            or record.get("rows_sha256") != sha256(output / "rows.jsonl")
+            or record.get("corpus_sha256") != manifest["positions_sha256"]
+            or record.get("engine_sha256") != {side: manifest["engine"]["sha256"] for side in "AB"}
+            or record.get("configuration_sha256") != manifest["configuration_sha256"]
+            or record.get("rows") != manifest["expected_searches"]
+            or report.get("rows") != manifest["expected_searches"]
+            or report.get("pv_moves") != sum(len(row["pv"]) for row in rows)
+            or report.get("root_history_moves") != expected_history_moves
+            or report.get("legal_tool_sha256") != manifest["legal_moves"]["sha256"]
+            or sha256(Path(report["legal_tool_frozen"])) != manifest["legal_moves"]["sha256"]
+            or sha256(report_path) != manifest["pv_validation"]["sha256"]):
+        raise ValueError("legal-PV validation identity/count binding failed")
+    verify_frozen_inputs(manifest, output)
+    manifest["pv_validation"].update(status="complete", valid=True, rows=report["rows"],
+                                     pv_moves=report["pv_moves"], root_history_moves=report["root_history_moves"])
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--positions", type=Path, required=True)
+    parser.add_argument("--legal-moves", type=Path, help="Sekirei legal-move binary; required before engines can run")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--threads", default="4")
     parser.add_argument("--lane", choices=("timing", "counters"), default="timing")
@@ -512,6 +571,12 @@ def main(argv=None) -> int:
     args.output.mkdir(parents=True, exist_ok=False)
     binary = (args.output / "engine").resolve()
     digest = freeze(args.binary, binary)
+    legal_moves = None
+    if args.legal_moves is not None:
+        legal_path = (args.output / "legal-moves").resolve()
+        legal_moves = {"path": str(legal_path), "sha256": freeze(args.legal_moves, legal_path),
+                       "source_path": str(args.legal_moves.resolve()), "kind": "same-rules Sekirei checker",
+                       "build_identity_verified": False}
     (args.output / "positions.input").write_bytes(source)
     configs = {str(count): {side: configuration(side, count, args.hash, args.lane) for side in "AB"} for count in workers}
     expected = list(schedule(workers, len(roots), args.repeats))
@@ -520,10 +585,13 @@ def main(argv=None) -> int:
         "strength_gate_opened": False, "default_adoption_authorized": False,
         "started_at_utc": datetime.now(timezone.utc).isoformat(),
         "engine": {"path": str(binary), "sha256": digest, "source_path": str(args.binary.resolve())},
+        "legal_moves": legal_moves,
+        "pv_validation": {"status": "not_run", "valid": False},
+        "timing_qualification_contract": "v2: complete ABBA, frozen inputs and every row identity verified, same-rules legal root-history/PV replay passed, timing lane, all sampled host admissions idle; no strength or independent-oracle claim",
         "source_ref": args.source_ref, "source_ref_verified": False,
         "positions_sha256": hashlib.sha256(source).hexdigest(), "roots": roots,
         "root_freshness": "fresh process and usinewgame every slot; corpus novelty and independent-holdout status not certified",
-        "configurations": configs, "repeats": args.repeats,
+        "configurations": configs, "repeats": args.repeats, "worker_order": workers,
         "budget": {"kind": "equal_wall_time", "go_movetime_ms": args.movetime, "move_overhead_ms": 0, "node_limit": None},
         "evaluator": {"kind": "material-only", "engine_argument": None, "EvalFile_sent": False},
         "measurement_lane": args.lane, "counter_lane": args.lane == "counters", "timing_qualified": False,
@@ -536,13 +604,16 @@ def main(argv=None) -> int:
         "measurement_source_sha256": {name: sha256(Path(__file__).parent / name) for name in SOURCES},
         "host": {"system": platform.system(), "release": platform.release(), "machine": platform.machine(), "logical_cpus": os.cpu_count(), "physical_cores_verified": None},
         "physical_scaling_claim_qualified": False,
-        "limitations": ["Independent legal-PV replay requires the separate validator", "Speculative TT-use attribution is available only in the counter lane and does not measure counterfactual saved work", "No move-quality or playing-strength inference", "Host snapshots do not exclude transient contention", "Configured workers do not count idle or auxiliary OS threads", "Physical core count and oversubscription require separate verification"],
+        "limitations": ["Legal root-history/PV replay uses a frozen caller-supplied Sekirei legal-move binary; it is not an independent rule oracle, build-provenance proof, repetition adjudication, or mate-score proof", "Speculative TT-use attribution is available only in the counter lane and does not measure counterfactual saved work", "No move-quality or playing-strength inference", "Host snapshots do not exclude transient contention", "Configured workers do not count idle or auxiliary OS threads", "Physical core count and oversubscription require separate verification"],
     }
-    configuration_bytes = json.dumps({key: manifest[key] for key in ("configurations", "roots", "repeats", "budget", "evaluator", "measurement_lane")}, sort_keys=True, separators=(",", ":")).encode()
-    manifest["configuration_sha256"] = hashlib.sha256(configuration_bytes).hexdigest()
+    manifest["configuration_sha256"] = configuration_digest(manifest)
     save_json(args.output / "manifest.json", manifest)
     if args.prepare_only:
         return 0
+    if legal_moves is None:
+        manifest.update(status="blocked_validation", error="--legal-moves is required before execution")
+        save_json(args.output / "manifest.json", manifest)
+        return 2
     rows = []
     try:
         with (args.output / "rows.jsonl").open("x", encoding="utf-8") as stream:
@@ -577,7 +648,13 @@ def main(argv=None) -> int:
         verify_frozen_inputs(manifest, args.output)
         summary = summarize(rows, expected, args.lane)
         save_json(args.output / "summary.json", summary)
+        manifest["status"] = "validating"
+        save_json(args.output / "manifest.json", manifest)
+        validate_completed_run(manifest, args.output)
         manifest.update(status="complete", timing_qualified=args.lane == "timing" and idle_snapshot_state(after) == "idle")
+        summary.update(performance_comparison_eligible=manifest["timing_qualified"],
+                       pv_validation_sha256=manifest["pv_validation"]["sha256"])
+        save_json(args.output / "summary.json", summary)
         save_json(args.output / "manifest.json", manifest)
         return 0
     except BaseException as error:

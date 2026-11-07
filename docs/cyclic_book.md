@@ -105,7 +105,8 @@ worst-case length, not a shortest-mate or shortest-escape claim.
 The independent `build_cyclic_book` example uses Sekirei's Board and movegen.
 It changes neither the default Cargo binary nor engine options. Its input is
 one versioned JSON object containing a complete, explicitly chosen position
-set; it does not generate games or expand successors outside that set.
+set or supplied game trajectories. It does not generate games or expand
+successors outside the supplied/replayed set.
 
 ```json
 {
@@ -135,9 +136,9 @@ overwrite or resume mode. Invalid input creates no output directory. An I/O
 failure can leave an incomplete new directory for inspection; do not load a
 bundle without a successful `verify` result.
 
-Input order defines node indices. SFEN is canonicalized and move numbers are
-normalized to 1. Duplicate exact positions are rejected, including duplicates
-with different move numbers. Every legal action is sorted by canonical USI
+For position-set input, input order defines node indices. SFEN is canonicalized
+and move numbers are normalized to 1. Duplicate exact positions are rejected,
+including duplicates with different move numbers. Every legal action is sorted by canonical USI
 string and recorded exactly once. Its target is a known node index or explicit
 `null`, and `gave_check` is recomputed after playing it. The shared graph
 verifier checks the finished graph before publication.
@@ -148,10 +149,13 @@ to 256 bytes; `producer` and `source_declaration` are required and limited to
 128 and 512 bytes respectively. Unknown fields and unsupported versions or
 source values are rejected.
 
-The sidecar schema is `sekirei.cyclic-book-provenance`, version 1. It binds the
+The sidecar schema is `sekirei.cyclic-book-provenance`, now version 2. It binds the
 exact input bytes and generated artifact bytes with SHA-256, and records the
 builder package version, builder source SHA-256, source declaration, position
-and edge counts, and verification bounds. `verify` regenerates the graph and
+and edge counts, verification bounds, and trajectory receipts when present.
+The loader artifact remains version 1; old position-set inputs are still
+accepted. Old sidecars require their matching older builder to verify.
+`verify` regenerates the graph and
 compares the artifact and sidecar with those exact inputs and the current
 builder source. It performs no file writes.
 
@@ -161,6 +165,58 @@ neither the declaration nor matching hashes prove ownership, licensing, or
 authenticity. The source hash identifies this builder file, not the entire
 engine checkout. The engine loader validates `book.json` independently and
 does not authenticate the sidecar, so run `verify` before choosing the artifact.
+
+### Game trajectory input
+
+Use schema `sekirei.cyclic-book-trajectories`, version 1, with the same producer,
+source, source declaration, and verification fields. Replace `positions` with
+`games`; each game requires these fields:
+
+```json
+{
+  "origin": "startpos",
+  "moves": ["7g7f", "3c3d", "2g2f", "8c8d"],
+  "source_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "source_declaration": "Describe the supplied source and ownership claim here."
+}
+```
+
+The illustrated hash is a placeholder. Supply a lowercase 64-digit SHA-256
+declaration for the source record. The builder does not receive that record's
+bytes, so it checks the hash's format and always records
+`source_hash_verified: false`. This declared source hash is separate from the
+computed hash of the exact input file and the computed `trajectory_sha256`.
+Ownership remains unverified at every stage.
+
+`origin` may be `startpos` or a four-field SFEN with move number 1 declaring a
+composed game origin. A midgame SFEN is rejected because earlier repetition
+history is missing. Every action must be canonical USI and legal when replayed
+with Sekirei's Board/movegen. The builder records all intermediate positions,
+deduplicating exact board/turn/hand identity in first-encounter order across
+games. Repeating a supplied game retains a separate provenance receipt but
+does not duplicate graph nodes or create statistical counts.
+
+Each game's history is independent. Exact-position repetition is checked
+against `PositionHistory`; a disagreement is rejected. Fourfold repetition,
+continuous checking by either color, checkmate, and lack of legal moves stop
+the supplied trajectory. Further moves after any such adjudication are
+rejected. A partial legal trajectory may end without a terminal outcome.
+Recorded outcomes do not become artifact labels: the existing loader still
+derives terminals and selects only its permitted checkmate proofs.
+
+At most 64 games, 512 moves per game, and 4,096 moves in total are accepted.
+The union must fit the existing 256 exact-position and 16,384 legal-successor
+limits. Only supplied intermediate states are added; other legal successors
+remain explicit `null` boundaries.
+
+Each trajectory receipt contains the declared source hash and declaration,
+computed canonical trajectory SHA-256, ply count, and observed terminal code
+or `null`. The canonical digest hashes compact JSON with fields `origin` then
+`moves`, where the origin is canonical SFEN at move 1 and moves retain their
+verified USI order. Terminal codes are `repetition_draw`,
+`perpetual_check:black|white` (the checking side loses),
+`checkmate:black|white` (the named side wins), or
+`no_legal_moves_unclassified`. The last case is not a checkmate proof.
 
 ## Local verification
 

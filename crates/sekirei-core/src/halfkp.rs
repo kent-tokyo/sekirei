@@ -37,6 +37,15 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
+#[cfg(feature = "halfkp_plus_kings")]
+mod plus_kings;
+#[cfg(feature = "halfkp_plus_kings")]
+pub use plus_kings::{FeatureSet, PLUS_KINGS_FILE_BYTES, PLUS_KINGS_INPUT_FEATURES};
+
+/// Distinct experimental dense format magic. Recognized even when disabled,
+/// so the general evaluator loader can reject it explicitly.
+pub const PLUS_KINGS_MAGIC: &[u8; 8] = b"SEKHK001";
+
 // ---- Dimensions ----
 
 /// Version word at the start of every supported file.
@@ -174,6 +183,8 @@ pub fn hand_feature(
 pub struct HalfKpNetwork {
     /// Architecture descriptor copied from the file header.
     pub architecture: String,
+    #[cfg(feature = "halfkp_plus_kings")]
+    feature_set: FeatureSet,
     ft_bias: Box<[i16; HALF_DIMS]>,
     ft_weights: Box<[i16]>,
     l1_bias: [i32; HIDDEN],
@@ -317,6 +328,8 @@ impl HalfKpNetwork {
 
         Ok(Self {
             architecture,
+            #[cfg(feature = "halfkp_plus_kings")]
+            feature_set: FeatureSet::HalfKpFriend,
             ft_bias: Box::new(ft_bias),
             ft_weights,
             l1_bias,
@@ -332,8 +345,14 @@ impl HalfKpNetwork {
         })
     }
 
-    /// Serialize to the `nn.bin` layout accepted by [`Self::from_bytes`].
+    /// Serialize to the network's original format. Legacy networks retain the
+    /// `nn.bin` layout accepted by [`Self::from_bytes`]; the opt-in king-feature
+    /// network uses its distinct versioned dense format.
     pub fn to_bytes(&self) -> Vec<u8> {
+        #[cfg(feature = "halfkp_plus_kings")]
+        if self.feature_set == FeatureSet::HalfKpPlusKingsV1 {
+            return self.plus_kings_bytes();
+        }
         let mut out = Vec::with_capacity(file_len(self.architecture.len()));
         out.extend_from_slice(&FILE_VERSION.to_le_bytes());
         out.extend_from_slice(&FILE_HASH.to_le_bytes());
@@ -391,6 +410,8 @@ impl HalfKpNetwork {
             architecture: format!(
                 "Features=HalfKP(Friend)[{INPUT_FEATURES}->{HALF_DIMS}x2],Network=AffineTransform[1<-32](ClippedReLU[32](AffineTransform[32<-32](ClippedReLU[32](AffineTransform[32<-512](InputSlice[512(0:512)])))))"
             ),
+            #[cfg(feature = "halfkp_plus_kings")]
+            feature_set: FeatureSet::HalfKpFriend,
             ft_bias: Box::new(ft_bias),
             ft_weights,
             l1_bias,
@@ -409,6 +430,22 @@ impl HalfKpNetwork {
     #[inline(always)]
     fn column(&self, feature: usize) -> &[i16] {
         &self.ft_weights[feature * HALF_DIMS..(feature + 1) * HALF_DIMS]
+    }
+
+    #[inline(always)]
+    fn mapped_board_feature(
+        &self,
+        king: Square,
+        sq: Square,
+        kind: PieceKind,
+        color: Color,
+        perspective: Color,
+    ) -> Option<usize> {
+        #[cfg(feature = "halfkp_plus_kings")]
+        if kind == PieceKind::Ou && self.feature_set == FeatureSet::HalfKpPlusKingsV1 {
+            return Some(plus_kings::king_feature(king, sq, color, perspective));
+        }
+        board_feature(king, sq, kind, color, perspective)
     }
 
     /// Raw integer network output for already-transformed accumulators.
@@ -793,6 +830,19 @@ impl HalfKpAcc {
         color: Color,
     ) {
         if kind == PieceKind::Ou {
+            #[cfg(feature = "halfkp_plus_kings")]
+            if net.feature_set == FeatureSet::HalfKpPlusKingsV1 {
+                let other = color.flip();
+                let pi = other.index();
+                if !self.dirty[pi] {
+                    let feature = plus_kings::king_feature(self.king[pi], sq, color, other);
+                    if ADD {
+                        add_assign(&mut self.values[pi], net.column(feature));
+                    } else {
+                        sub_assign(&mut self.values[pi], net.column(feature));
+                    }
+                }
+            }
             self.dirty[color.index()] = true;
             if ADD {
                 self.king[color.index()] = sq;
@@ -1025,8 +1075,13 @@ fn refresh_full_impl<const TILE: bool>(
     let mut columns = RefreshColumns::new();
     for (i, cell) in mailbox.iter().enumerate() {
         if let Some(piece) = cell
-            && let Some(f) =
-                board_feature(king, Square(i as u8), piece.kind, piece.color, perspective)
+            && let Some(f) = net.mapped_board_feature(
+                king,
+                Square(i as u8),
+                piece.kind,
+                piece.color,
+                perspective,
+            )
         {
             refresh_column::<TILE, false>(&mut columns, acc, net.column(f));
         }
@@ -1110,6 +1165,13 @@ fn refresh_from_cache_mode<const TILE: bool, const INPLACE: bool>(
     mailbox: &[Option<Piece>; 81],
     hand: &[[u8; 7]; 2],
 ) {
+    // New-format entries never enter the legacy Finny cache. This exact full
+    // refresh is intentional until the new warm-cache path is qualified.
+    #[cfg(feature = "halfkp_plus_kings")]
+    if net.feature_set == FeatureSet::HalfKpPlusKingsV1 {
+        refresh_full_impl::<TILE>(net, perspective, king, acc, mailbox, hand);
+        return;
+    }
     REFRESH_CACHE.with(|cell| {
         let mut slot = cell.borrow_mut();
         let cache = slot.get_or_insert_with(|| {

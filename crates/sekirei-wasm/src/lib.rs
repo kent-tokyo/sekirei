@@ -167,6 +167,11 @@ impl EvaluatorMetadata {
             sekirei_core::nnue::EvalFileFormat::HalfKp => {
                 ("halfkp", "HalfKP-256x2-32-32-v0x7af32f16")
             }
+            // Cargo may unify a core feature through another workspace crate.
+            // The browser loader rejects the new magic before installation;
+            // this arm keeps metadata exhaustive under such feature unions.
+            #[allow(unreachable_patterns)]
+            other => ("unsupported-evaluator", other.as_str()),
         };
         Self {
             id,
@@ -239,6 +244,15 @@ struct EvaluatorLoadMetadata {
 }
 
 fn load_evaluator_bytes_impl(bytes: &[u8]) -> Result<EvaluatorLoadMetadata, ApiError> {
+    // The experimental dense king-feature network is native-only. Keep this
+    // explicit even if another workspace member enables the core Cargo feature
+    // or the generic browser byte cap changes later.
+    if bytes.starts_with(sekirei_core::halfkp::PLUS_KINGS_MAGIC) {
+        return Err(ApiError::new(
+            "unsupported_evaluator_format",
+            "HalfKpPlusKingsV1 is not supported by the WebAssembly evaluator",
+        ));
+    }
     if bytes.len() > MAX_EVALUATOR_BYTES {
         return Err(ApiError::new(
             "evaluator_too_large",
@@ -1737,6 +1751,9 @@ mod tests {
 
     #[test]
     fn evaluator_byte_validation_rejects_oversized_and_malformed_images() {
+        let error = load_evaluator_bytes_impl(sekirei_core::halfkp::PLUS_KINGS_MAGIC).unwrap_err();
+        assert_eq!(error.code, "unsupported_evaluator_format");
+
         let oversized = vec![0; MAX_EVALUATOR_BYTES + 1];
         let error = load_evaluator_bytes_impl(&oversized).unwrap_err();
         assert_eq!(error.code, "evaluator_too_large");
