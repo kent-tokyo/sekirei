@@ -5,6 +5,7 @@ This checks the engine's public PV contract against Sekirei's rule generator;
 it is not an independent rule oracle or a mate-score proof.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -14,12 +15,18 @@ from paired_search_diagnostics import freeze
 
 
 def requests_for_row(position: str, row: dict):
-    if position.startswith("sfen "):
-        sfen = position[5:]
-    elif position == "startpos":
-        sfen = START
+    fields = position.split()
+    if fields and fields[0] == "startpos":
+        sfen, rest = START, fields[1:]
+    elif len(fields) >= 5 and fields[0] == "sfen":
+        sfen, rest = " ".join(fields[1:5]), fields[5:]
     else:
-        raise ValueError("PV validation currently requires full SFEN or bare startpos")
+        raise ValueError("PV validation requires startpos or full SFEN")
+    if rest:
+        if rest[0] != "moves" or len(rest) == 1:
+            raise ValueError("invalid root move list")
+        for move in rest[1:]:
+            sfen = apply(sfen, move)
     if not row["pv"] or row["pv"][0] != row["bestmove"]:
         raise ValueError("PV must begin with the reported legal bestmove")
     requests = []
@@ -44,10 +51,27 @@ def main():
         manifest = json.loads((run / "manifest.json").read_text())
         if manifest["status"] != "complete":
             raise ValueError(f"cannot validate incomplete run {run}")
-        positions = read_positions(str(run / "positions.input"), 1_000_000)
-        runs.append({"path": str(run.resolve()), "engine_sha256": {side: manifest["engines"][side]["sha256"] for side in "AB"},
+        corpus = (run / "positions.input").read_bytes()
+        if hashlib.sha256(corpus).hexdigest() != manifest["positions_sha256"]:
+            raise ValueError(f"position corpus differs from manifest {run}")
+        if manifest["schema"].startswith("sekirei.speculative-paired-diagnostic."):
+            from paired_speculative_diagnostics import positions_from_text
+            positions = positions_from_text(corpus.decode("utf-8"))
+            frozen_engine = Path(manifest["engine"]["path"])
+            if hashlib.sha256(frozen_engine.read_bytes()).hexdigest() != manifest["engine"]["sha256"]:
+                raise ValueError(f"engine differs from manifest {run}")
+            engine_hashes = {side: manifest["engine"]["sha256"] for side in "AB"}
+        else:
+            positions = read_positions(str(run / "positions.input"), 1_000_000)
+            engine_hashes = {side: manifest["engines"][side]["sha256"] for side in "AB"}
+        runs.append({"path": str(run.resolve()), "engine_sha256": engine_hashes,
                      "corpus_sha256": manifest["positions_sha256"]})
-        for line in (run / "rows.jsonl").read_text().splitlines():
+        row_lines = (run / "rows.jsonl").read_text().splitlines()
+        if (manifest["schema"].startswith("sekirei.speculative-paired-diagnostic.")
+                and (len(row_lines) != manifest["expected_searches"]
+                     or len(row_lines) != manifest["completed_searches"])):
+            raise ValueError(f"complete speculative run has missing rows {run}")
+        for line in row_lines:
             row = json.loads(line)
             rows_count += 1
             try:

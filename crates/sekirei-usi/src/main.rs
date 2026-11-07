@@ -31,7 +31,7 @@ use sekirei_core::{
         AspirationSnapshot, CooperativeRootPrestartStats, CooperativeRootStats,
         CooperativeRootWaitStats, MATE_SCORE, NmpSnapshot, RECURSIVE_SEARCH_STACK_BYTES,
         SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher,
-        SpecSearchInfo, SpeculativeSearcher,
+        SpecSearchInfo, SpeculativeDiagnosticsSnapshot, SpeculativeSearcher,
     },
     sfen::{PositionHistory, RepetitionOutcome, move_to_usi, parse_position_cmd_with_history},
     tt::{Tt, TtWriteSnapshot},
@@ -41,13 +41,18 @@ use sekirei_core::{
 mod book;
 #[cfg(feature = "opening-book")]
 mod book_log;
+#[cfg(feature = "cyclic-book")]
+mod cyclic_book;
 mod go;
 mod invariant;
 mod session;
+mod speculative_diagnostics;
 #[cfg(feature = "opening-book")]
 use book::{Book, BookProvenance};
 #[cfg(feature = "opening-book")]
 use book_log::{BookDecisionLogger, DecisionContext};
+#[cfg(feature = "cyclic-book")]
+use cyclic_book::CyclicBook;
 use invariant::DiagCtx;
 #[cfg(feature = "opening-book")]
 use sekirei_core::sfen::board_to_sfen;
@@ -85,6 +90,8 @@ static LAZY_FLAGS: AtomicU32 = AtomicU32::new(LAZY_DEFAULT_FLAGS);
 // Opt-in per-node counters for Lazy SMP scaling measurements. Production
 // searches keep this false because even relaxed atomics perturb throughput.
 static LAZY_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
+// Task-boundary telemetry is independent of Lazy SMP's per-node observer.
+static SPECULATIVE_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
 static NMP_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
 static ASPIRATION_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
 // MultiPV as last set; `SearchMode=Auto` needs a root-candidate backend for
@@ -145,6 +152,7 @@ struct SearchResult {
     /// Per-search root mate-safety metrics, only available on the sequential
     /// backend used by `Speculative` with `SpecTopN=0`.
     root_safety: Option<SearchDiagnosticsSnapshot>,
+    speculative_stats: Option<SpeculativeDiagnosticsSnapshot>,
     /// Bounded mate-proof status that must not be collapsed into a normal
     /// centipawn score or a fabricated mate distance.
     dfpn: Option<DfpnReport>,
@@ -181,6 +189,7 @@ impl SearchResult {
             aspiration_stats: Vec::new(),
             shared_mcts_stats: None,
             root_safety: None,
+            speculative_stats: None,
             dfpn: None,
         }
     }
@@ -266,7 +275,11 @@ impl SearchBackend {
             }));
         }
         Self::Speculative(Arc::new(SpeculativeSearcher::new(
-            Tt::new(hash_mb),
+            speculative_diagnostics::table(
+                hash_mb,
+                SPECULATIVE_DIAGNOSTICS.load(Ordering::Relaxed),
+                sekirei_core::nnue::weights_active() || halfkp::is_active(),
+            ),
             spec_top_n,
         )))
     }
@@ -392,7 +405,16 @@ impl SearchBackend {
                 result
             }
             Self::Speculative(s) => {
-                normalize_spec_result(s.search_with_history(board, config, position_history))
+                let (info, diagnostics) = speculative_diagnostics::search(
+                    s,
+                    board,
+                    config,
+                    position_history,
+                    SPECULATIVE_DIAGNOSTICS.load(Ordering::Relaxed),
+                );
+                let mut result = normalize_spec_result(info);
+                result.speculative_stats = diagnostics;
+                result
             }
             Self::LazySmp(s) => {
                 let nmp_before = s.nmp_stats();
@@ -978,6 +1000,10 @@ fn emit_search_result(
     emit_lazy_smp_tt_diagnostics(&info);
     emit_lazy_smp_overlap_diagnostics(&info);
     emit_lazy_smp_root_hint_diagnostics(&info);
+    if let Some(stats) = &info.speculative_stats {
+        println!("{}", speculative_diagnostics::line(stats, info.elapsed));
+        println!("{}", speculative_diagnostics::tt_use_line(&stats.tt_use));
+    }
     if let Some(workers) = &info.lazy_retirement {
         for (worker, (iterations, retired, contributions)) in workers.iter().enumerate() {
             println!(
@@ -1338,6 +1364,17 @@ fn main() {
     let mut book_decision_logger = BookDecisionLogger::default();
     #[cfg(feature = "opening-book")]
     let mut book_decision_counter: u64 = 0;
+    #[cfg(feature = "cyclic-book")]
+    let mut use_cyclic_book = false;
+    #[cfg(feature = "cyclic-book")]
+    let mut cyclic_book_file = String::new();
+    #[cfg(feature = "cyclic-book")]
+    let mut cyclic_book: Option<CyclicBook> = None;
+    #[cfg(feature = "cyclic-book")]
+    let mut cyclic_book_loaded_path: Option<String> = None;
+    // A startup/reset board is not a supplied complete position history.
+    #[cfg(feature = "cyclic-book")]
+    let mut cyclic_position: Option<String> = None;
 
     // Current board position (updated by "position" commands)
     let mut board = Board::startpos();
@@ -1399,6 +1436,7 @@ fn main() {
                 print_spin_option("SpecTopN", DEFAULT_SPEC_TOP_N as u64, SPEC_TOP_N_RANGE);
                 print_spin_option("LazyFlags", u64::from(LAZY_DEFAULT_FLAGS), LAZY_FLAGS_RANGE);
                 println!("option name LazyDiagnostics type check default false");
+                println!("option name SpeculativeDiagnostics type check default false");
                 println!("option name NmpDiagnostics type check default false");
                 println!("option name AspirationDiagnostics type check default false");
                 print_spin_option("MoveOverhead", 50, MOVE_OVERHEAD_RANGE);
@@ -1431,6 +1469,11 @@ fn main() {
                         "option name T_{} type spin default {} min {} max {}",
                         spec.name, spec.default, spec.min, spec.max
                     );
+                }
+                #[cfg(feature = "cyclic-book")]
+                {
+                    println!("option name UseCyclicBook type check default false");
+                    println!("option name CyclicBookFile type string default");
                 }
                 println!("usiok");
                 stdout.lock().flush().ok();
@@ -1512,6 +1555,26 @@ fn main() {
                         }
                     }
                 }
+                #[cfg(feature = "cyclic-book")]
+                if use_cyclic_book
+                    && cyclic_book_loaded_path.as_deref() != Some(cyclic_book_file.as_str())
+                {
+                    match CyclicBook::load(&cyclic_book_file) {
+                        Ok(loaded) => {
+                            println!(
+                                "info string cyclic book loaded (schema=1 positions={} sha256={})",
+                                loaded.len(),
+                                loaded.sha256()
+                            );
+                            cyclic_book = Some(loaded);
+                        }
+                        Err(error) => {
+                            println!("info string cyclic book load failed: {error}");
+                            cyclic_book = None;
+                        }
+                    }
+                    cyclic_book_loaded_path = Some(cyclic_book_file.clone());
+                }
                 println!("readyok");
                 stdout.lock().flush().ok();
             }
@@ -1545,7 +1608,12 @@ fn main() {
                     }
                 } else if matches!(
                     option_name,
-                    Some("LazyDiagnostics" | "NmpDiagnostics" | "AspirationDiagnostics")
+                    Some(
+                        "LazyDiagnostics"
+                            | "SpeculativeDiagnostics"
+                            | "NmpDiagnostics"
+                            | "AspirationDiagnostics"
+                    )
                 ) {
                     let Some(enabled) = parse_check_option_or_report(&parts, option_name.unwrap())
                     else {
@@ -1554,6 +1622,8 @@ fn main() {
                     abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                     if option_name == Some("LazyDiagnostics") {
                         LAZY_DIAGNOSTICS.store(enabled, Ordering::Relaxed);
+                    } else if option_name == Some("SpeculativeDiagnostics") {
+                        SPECULATIVE_DIAGNOSTICS.store(enabled, Ordering::Relaxed);
                     } else if option_name == Some("NmpDiagnostics") {
                         NMP_DIAGNOSTICS.store(enabled, Ordering::Relaxed);
                     } else {
@@ -1739,6 +1809,34 @@ fn main() {
                         search_mode,
                     );
                     println!("info string FV_SCALE {scale}");
+                } else if cfg!(feature = "cyclic-book") && option_name == Some("UseCyclicBook") {
+                    #[cfg(feature = "cyclic-book")]
+                    match parts.get(3).copied() {
+                        Some("true") => {
+                            use_cyclic_book = true;
+                            println!(
+                                "info string CyclicBook enabled; priority over UseBook; miss uses normal search"
+                            );
+                        }
+                        Some("false") => {
+                            use_cyclic_book = false;
+                            println!(
+                                "info string CyclicBook disabled; UseBook retains its configured behavior"
+                            );
+                        }
+                        _ => println!("info string invalid UseCyclicBook; expected true or false"),
+                    }
+                } else if cfg!(feature = "cyclic-book") && option_name == Some("CyclicBookFile") {
+                    #[cfg(feature = "cyclic-book")]
+                    {
+                        cyclic_book_file = rest
+                            .split_once("value ")
+                            .map(|(_, value)| value.trim())
+                            .unwrap_or("")
+                            .to_owned();
+                        cyclic_book = None;
+                        cyclic_book_loaded_path = None;
+                    }
                 } else if cfg!(feature = "opening-book") && parts.get(1) == Some(&"UseBook") {
                     #[cfg(feature = "opening-book")]
                     if let Some(v) = parts.get(3) {
@@ -1814,6 +1912,10 @@ fn main() {
                 suppress_bm.store(false, Ordering::Relaxed);
                 board = Board::startpos();
                 position_history = PositionHistory::initial(board.hash());
+                #[cfg(feature = "cyclic-book")]
+                {
+                    cyclic_position = None;
+                }
                 #[cfg(feature = "opening-book")]
                 {
                     current_ply = 0;
@@ -1843,10 +1945,18 @@ fn main() {
                     .take();
                 suppress_bm.store(false, Ordering::Relaxed);
 
+                #[cfg(feature = "cyclic-book")]
+                {
+                    cyclic_position = None;
+                }
                 match parse_position_cmd_with_history(rest) {
                     Ok((b, history)) => {
                         board = b;
                         position_history = history;
+                        #[cfg(feature = "cyclic-book")]
+                        {
+                            cyclic_position = Some(rest.to_owned());
+                        }
                         // Only gates book lookups (BookMaxPly) -- doesn't need to
                         // handle every conceivable "position" form, just the
                         // "startpos moves ..." shape this project's own tooling
@@ -1902,12 +2012,64 @@ fn main() {
                 suppress_bm.store(false, Ordering::Relaxed);
                 let generation = search_generation.fetch_add(1, Ordering::AcqRel) + 1;
 
+                #[cfg(feature = "cyclic-book")]
+                if use_cyclic_book
+                    && !pondering
+                    && !rest
+                        .split_whitespace()
+                        .any(|token| matches!(token, "mate" | "infinite"))
+                {
+                    if let Some(loaded) = &cyclic_book {
+                        match loaded.decision(cyclic_position.as_deref(), &board) {
+                            sekirei_core::book_graph::BookGraphDecision::ProvenMate {
+                                best_move,
+                                proof_plies,
+                            } => {
+                                invariant::assert_legal_bestmove(
+                                    &board,
+                                    best_move,
+                                    &diagnostic_context(
+                                        &board,
+                                        game_counter,
+                                        &last_position_cmd,
+                                        &weight_path,
+                                        weight_hash,
+                                        threads,
+                                    ),
+                                );
+                                println!(
+                                    "info string cyclic book verified mate (proof <= {proof_plies} plies)"
+                                );
+                                println!("bestmove {}", move_to_usi(best_move));
+                                stdout.lock().flush().ok();
+                                continue;
+                            }
+                            sekirei_core::book_graph::BookGraphDecision::Fallback(reason) => {
+                                println!("info string cyclic book fallback {}", reason.code())
+                            }
+                        }
+                    } else {
+                        println!("info string cyclic book fallback unavailable");
+                    }
+                }
+                #[cfg(feature = "opening-book")]
+                let block_statistical_book = {
+                    #[cfg(feature = "cyclic-book")]
+                    {
+                        use_cyclic_book
+                    }
+                    #[cfg(not(feature = "cyclic-book"))]
+                    {
+                        false
+                    }
+                };
+
                 // Book lookup: skip search entirely for a known opening
                 // position, within BookMaxPly. Not applied while pondering --
                 // that has its own ponderhit/new-position protocol flow that
                 // an instant book bestmove would short-circuit incorrectly.
                 #[cfg(feature = "opening-book")]
-                if !pondering && book_decision_logger.enabled() {
+                if !pondering && !block_statistical_book && book_decision_logger.enabled() {
                     book_decision_counter += 1;
                     let sfen = board_to_sfen(&board);
                     let mut candidates = Vec::new();
@@ -1969,6 +2131,7 @@ fn main() {
                         continue;
                     }
                 } else if !pondering
+                    && !block_statistical_book
                     && use_book
                     && current_ply < book_max_ply
                     && let Some(loaded_book) = &book

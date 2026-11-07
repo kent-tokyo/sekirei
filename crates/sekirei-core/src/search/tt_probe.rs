@@ -3,7 +3,10 @@
 use crate::mv::Move;
 use crate::tt::Bound;
 
-use super::{MATE_SCORE, SearchState, params as p, probe_tt_for_search_pv, score_from_tt};
+use super::{
+    MATE_SCORE, SearchState, params as p, probe_tt_for_search_observed, score_from_tt,
+    tt_attribution::Origin,
+};
 
 /// What a main-search node takes from its transposition-table entry.
 pub(super) struct TtProbe {
@@ -23,6 +26,8 @@ pub(super) struct TtProbe {
     pub(super) bound_score: Option<(Bound, i32)>,
     /// The entry's PV flag (the position was on a principal variation).
     pub(super) pv: bool,
+    pub(super) origin: Origin,
+    pub(super) slack_cutoff: bool,
 }
 
 impl TtProbe {
@@ -49,11 +54,14 @@ impl TtProbe {
             hit: false,
             bound_score: None,
             pv: false,
+            origin: Origin::default(),
+            slack_cutoff: false,
         };
-        let Some((entry, entry_pv)) = probe_tt_for_search_pv(state, hash) else {
+        let Some((entry, entry_pv, origin)) = probe_tt_for_search_observed(state, hash) else {
             return probe;
         };
         probe.hit = true;
+        probe.origin = origin;
         probe.pv = entry_pv;
         let adj = score_from_tt(entry.score, ply);
         probe.bound_score = Some((entry.bound, adj));
@@ -93,11 +101,13 @@ impl TtProbe {
             match entry.bound {
                 Bound::Lower | Bound::Exact if adj >= beta + margin => {
                     probe.cutoff = Some(beta + margin);
+                    probe.slack_cutoff = true;
                 }
                 Bound::Upper | Bound::Exact
                     if p::TT_SLACK_UPPER() != 0 && adj <= alpha - margin =>
                 {
                     probe.cutoff = Some(alpha - margin);
+                    probe.slack_cutoff = true;
                 }
                 _ => {}
             }

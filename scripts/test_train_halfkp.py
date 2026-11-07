@@ -19,6 +19,7 @@ if HAVE_DEPS:
 
     sys.path.insert(0, HERE)
     import train_halfkp as th
+    from halfkp_integer_oracle import HalfKpIntegerOracle
 
 
 def ft_section(path):
@@ -209,6 +210,204 @@ class OutputSafetyTest(unittest.TestCase):
             with open(output, "rb") as f:
                 self.assertEqual(f.read(), b"previous")
             self.assertFalse(os.path.exists(th._temporary_sibling(output)))
+
+
+@unittest.skipUnless(HAVE_DEPS, "torch and numpy are required")
+class NativeForwardBoundaryTest(unittest.TestCase):
+    @staticmethod
+    def small_net():
+        """Use the production forward with only the two FT rows needed here."""
+        net = th.Net.__new__(th.Net)
+        torch.nn.Module.__init__(net)
+        net.fv, net.fact = 24, False
+        net.forward_contract, net.native_cpu_fallback = th.NATIVE_FORWARD, False
+        net.ft = torch.nn.Embedding(2, th.HALF)
+        net.ftp = None
+        net.ft_bias = torch.nn.Parameter(torch.zeros(th.HALF))
+        net.l1 = torch.nn.Linear(2 * th.HALF, th.HIDDEN)
+        net.l2 = torch.nn.Linear(th.HIDDEN, th.HIDDEN)
+        net.out = torch.nn.Linear(th.HIDDEN, 1)
+        with torch.no_grad():
+            for parameter in net.parameters():
+                parameter.zero_()
+        return net
+
+    def test_hidden_half_step_uses_exported_bias_and_arithmetic_shift(self):
+        net = self.small_net()
+        with torch.no_grad():
+            net.l1.bias[0] = 0.5 / 127
+            net.l2.weight[0, 0] = 1
+            net.out.weight[0, 0] = 127
+        index = torch.tensor([[0]])
+        # Exported L1 bias is round((0.5/127)*8128 + 32) = 64.
+        # Native L1/L2 activations are 1; output is (24*1)/24 = 1cp.
+        self.assertEqual(net(index, index).item(), 1)
+
+    def test_output_bias_is_quantized_then_divided_toward_zero(self):
+        net = self.small_net()
+        index = torch.tensor([[0]])
+        for bias, expected in ((0.75, 0), (-0.75, 0), (1.75, 1), (-1.75, -1)):
+            with self.subTest(bias=bias), torch.no_grad():
+                net.out.bias[0] = bias
+                self.assertEqual(net(index, index).item(), expected)
+
+    def test_straight_through_preserves_finite_nonzero_gradients(self):
+        net = self.small_net()
+        with torch.no_grad():
+            net.ft.weight[0, 0] = 0.25
+            net.l1.weight[0, 0] = 1
+            net.l2.weight[0, 0] = 1
+            net.out.weight[0, 0] = 127
+        index = torch.tensor([[0]])
+        net(index, index).sum().backward()
+        for name, parameter in net.named_parameters():
+            with self.subTest(parameter=name):
+                self.assertIsNotNone(parameter.grad)
+                self.assertTrue(torch.isfinite(parameter.grad).all())
+                self.assertGreater(torch.count_nonzero(parameter.grad).item(), 0)
+
+    def test_i16_wrapping_and_i32_headroom_are_explicit(self):
+        net = self.small_net()
+        with torch.no_grad():
+            net.ft_bias[0] = 32767 / 127
+            net.ft.weight[0, 0] = 6
+        index = torch.zeros((1, 38), dtype=torch.long)
+        trace = net.native_integer_trace(index, index)
+        self.assertEqual(trace["acc_us"][0, 0].item(), (32767 + 38 * 762) - 65536)
+        with torch.no_grad():
+            net.out.bias[0] = (2**31 - 1) / 24
+        with self.assertRaisesRegex(ValueError, "headroom"):
+            net(index, index)
+
+    def test_nonfinite_parameters_and_wrong_feature_shape_fail(self):
+        net = self.small_net()
+        index = torch.tensor([[0]])
+        for invalid in (torch.zeros(1, dtype=torch.long), torch.zeros((1, 39), dtype=torch.long)):
+            with self.assertRaisesRegex(ValueError, "feature slots"):
+                net(invalid, index)
+        with torch.no_grad():
+            net.l1.bias[0] = float("nan")
+        with self.assertRaisesRegex(ValueError, "finite"):
+            net(index, index)
+        net = self.small_net().double()
+        with torch.no_grad():
+            net.l1.bias[0] = 1e308
+        with self.assertRaisesRegex(ValueError, "scaling must remain finite"):
+            net(index, index)
+
+    def test_non_cpu_fallback_requires_explicit_selection(self):
+        net = self.small_net().to("meta")
+        index = torch.empty((1, 1), dtype=torch.long, device="meta")
+        with self.assertRaisesRegex(ValueError, "explicitly enable"):
+            net(index, index)
+
+    @unittest.skipUnless(HAVE_DEPS and torch.backends.mps.is_available(), "MPS is unavailable")
+    def test_explicit_mps_fallback_preserves_values_and_gradients(self):
+        net = self.small_net()
+        with torch.no_grad():
+            net.ft.weight[0, 0] = 0.25
+            net.l1.weight[0, 0] = 1
+            net.l2.weight[0, 0] = 1
+            net.out.weight[0, 0] = 127
+        index = torch.tensor([[0]])
+        expected = net(index, index).detach().clone()
+        net.native_cpu_fallback = True
+        net.to("mps")
+        actual = net(index.to("mps"), index.to("mps"))
+        self.assertEqual(actual.device.type, "mps")
+        self.assertTrue(torch.equal(actual.detach().cpu(), expected))
+        actual.sum().backward()
+        for name, parameter in net.named_parameters():
+            with self.subTest(parameter=name):
+                self.assertTrue(torch.isfinite(parameter.grad).all())
+                self.assertGreater(torch.count_nonzero(parameter.grad).item(), 0)
+
+    def test_resume_preserves_legacy_and_rejects_contract_changes(self):
+        self.assertEqual(th.resolve_forward_contract(), th.NATIVE_FORWARD)
+        self.assertEqual(th.resolve_forward_contract(checkpoint={"step": 3}), th.LEGACY_FORWARD)
+        self.assertEqual(th.resolve_forward_contract(checkpoint={"forward_contract": th.NATIVE_FORWARD}),
+                         th.NATIVE_FORWARD)
+        with self.assertRaisesRegex(ValueError, "mismatch"):
+            th.resolve_forward_contract(th.NATIVE_FORWARD, {"step": 3})
+        with self.assertRaisesRegex(ValueError, "unknown"):
+            th.resolve_forward_contract(checkpoint={"forward_contract": "unknown"})
+        net = self.small_net()
+        net.forward_contract = th.LEGACY_FORWARD
+        with torch.no_grad():
+            net.out.bias[0] = -0.75
+        index = torch.tensor([[0]])
+        self.assertEqual(net(index, index).item(), -0.75)
+
+    def test_native_resume_requires_the_recorded_fv_scale(self):
+        saved = {"forward_contract": th.NATIVE_FORWARD, "forward_fv_scale": 24}
+        self.assertEqual(th.resume_forward_contract(None, saved, 24), th.NATIVE_FORWARD)
+        for changed in (dict(saved, forward_fv_scale=16), {"forward_contract": th.NATIVE_FORWARD}):
+            with self.subTest(checkpoint=changed), self.assertRaisesRegex(ValueError, "FV scale mismatch"):
+                th.resume_forward_contract(None, changed, 24)
+        self.assertEqual(th.resume_forward_contract(None, {"step": 3}, 24), th.LEGACY_FORWARD)
+        with self.assertRaisesRegex(ValueError, "FV scale mismatch"):
+            th.resume_forward_contract(None, {"forward_contract": th.LEGACY_FORWARD,
+                                               "forward_fv_scale": 16}, 24)
+
+
+@unittest.skipUnless(HAVE_DEPS, "torch and numpy are required")
+class ExportedForwardOracleTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        torch.set_num_threads(1)
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.path = os.path.join(cls.tmp.name, "exported.bin")
+        cls.net = th.Net(24, fact=True)
+        with torch.no_grad():
+            for parameter in cls.net.parameters():
+                parameter.zero_()
+            # Float32 multiplication by 127 rounds this folded sum to a tie;
+            # export's double sum/product is just below it. The FT result is
+            # 127, then the -1 bias gives 126 (not the legacy result 127).
+            cls.net.ft.weight[0, 0] = 1
+            cls.net.ftp.weight[0, 0] = 0.5 / 127
+            cls.net.ft_bias[0] = -1 / 127
+            cls.net.ft.weight[1, 1] = 6
+            cls.net.ft_bias[1] = 32767 / 127
+            cls.net.ft.weight[th.PIECE + 7, 2] = -0.25
+            cls.net.ftp.weight[7, 2] = 0.75
+            cls.net.l1.weight[0, 0] = 1
+            cls.net.l1.weight[1, th.HALF + 2] = 1
+            cls.net.l1.bias[2] = 0.5 / 127
+            cls.net.l2.weight[0, 0] = 1
+            cls.net.l2.weight[1, 1] = 1
+            cls.net.l2.weight[2, 2] = 1
+            cls.net.out.weight[0, 0] = 127
+            cls.net.out.weight[0, 1] = -127
+            cls.net.out.weight[0, 2] = 127
+            cls.net.out.bias[0] = -0.75
+        th.export(cls.net, cls.path, 24, "independent integer parity")
+
+    @classmethod
+    def tearDownClass(cls):
+        del cls.net
+        cls.tmp.cleanup()
+
+    def test_every_layer_matches_actual_export_with_both_side_orders_and_wrapping(self):
+        cases = (([0, th.PAD], [th.PIECE + 7, th.PAD]),
+                 ([th.PIECE + 7, th.PAD], [0, th.PAD]),
+                 ([1] * 38, [th.PAD] * 38),
+                 ([th.PAD], [th.PAD]))
+        with HalfKpIntegerOracle(self.path, 24) as oracle, torch.no_grad():
+            for us, them in cases:
+                expected = oracle.trace(us, them)
+                actual = self.net.native_integer_trace(torch.tensor([us]), torch.tensor([them]))
+                for name, value in expected.items():
+                    with self.subTest(us=us, layer=name):
+                        self.assertEqual(actual[name][0].tolist(), value)
+            self.assertEqual(oracle.trace([0], [th.PAD])["acc_us"][0], 126)
+
+    def test_final_forward_is_integer_cp_in_original_dtype(self):
+        us, them = [0], [th.PIECE + 7]
+        with HalfKpIntegerOracle(self.path, 24) as oracle, torch.no_grad():
+            actual = self.net(torch.tensor([us]), torch.tensor([them]))
+            self.assertEqual(actual.dtype, torch.float32)
+            self.assertEqual(actual.item(), oracle.trace(us, them)["score"])
 
 
 @unittest.skipUnless(HAVE_DEPS, "torch and numpy are required")

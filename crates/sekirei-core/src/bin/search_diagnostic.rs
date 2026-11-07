@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use sekirei_core::board::Board;
 use sekirei_core::eval::{NnueOutputMode, set_nnue_output_mode, set_nnue_residual_scale_permille};
+use sekirei_core::halfkp;
 use sekirei_core::movegen::{generate_legal_moves, is_in_check};
 use sekirei_core::nnue::load_evaluator;
 use sekirei_core::search::{PruningConfig, SearchConfig, SearchDiagnostics, Searcher};
@@ -22,6 +23,7 @@ fn main() {
     let mut depth_mode = false;
     let mut warmup_nodes = None;
     let mut weights = None;
+    let mut fv_scale = halfkp::DEFAULT_FV_SCALE;
     let mut nnue_output = NnueOutputMode::Absolute;
     let mut nnue_residual_scale_permille = 1_000_u16;
     let mut sfen = None;
@@ -75,6 +77,16 @@ fn main() {
                 }
             }
             "--weights" => weights = args.next(),
+            "--fv-scale" => {
+                fv_scale = args
+                    .next()
+                    .and_then(|value| value.parse::<i32>().ok())
+                    .filter(|value| (1..=128).contains(value))
+                    .unwrap_or_else(|| {
+                        eprintln!("--fv-scale requires an integer in 1..=128");
+                        std::process::exit(2);
+                    });
+            }
             "--nnue-output" => match args.next().as_deref() {
                 Some("absolute") => nnue_output = NnueOutputMode::Absolute,
                 Some("residual-material") => nnue_output = NnueOutputMode::ResidualMaterial,
@@ -130,6 +142,7 @@ fn main() {
         eprintln!("--max-depth must be positive");
         std::process::exit(2);
     }
+    halfkp::set_fv_scale(fv_scale).expect("FV_SCALE was validated");
     if let Some(path) = weights {
         load_evaluator(Path::new(&path)).unwrap_or_else(|error| {
             eprintln!("failed to load weights: {error}");
@@ -140,7 +153,7 @@ fn main() {
     }
     let Some(sfen) = sfen else {
         eprintln!(
-            "usage: sekirei-search-diagnostic [--nodes N | --time-ms N] --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--iteration-trace] [--profile-cost] [--disable-root-mate-safety] [--warmup-nodes N] [--weights FILE --nnue-output absolute|residual-material --nnue-residual-scale-permille 0..=2000] [--teacher-search] [--disable-nmp] [--disable-lmr]"
+            "usage: sekirei-search-diagnostic [--nodes N | --time-ms N] --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--iteration-trace] [--profile-cost] [--disable-root-mate-safety] [--warmup-nodes N] [--weights FILE --fv-scale 1..=128 --nnue-output absolute|residual-material --nnue-residual-scale-permille 0..=2000] [--teacher-search] [--disable-nmp] [--disable-lmr]"
         );
         std::process::exit(2);
     };
@@ -370,7 +383,7 @@ fn main() {
         .collect::<Vec<_>>()
         .join(",");
     println!(
-        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\telapsed_ns={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tprofile_cost={}\tstatic_evaluations={}\teval_cache_probes={}\teval_cache_hits={}\ttt_probes={}\ttt_hits={}\ttt_stores={}\torder_tt={}\torder_killer={}\torder_countermove={}\torder_history={}\troot_mate_in_one_nodes={}\troot_mate_blunder_nodes={}\troot_mate_in_one_cache_hits={}\troot_mate_blunder_cache_hits={}\talpha_beta_calls={}\tquiescence_calls={}\tqsearch_top_level_calls={}\tqsearch_in_check={}\tqsearch_tt_cutoffs={}\tqsearch_stand_pat_cutoffs={}\tqsearch_terminal_nodes={}\tqsearch_searched_moves={}\tqsearch_beta_cutoffs={}\tqsearch_depth_cap_exits={}\tqsearch_mate_in_one_exits={}\tqsearch_delta_pruning_exits={}\tstatic_evaluation_ns={}\ttt_probe_ns={}\ttt_store_ns={}\tmovegen_order_ns={}\tmovegen_generate_ns={}\tmove_order_ns={}\tmove_order_score_ns={}\tmove_order_sort_ns={}\tquiescence_inclusive_ns={}\troot_mate_safety_ns={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}\troot_initial_order={}\titeration_trace={}{}",
+        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\telapsed_ns={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tfv_scale={}\tprofile_cost={}\tstatic_evaluations={}\teval_cache_probes={}\teval_cache_hits={}\ttt_probes={}\ttt_hits={}\ttt_stores={}\torder_tt={}\torder_killer={}\torder_countermove={}\torder_history={}\troot_mate_in_one_nodes={}\troot_mate_blunder_nodes={}\troot_mate_in_one_cache_hits={}\troot_mate_blunder_cache_hits={}\talpha_beta_calls={}\tquiescence_calls={}\tqsearch_top_level_calls={}\tqsearch_in_check={}\tqsearch_tt_cutoffs={}\tqsearch_stand_pat_cutoffs={}\tqsearch_terminal_nodes={}\tqsearch_searched_moves={}\tqsearch_beta_cutoffs={}\tqsearch_depth_cap_exits={}\tqsearch_mate_in_one_exits={}\tqsearch_delta_pruning_exits={}\tstatic_evaluation_ns={}\ttt_probe_ns={}\ttt_store_ns={}\tmovegen_order_ns={}\tmovegen_generate_ns={}\tmove_order_ns={}\tmove_order_score_ns={}\tmove_order_sort_ns={}\tquiescence_inclusive_ns={}\troot_mate_safety_ns={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}\troot_initial_order={}\titeration_trace={}{}",
         info.depth,
         info.score,
         info.nodes,
@@ -382,6 +395,7 @@ fn main() {
         info.aborted,
         info.abort_reason,
         teacher_search,
+        halfkp::fv_scale(),
         profile_cost,
         profile.map_or(0, |snapshot| snapshot.static_evaluations),
         profile.map_or(0, |snapshot| snapshot.eval_cache_probes),

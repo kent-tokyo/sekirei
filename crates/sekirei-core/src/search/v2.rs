@@ -32,9 +32,10 @@ use std::sync::{Arc, Weak};
 
 use super::heuristics::{CorrKeys, HistoryTable};
 use super::params as p;
+use super::tt_attribution::{Cutoff, Origin};
 use super::{
     MATE_SCORE, SearchHistory, SearchState, TtEntry, current_move_at, cut_at, evaluate_for_search,
-    play, probe_tt_for_search_pv, quiescence_with_pending, repetition_score, score_from_tt,
+    play, probe_tt_for_search_observed, quiescence_with_pending, repetition_score, score_from_tt,
     score_to_tt, store_tt_for_search_pv, useless_non_promotion,
 };
 use crate::board::{Board, QuietHalfKpToken};
@@ -1235,7 +1236,9 @@ fn qs2_with_pending(
     let pv = beta - alpha > 1;
 
     let hash = board.hash();
-    let entry = probe_tt_for_search_pv(state, hash);
+    let observed = probe_tt_for_search_observed(state, hash);
+    let entry = observed.map(|(entry, pv, _)| (entry, pv));
+    let tt_origin = observed.map_or_else(Origin::default, |(_, _, origin)| origin);
     let (tt_move, tt_score, tt_bound) = match entry {
         Some((e, _)) => (e.mv, score_from_tt(e.score, ply), Some(e.bound)),
         None => (None, 0, None),
@@ -1252,6 +1255,7 @@ fn qs2_with_pending(
     {
         #[cfg(test)]
         super::record_quiet_halfkp_qs_tt_skip(pending.as_deref(), true);
+        tt_origin.cutoff(state, Cutoff::Quiescence);
         return tt_score;
     }
 
@@ -1406,6 +1410,7 @@ fn qs2_with_pending(
         d.ss[i].mv = Some(m);
         d.ss[i].pt = pt;
         d.ss[i].capture = capture;
+        let tt_first_used = tt_origin.start_move(state, move_count == 1 && tt_move == Some(m));
         let (tok, child_check, child_history) = play(board, m, history);
         d.ss[i + 1].in_check = child_check;
         d.ss[i + 1].excluded = None;
@@ -1424,6 +1429,7 @@ fn qs2_with_pending(
             d.lists[p_idx] = list;
             return 0;
         }
+        Origin::finish_move(state, tt_first_used, v >= beta);
         if v > best {
             best = v;
             if v > alpha {
@@ -1663,11 +1669,13 @@ fn node(
     }
 
     // Transposition table.
-    let entry = if excluded.is_none() {
-        probe_tt_for_search_pv(state, hash)
+    let observed = if excluded.is_none() {
+        probe_tt_for_search_observed(state, hash)
     } else {
         None
     };
+    let entry = observed.map(|(entry, pv, _)| (entry, pv));
+    let tt_origin = observed.map_or_else(Origin::default, |(_, _, origin)| origin);
     let tt_hit = entry.is_some();
     if let Some(c) = state.counters() {
         c.record_tt_probe(
@@ -1724,6 +1732,7 @@ fn node(
             c.exit(1);
         }
         diag(state, entry_depth, 1);
+        tt_origin.cutoff(state, Cutoff::Main);
         return tt_score;
     }
 
@@ -2098,6 +2107,7 @@ fn node(
         && !is_decisive(tt_score)
     {
         diag(state, entry_depth, 5);
+        tt_origin.cutoff(state, Cutoff::Probcut);
         return pc2;
     }
 
@@ -2578,6 +2588,7 @@ fn node(
         d.ss[i].mv = Some(m);
         d.ss[i].pt = pt;
         d.ss[i].capture = capture;
+        let tt_first_used = tt_origin.start_move(state, move_count == 1 && tt_move == Some(m));
         let (mut tok, child_check, child_history) = play_main(board, m, history);
         if let Some(c) = state.counters() {
             if move_count > 1 && child_check {
@@ -2780,6 +2791,7 @@ fn node(
             return 0;
         }
 
+        Origin::finish_move(state, tt_first_used, value >= beta);
         if value > best_value {
             best_value = value;
             if value > alpha {

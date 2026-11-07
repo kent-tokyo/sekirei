@@ -10,10 +10,10 @@
 //!
 //!   sync_overhead(N) = (tput_partitioned − tput_contended) / tput_partitioned
 //!
-//! P/E core heterogeneity, Amdahl's law, and memory bandwidth all cancel because
-//! both arms run at the same N on the same cores.  What remains is the pure cost
-//! of cache-line bouncing caused by sharing — the only hardware-visible cost of
-//! Relaxed atomic operations (no CAS, no blocking exists in the codebase).
+//! The arms use the same thread count, but cache locality and memory traffic
+//! still differ. The delta is a contention diagnostic, not a decomposition of
+//! synchronization cost. TT writes now claim publication versions with CAS;
+//! this benchmark must be rerun against a pinned binary before quoting it.
 //!
 //! Usage
 //! -----

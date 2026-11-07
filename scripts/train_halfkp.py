@@ -33,6 +33,15 @@ combined with --init or an existing --ckpt resume file.
 king's row during training and folded into them at export, so the file format
 and the engine are unchanged.
 
+New runs use native-integer-v1: exported integer parameters, i16 accumulator
+wrapping, hidden-layer arithmetic shifts, and the engine's integer CP output.
+Its CPU float64 computation is exact within the declared i32 arithmetic range;
+only selected FT rows are converted. Non-CPU models require the explicit
+--native-cpu-fallback option, which transfers each forward's selected rows to
+CPU and retains autograd. Its throughput has not been qualified. Legacy resume
+checkpoints retain legacy-qat-v1; changing their forward contract requires a
+new run, not an optimizer resume. Network export bytes/layout are unchanged.
+
 Training and validation shards stay as separate read-only memory maps. Batches
 copy only the records they use, and deterministic affine permutations generate
 their indices without allocating an all-position shuffle. Python heap use for
@@ -74,13 +83,73 @@ NETWORK_HASH = FILE_HASH ^ TRANSFORMER_HASH
 FT_MAX = 6.0                   # |w| * 127 * 38 stays inside i16
 HID_MAX = 127.0 / 64.0         # i8 weights, scale 64
 DATA_ORDER_VERSION = "mmap-affine-v1"
+NATIVE_FORWARD = "native-integer-v1"
+LEGACY_FORWARD = "legacy-qat-v1"
+FORWARD_CONTRACTS = (NATIVE_FORWARD, LEGACY_FORWARD)
+
+
+def straight_through(value, exact):
+    """Use exact's forward value and value's derivative, without cancellation."""
+    return exact.detach() + (value - value.detach())
+
+
+def exported_integer(value, scale, low, high, shift=0):
+    """Match export's double-precision round-to-even and integer clipping."""
+    if not bool(torch.isfinite(value).all()):
+        raise ValueError("native forward requires finite parameters")
+    scaled = value * scale + shift
+    if not bool(torch.isfinite(scaled).all()):
+        raise ValueError("native forward parameter scaling must remain finite")
+    return straight_through(scaled, torch.round(scaled).clamp(low, high))
+
+
+def checked_i32(value, label):
+    # Rust debug arithmetic rejects overflow, while a release build can wrap.
+    # Do not let a training candidate depend on that build-mode difference.
+    if bool(((value < -(2**31)) | (value > 2**31 - 1)).any()):
+        raise ValueError(f"native forward {label} exceeds the supported i32 range")
+    return value
+
+
+def checked_bias_headroom(bias, inputs, label):
+    # All native dense/pair partial sums are safe under this conservative bound,
+    # including a file's possible -128 weight and any clipped 0..127 inputs.
+    margin = inputs * 127 * 128
+    checked_i32(bias - margin, label + " bias headroom")
+    checked_i32(bias + margin, label + " bias headroom")
+    return bias
+
+
+def resolve_forward_contract(requested=None, checkpoint=None):
+    """A legacy optimizer resume keeps its exact original forward semantics."""
+    if requested is not None and requested not in FORWARD_CONTRACTS:
+        raise ValueError("unknown forward contract")
+    if checkpoint is None:
+        return requested or NATIVE_FORWARD
+    saved = checkpoint.get("forward_contract", LEGACY_FORWARD)
+    if saved not in FORWARD_CONTRACTS:
+        raise ValueError("unknown checkpoint forward contract")
+    if requested is not None and requested != saved:
+        raise ValueError("forward contract mismatch: start a new run to change it")
+    return saved
+
+
+def resume_forward_contract(requested, checkpoint, fv_scale):
+    contract = resolve_forward_contract(requested, checkpoint)
+    if (contract == NATIVE_FORWARD or "forward_fv_scale" in checkpoint):
+        if checkpoint.get("forward_fv_scale") != fv_scale:
+            raise ValueError("forward checkpoint FV scale mismatch")
+    return contract
 
 
 class Net(nn.Module):
-    def __init__(self, fv_scale=24, fact=False):
+    def __init__(self, fv_scale=24, fact=False, forward_contract=NATIVE_FORWARD,
+                 native_cpu_fallback=False):
         super().__init__()
         self.fv = fv_scale
         self.fact = fact
+        self.forward_contract = resolve_forward_contract(forward_contract)
+        self.native_cpu_fallback = native_cpu_fallback
         self.ft = nn.Embedding(N_IN + 1, HALF, padding_idx=PAD)
         # Factorizer: a king-independent row per piece-square, added to every
         # king's row during training and folded into them at export.
@@ -107,9 +176,74 @@ class Net(nn.Module):
         return w
 
     def forward(self, us, them):
-        # Quantization-aware: every weight and activation is snapped to the
-        # grid the integer engine uses (straight-through gradients), so the
-        # exported file evaluates like this model.
+        if self.forward_contract == LEGACY_FORWARD:
+            return self.legacy_forward(us, them)
+        # Cast on CPU before transferring: MPS cannot host float64 tensors.
+        return self.native_integer_trace(us, them)["score"].to(
+            dtype=self.ft.weight.dtype).to(device=self.ft.weight.device)
+
+    def native_integer_trace(self, us, them):
+        """Exact exported-network intermediates with STE derivatives.
+
+        Input rows are already in side-to-move/opponent order, as produced by
+        halfkp_pack. Each perspective has at most 38 non-king feature slots.
+        Double represents every integer sum here exactly. FT sums explicitly
+        wrap to i16; hidden/output sums must fit i32, independent of Rust build
+        mode. The final CP value also includes Board's +/-30000 clamp.
+        """
+        validate_fv_scale(self.fv)
+        if self.ft.weight.dtype not in (torch.float32, torch.float64):
+            raise ValueError("native forward requires float32 or float64 parameters")
+        if self.ft.weight.device.type != "cpu" and not self.native_cpu_fallback:
+            raise ValueError("native forward uses CPU float64; select --device cpu "
+                             "or explicitly enable --native-cpu-fallback")
+        if (us.ndim != 2 or them.ndim != 2 or us.shape[0] != them.shape[0]
+                or not 0 < us.shape[1] <= SLOTS or not 0 < them.shape[1] <= SLOTS):
+            raise ValueError("native forward requires paired batches with 1..38 feature slots")
+
+        def cpu64(value):
+            # Separate these operations so MPS never performs a float64 cast.
+            return value.to(device="cpu").to(dtype=torch.float64)
+
+        def accumulate(index):
+            # Fold in double before quantizing, exactly as export does. Calling
+            # rows() first would round a factorized float32 sum prematurely.
+            rows = cpu64(self.ft(index))
+            if self.fact:
+                piece_index = torch.where(index == PAD, PIECE, index % PIECE)
+                rows = rows + cpu64(self.ftp(piece_index))
+                rows = straight_through(rows, rows.clamp(-FT_MAX, FT_MAX))
+            rows = rows.masked_fill((index == PAD).to("cpu").unsqueeze(-1), 0)
+            rows = exported_integer(rows, 127, -32768, 32767)
+            bias = exported_integer(cpu64(self.ft_bias), 127, -32768, 32767)
+            total = rows.sum(1) + bias
+            return straight_through(total, torch.remainder(total + 32768, 65536) - 32768)
+
+        acc_us, acc_them = accumulate(us), accumulate(them)
+        x = torch.cat([acc_us, acc_them], 1).clamp(0, 127)
+        trace = {"acc_us": acc_us, "acc_them": acc_them, "input": x}
+        for name, layer in (("l1", self.l1), ("l2", self.l2)):
+            weight = exported_integer(cpu64(layer.weight), 64, -127, 127)
+            bias = exported_integer(cpu64(layer.bias), 64 * 127, -(2**31), 2**31 - 1, 32)
+            checked_bias_headroom(bias, layer.in_features, name)
+            total = checked_i32(torch.nn.functional.linear(x, weight, bias), name)
+            shifted = total / 64
+            x = straight_through(shifted, torch.floor(shifted)).clamp(0, 127)
+            trace[name] = x
+        # Preserve export's multiplication-then-division order near ties.
+        weight_value = cpu64(self.out.weight) * self.fv / 127
+        weight = exported_integer(weight_value, 1, -127, 127)
+        bias = exported_integer(cpu64(self.out.bias), self.fv, -(2**31), 2**31 - 1)
+        checked_bias_headroom(bias, HIDDEN, "output")
+        raw = checked_i32(torch.nn.functional.linear(x, weight, bias).squeeze(1), "output")
+        cp = raw / self.fv
+        trace["raw_output"] = raw
+        trace["score"] = straight_through(cp, torch.trunc(cp)).clamp(-30000, 30000)
+        return trace
+
+    def legacy_forward(self, us, them):
+        # Frozen pre-native-integer-v1 computation, retained only for legacy
+        # runs. Its rounding and fractional output differ from native inference.
         q = lambda t, scale: t + (torch.round(t * scale) / scale - t).detach()
         bias = q(self.ft_bias, 127)
         a = q(self.rows(us), 127).sum(1) + bias
@@ -477,6 +611,10 @@ def main():
                     help="output scale (default 24; must be explicit with --init-bin)")
     ap.add_argument("--val", type=float, default=0.02, help="held-out fraction")
     ap.add_argument("--device", default="mps" if torch.backends.mps.is_available() else "cpu")
+    ap.add_argument("--forward-contract", choices=FORWARD_CONTRACTS,
+                    help="new runs default to native-integer-v1; resumes preserve the saved contract")
+    ap.add_argument("--native-cpu-fallback", action="store_true",
+                    help="explicitly allow CPU float64 forward for a non-CPU model (unqualified throughput)")
     initial = ap.add_mutually_exclusive_group()
     initial.add_argument("--init", help="start from a saved state (.pt)")
     initial.add_argument("--init-bin", help="warm-start quantized .bin parameters with a fresh optimizer; not float/optimizer resume")
@@ -538,7 +676,8 @@ def main():
     )
 
     dev = torch.device(args.device)
-    net = Net(args.fv_scale, args.fact)
+    net = Net(args.fv_scale, args.fact, resolve_forward_contract(args.forward_contract),
+              args.native_cpu_fallback)
     if args.init:
         load_init(net, torch.load(args.init, map_location="cpu"))
     if args.init_bin:
@@ -576,19 +715,28 @@ def main():
     if args.ckpt and os.path.exists(args.ckpt):
         state = torch.load(args.ckpt, map_location="cpu", weights_only=False)
         validate_checkpoint_order(state, order_contract)
+        net.forward_contract = resume_forward_contract(args.forward_contract, state, args.fv_scale)
         net.load_state_dict(state["model"])
         opt.load_state_dict(state["opt"])
         sched.load_state_dict(state["sched"])
         start_epoch, start_step = state["epoch"], state["step"]
         print(f"resumed at epoch {start_epoch} step {start_step}", flush=True)
-    else:
+    if net.forward_contract == NATIVE_FORWARD and dev.type != "cpu" and not args.native_cpu_fallback:
+        ap.error("native-integer-v1 uses CPU float64; select --device cpu "
+                 "or explicitly enable --native-cpu-fallback")
+    forward_device = "cpu-float64" if net.forward_contract == NATIVE_FORWARD else str(dev)
+    print(f"forward_contract {net.forward_contract}, forward_backend {forward_device}, "
+          f"model_device {dev}, fv_scale {args.fv_scale}", flush=True)
+    if not (args.ckpt and os.path.exists(args.ckpt)):
         print(f"epoch 0 val_loss {evaluate():.6f}", flush=True)
 
     def save_ckpt(epoch, step):
         if args.ckpt:
             atomic_torch_save({"model": net.state_dict(), "opt": opt.state_dict(),
                                "sched": sched.state_dict(), "epoch": epoch, "step": step,
-                               "data_order": order_contract},
+                               "data_order": order_contract,
+                               "forward_contract": net.forward_contract,
+                               "forward_fv_scale": args.fv_scale},
                               args.ckpt)
 
     t0 = time.time()

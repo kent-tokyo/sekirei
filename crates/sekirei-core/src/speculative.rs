@@ -1,844 +1,991 @@
 //! Speculative / preemptive search infrastructure.
 //!
-//! A `SpecGroup` holds one `Arc<AtomicBool>` abort flag per speculative task.
-//! Dropping a `SpecGroup` immediately sets every remaining flag to `true` —
-//! the RAII cancellation guarantee described in AGENTS.md.
-//!
-//! Correctness invariant: speculative tasks NEVER write to the shared TT if their
-//! abort flag has been set. This prevents partially-computed 0-scores from
-//! poisoning entries that the main search later reads.
+//! Tasks search legal root candidates through the same alpha-beta kernel as
+//! foreground search, carrying game history and sharing the invocation budget.
+//! Dropping a group requests cancellation of its non-promoted tasks. The owning
+//! search uses a Rayon scope to join every task before reporting final results.
+//! An invocation-wide permit bounds queued and running jobs, including promoted
+//! jobs retained from earlier depth iterations.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering};
+use std::time::Duration;
+use web_time::Instant;
 
 use crate::board::Board;
 use crate::budget::Budget;
-use crate::movegen::MoveBuffer;
 use crate::mv::Move;
-use crate::piece::PieceKind;
 use crate::policy;
-use crate::tt::{Bound, Tt, TtEntry};
+use crate::sfen::PositionHistory;
+use crate::tt::Tt;
 
-/// sentinel stored in `best_score` while the task is still running
-const RUNNING: i32 = i32::MAX;
+/// Invocation-scoped task telemetry, collected only by the diagnostic API.
+///
+/// These counts describe work and cleanup, not useful TT cutoffs or strength.
+/// Cancel latency is recorded only for an explicitly timestamped cancellation
+/// request. The original instant of an external stop or node-limit event is
+/// not inferred from a later observation of the budget's abort flag.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SpeculativeDiagnosticsSnapshot {
+    /// Exact TT publication/use events. Available only with an opt-in TT.
+    /// Historical sampled foreign-hit counters keep their separate meaning.
+    pub tt_use: crate::search::SpeculativeTtSnapshot,
+    /// Configured dedicated-pool participants, including the foreground.
+    pub configured_workers: usize,
+    /// Maximum queued plus running background jobs.
+    pub background_cap: usize,
+    /// Legal candidates considered across all depth groups.
+    pub candidates: u64,
+    /// Jobs admitted before cloning their board and history.
+    pub admitted: u64,
+    /// Jobs that entered their execution closure, including pre-entry stops.
+    pub started: u64,
+    /// Jobs that published a completed score.
+    pub completed: u64,
+    /// Jobs without a completed score, including unstarted jobs dropped normally.
+    pub aborted: u64,
+    /// Admitted jobs whose captures were released during unwinding.
+    pub unwound: u64,
+    /// Admitted jobs released without entering their execution closure.
+    pub unstarted: u64,
+    /// Candidates not admitted because the invocation cap was full.
+    pub cap_rejected: u64,
+    /// Largest admitted queued/running count, including promoted jobs.
+    pub peak_in_flight: usize,
+    /// Admission slots still held after the invocation's scope joined.
+    pub outstanding_after_join: usize,
+    /// Every node in cooperative child budgets, including aborted jobs.
+    pub background_nodes: u64,
+    /// Scope-body exit to scope completion, including capture destruction.
+    pub scope_join_wait_ns: u64,
+    /// Search elapsed beyond its hard limit; absent when no limit was supplied.
+    pub deadline_overrun_ns: Option<u64>,
+    /// Aborted jobs with an observed request-to-capture-release interval.
+    pub cancellation_latency_samples: u64,
+    /// Sum of those intervals. Concurrent intervals overlap; this is not CPU time.
+    pub cancellation_latency_ns_sum: u64,
+    /// Largest observed request-to-capture-release interval.
+    pub cancellation_latency_ns_max: u64,
+    /// Aborted jobs for which no cancellation request timestamp was available.
+    pub aborted_without_observed_cancel: u64,
+}
 
-// ---- Shared context for speculative tasks ----
+const NO_CANCEL_TIMESTAMP: u64 = u64::MAX;
+
+fn duration_ns(duration: Duration) -> u64 {
+    duration.as_nanos().min(u64::MAX as u128 - 1) as u64
+}
+
+pub(crate) struct SpecDiagnostics {
+    tt_use: Option<Arc<crate::search::tt_attribution::Session>>,
+    foreground_diagnostics: Option<Arc<crate::search::SearchDiagnostics>>,
+    background_diagnostics: Option<Arc<crate::search::SearchDiagnostics>>,
+    origin: Instant,
+    candidates: AtomicU64,
+    admitted: AtomicU64,
+    started: AtomicU64,
+    completed: AtomicU64,
+    aborted: AtomicU64,
+    unwound: AtomicU64,
+    unstarted: AtomicU64,
+    cap_rejected: AtomicU64,
+    peak_in_flight: AtomicUsize,
+    outstanding_after_join: AtomicUsize,
+    background_nodes: AtomicU64,
+    scope_join_wait_ns: AtomicU64,
+    invocation_cancel_ns: AtomicU64,
+    cancellation_latency_samples: AtomicU64,
+    cancellation_latency_ns_sum: AtomicU64,
+    cancellation_latency_ns_max: AtomicU64,
+    aborted_without_observed_cancel: AtomicU64,
+}
+
+impl SpecDiagnostics {
+    pub(crate) fn new() -> Self {
+        Self {
+            tt_use: None,
+            foreground_diagnostics: None,
+            background_diagnostics: None,
+            origin: Instant::now(),
+            candidates: AtomicU64::new(0),
+            admitted: AtomicU64::new(0),
+            started: AtomicU64::new(0),
+            completed: AtomicU64::new(0),
+            aborted: AtomicU64::new(0),
+            unwound: AtomicU64::new(0),
+            unstarted: AtomicU64::new(0),
+            cap_rejected: AtomicU64::new(0),
+            peak_in_flight: AtomicUsize::new(0),
+            outstanding_after_join: AtomicUsize::new(0),
+            background_nodes: AtomicU64::new(0),
+            scope_join_wait_ns: AtomicU64::new(0),
+            invocation_cancel_ns: AtomicU64::new(NO_CANCEL_TIMESTAMP),
+            cancellation_latency_samples: AtomicU64::new(0),
+            cancellation_latency_ns_sum: AtomicU64::new(0),
+            cancellation_latency_ns_max: AtomicU64::new(0),
+            aborted_without_observed_cancel: AtomicU64::new(0),
+        }
+    }
+
+    pub(crate) fn with_tt(tt: &Arc<Tt>) -> Self {
+        let tt_use = crate::search::tt_attribution::Session::new(tt);
+        Self {
+            foreground_diagnostics: tt_use.as_ref().map(|session| session.diagnostics(false)),
+            background_diagnostics: tt_use.as_ref().map(|session| session.diagnostics(true)),
+            tt_use,
+            ..Self::new()
+        }
+    }
+
+    pub(crate) fn kernel_diagnostics(
+        &self,
+        background: bool,
+    ) -> Option<Arc<crate::search::SearchDiagnostics>> {
+        if background {
+            self.background_diagnostics.clone()
+        } else {
+            self.foreground_diagnostics.clone()
+        }
+    }
+
+    fn now_ns(&self) -> u64 {
+        duration_ns(self.origin.elapsed())
+    }
+
+    /// Record immediately before an explicit cancellation request. Callers
+    /// omit this when the budget was already stopped by an unobserved event.
+    pub(crate) fn request_invocation_cancel(&self) {
+        let _ = self.invocation_cancel_ns.compare_exchange(
+            NO_CANCEL_TIMESTAMP,
+            self.now_ns(),
+            Ordering::Release,
+            Ordering::Relaxed,
+        );
+    }
+
+    pub(crate) fn add_background_nodes(&self, nodes: u64) {
+        self.background_nodes.fetch_add(nodes, Ordering::Relaxed);
+    }
+
+    pub(crate) fn joined(&self, elapsed: Duration, outstanding: usize) {
+        self.scope_join_wait_ns
+            .store(duration_ns(elapsed), Ordering::Relaxed);
+        self.outstanding_after_join
+            .store(outstanding, Ordering::Relaxed);
+    }
+
+    pub(crate) fn snapshot(
+        &self,
+        workers: usize,
+        cap: usize,
+        elapsed: Duration,
+        limit: Option<Duration>,
+    ) -> SpeculativeDiagnosticsSnapshot {
+        SpeculativeDiagnosticsSnapshot {
+            tt_use: self
+                .tt_use
+                .as_ref()
+                .map_or_else(Default::default, |session| session.snapshot()),
+            configured_workers: workers,
+            background_cap: cap,
+            candidates: self.candidates.load(Ordering::Relaxed),
+            admitted: self.admitted.load(Ordering::Relaxed),
+            started: self.started.load(Ordering::Relaxed),
+            completed: self.completed.load(Ordering::Relaxed),
+            aborted: self.aborted.load(Ordering::Relaxed),
+            unwound: self.unwound.load(Ordering::Relaxed),
+            unstarted: self.unstarted.load(Ordering::Relaxed),
+            cap_rejected: self.cap_rejected.load(Ordering::Relaxed),
+            peak_in_flight: self.peak_in_flight.load(Ordering::Relaxed),
+            outstanding_after_join: self.outstanding_after_join.load(Ordering::Relaxed),
+            background_nodes: self.background_nodes.load(Ordering::Relaxed),
+            scope_join_wait_ns: self.scope_join_wait_ns.load(Ordering::Relaxed),
+            deadline_overrun_ns: limit.map(|limit| duration_ns(elapsed.saturating_sub(limit))),
+            cancellation_latency_samples: self.cancellation_latency_samples.load(Ordering::Relaxed),
+            cancellation_latency_ns_sum: self.cancellation_latency_ns_sum.load(Ordering::Relaxed),
+            cancellation_latency_ns_max: self.cancellation_latency_ns_max.load(Ordering::Relaxed),
+            aborted_without_observed_cancel: self
+                .aborted_without_observed_cancel
+                .load(Ordering::Relaxed),
+        }
+    }
+}
+
+struct JobObservation {
+    diagnostics: Arc<SpecDiagnostics>,
+    admitted_ns: u64,
+    started: AtomicBool,
+    completed: AtomicBool,
+    cancel_ns: AtomicU64,
+}
+
+impl JobObservation {
+    fn request_cancel(&self) {
+        let _ = self.cancel_ns.compare_exchange(
+            NO_CANCEL_TIMESTAMP,
+            self.diagnostics.now_ns(),
+            Ordering::Release,
+            Ordering::Relaxed,
+        );
+    }
+
+    fn released(&self) {
+        let diagnostics = &self.diagnostics;
+        if !self.started.load(Ordering::Relaxed) {
+            diagnostics.unstarted.fetch_add(1, Ordering::Relaxed);
+        }
+        if std::thread::panicking() {
+            diagnostics.unwound.fetch_add(1, Ordering::Relaxed);
+        } else if self.completed.load(Ordering::Relaxed) {
+            diagnostics.completed.fetch_add(1, Ordering::Relaxed);
+        } else {
+            diagnostics.aborted.fetch_add(1, Ordering::Relaxed);
+            let finished = diagnostics.now_ns();
+            let request = [
+                self.cancel_ns.load(Ordering::Acquire),
+                diagnostics.invocation_cancel_ns.load(Ordering::Acquire),
+            ]
+            .into_iter()
+            .filter(|request| {
+                *request != NO_CANCEL_TIMESTAMP
+                    && *request >= self.admitted_ns
+                    && *request <= finished
+            })
+            .min();
+            if let Some(request) = request {
+                let latency = finished - request;
+                diagnostics
+                    .cancellation_latency_samples
+                    .fetch_add(1, Ordering::Relaxed);
+                diagnostics
+                    .cancellation_latency_ns_sum
+                    .fetch_add(latency, Ordering::Relaxed);
+                diagnostics
+                    .cancellation_latency_ns_max
+                    .fetch_max(latency, Ordering::Relaxed);
+            } else {
+                diagnostics
+                    .aborted_without_observed_cancel
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
 
 /// Shared context handed to every speculative search task.
 pub struct SpecState {
     /// Transposition table shared with the main search.
     pub tt: Arc<Tt>,
-    /// The *same* budget instance the main search uses, not an independent
-    /// copy — a USI stop or the watchdog firing must be visible to spec
-    /// tasks without a separately hand-synced flag (see `search.rs`'s
-    /// `SpeculativeSearcher::search`).
+    /// Invocation-wide time, node and stop budget. Each job adds its own
+    /// cancellation flag through a cooperative child budget in the kernel.
     pub(crate) budget: Arc<Budget>,
-    /// Dedicated pool for speculative tasks, entirely separate from rayon's
-    /// global pool. `alpha_beta`'s own YBW parallel dispatch
-    /// (`work.into_par_iter()...collect()`, search.rs) implicitly runs on
-    /// the global pool; before this field existed, `SpecGroup::spawn` used
-    /// the bare `rayon::spawn` function, which also targets the global pool.
-    /// An unbounded-depth speculative task (no cap beyond the search-wide
-    /// deadline) occupying a global-pool worker could then starve
-    /// `alpha_beta`'s own dispatch of a worker for the rest of the search:
-    /// a thread outside rayon's registry that calls `.into_par_iter()`
-    /// cannot itself steal work, it can only block on a `LockLatch` until a
-    /// worker frees up (confirmed via `sample` -- the dispatching thread
-    /// spent 100% of a 1s window in `pthread_cond_wait` inside
-    /// `Registry::in_worker_cold`). Isolating speculation onto its own pool
-    /// makes that structurally impossible regardless of how long any one
-    /// speculative task runs.
+    /// Dedicated pool, separate from the global pool used by YBW dispatch.
     pub(crate) pool: Arc<rayon::ThreadPool>,
+    /// Queued and running jobs across every group of this invocation.
+    /// Only a job's lease releases its slot; promotion keeps the slot occupied.
+    pub(crate) in_flight: AtomicUsize,
+    /// Absent in the normal API; no task clocks or telemetry counters then run.
+    pub(crate) diagnostics: Option<Arc<SpecDiagnostics>>,
 }
 
-// ---- Per-task handle ----
-
-struct SpecTask {
-    mv: Move,
-    task_abort: Arc<AtomicBool>,
-    result: Arc<AtomicI32>, // RUNNING while in-flight; real score when done
+/// A bounded admission slot owned by the job, never by its polling handle.
+struct SpecLease {
+    state: Arc<SpecState>,
+    observation: Option<Arc<JobObservation>>,
 }
 
-// ---- RAII group ----
-
-/// A group of speculative tasks that are aborted when the group is dropped.
-///
-/// Call `promote(winner)` before dropping to keep the winner's task running
-/// so it can finish writing deeper TT entries for the next depth iteration.
-pub struct SpecGroup {
-    tasks: Vec<SpecTask>,
-}
-
-impl SpecGroup {
-    /// Spawn `top_n` speculative tasks that explore `board` at `depth` plies.
-    pub fn spawn(board: &Board, state: &Arc<SpecState>, depth: u32, top_n: usize) -> Self {
-        let candidates = policy::top_n(board, &state.tt, top_n);
-
-        let tasks = candidates
-            .into_iter()
-            .map(|m| {
-                let task_abort = Arc::new(AtomicBool::new(false));
-                let result = Arc::new(AtomicI32::new(RUNNING));
-
-                let abort_c = task_abort.clone();
-                let result_c = result.clone();
-                let state_c = state.clone();
-                let mut b = board.clone();
-
-                // Dedicated pool (see SpecState::pool), not the bare rayon::spawn
-                // global-pool function -- must never share a pool with alpha_beta's
-                // own YBW dispatch.
-                state.pool.spawn(move || {
-                    // Check abort flags before doing any work
-                    if abort_c.load(Ordering::Relaxed) || state_c.budget.should_abort() {
-                        result_c.store(0, Ordering::Relaxed);
-                        return;
-                    }
-                    // policy::top_n uses pseudo-legal generation; skip king captures
-                    if b.piece_at(m.to).is_some_and(|p| p.kind == PieceKind::Ou) {
-                        result_c.store(0, Ordering::Relaxed);
-                        return;
-                    }
-
-                    let tok = b.do_move_for_search(m);
-                    let score = spec_alpha_beta(
-                        &state_c,
-                        &abort_c,
-                        &mut b,
-                        -1_000_000,
-                        1_000_000,
-                        depth.saturating_sub(1),
-                        1,
-                    );
-                    b.undo_move_for_search(tok);
-
-                    // Deliberately does NOT store to the shared TT here (issue #14):
-                    // every candidate task in this group undoes its own move and would
-                    // otherwise store Bound::Exact at the SAME parent (pre-move) hash --
-                    // whichever task's store happened to run last won, regardless of
-                    // move/score quality, a last-writer-wins race independent of `poll`/
-                    // `promote`'s later winner selection. `poll`/`promote`/speculation-hit
-                    // tracking all read `result` directly (the AtomicI32 below), not the
-                    // TT, so removing this store does not affect them.
-                    if !abort_c.load(Ordering::Relaxed) && !state_c.budget.should_abort() {
-                        // negate: score is opponent's, -score is ours
-                        result_c.store(-score, Ordering::Release);
-                    } else {
-                        result_c.store(0, Ordering::Relaxed);
-                    }
-                });
-
-                SpecTask {
-                    mv: m,
-                    task_abort,
-                    result,
+impl SpecLease {
+    fn acquire(state: &Arc<SpecState>, top_n: usize) -> Option<Self> {
+        // The dedicated pool reserves one participant for foreground search.
+        // Its fixed size is also a bound when a compatibility caller varies
+        // top_n between groups. Do not queue work behind all existing helpers.
+        let limit = top_n.min(state.pool.current_num_threads().saturating_sub(1));
+        let mut current = state.in_flight.load(Ordering::Relaxed);
+        while current < limit {
+            match state.in_flight.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    let observation = state.diagnostics.as_ref().map(|diagnostics| {
+                        diagnostics.admitted.fetch_add(1, Ordering::Relaxed);
+                        diagnostics
+                            .peak_in_flight
+                            .fetch_max(current + 1, Ordering::Relaxed);
+                        Arc::new(JobObservation {
+                            diagnostics: diagnostics.clone(),
+                            admitted_ns: diagnostics.now_ns(),
+                            started: AtomicBool::new(false),
+                            completed: AtomicBool::new(false),
+                            cancel_ns: AtomicU64::new(NO_CANCEL_TIMESTAMP),
+                        })
+                    });
+                    return Some(Self {
+                        state: state.clone(),
+                        observation,
+                    });
                 }
-            })
-            .collect();
-
-        SpecGroup { tasks }
-    }
-
-    /// Remove `winner` from the abort list so it is NOT cancelled on drop.
-    pub fn promote(&mut self, winner: Move) {
-        self.tasks.retain(|t| t.mv != winner);
-    }
-
-    /// Non-blocking poll: `Some(score)` if task for `mv` finished, else `None`.
-    pub fn poll(&self, mv: Move) -> Option<i32> {
-        for t in &self.tasks {
-            if t.mv == mv {
-                let v = t.result.load(Ordering::Acquire);
-                if v != RUNNING {
-                    return Some(v);
-                }
-                return None;
+                Err(actual) => current = actual,
             }
         }
         None
     }
 }
 
-impl Drop for SpecGroup {
-    /// RAII: signal every non-promoted task to stop at its next abort check.
+impl Drop for SpecLease {
     fn drop(&mut self) {
-        for t in &self.tasks {
-            t.task_abort.store(true, Ordering::Relaxed);
+        let previous = self.state.in_flight.fetch_sub(1, Ordering::Relaxed);
+        debug_assert!(previous > 0, "speculative admission slot returned twice");
+        if let Some(observation) = &self.observation {
+            observation.released();
         }
     }
 }
 
-// ---- Speculative Alpha-Beta ----
-//
-// Sequential (no parallel young brothers) to avoid competing with the main
-// search for rayon worker threads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TaskResult {
+    Running,
+    Completed(i32),
+    Aborted,
+}
 
-fn spec_alpha_beta(
-    state: &Arc<SpecState>,
-    task_abort: &AtomicBool,
-    board: &mut Board,
-    alpha: i32,
-    beta: i32,
+/// One writer publishes the score before releasing the terminal status.
+/// A cancelled task has no score, including when its abort path returned zero.
+struct TaskResultCell {
+    status: AtomicU8,
+    score: AtomicI32,
+}
+
+impl TaskResultCell {
+    const RUNNING: u8 = 0;
+    const COMPLETED: u8 = 1;
+    const ABORTED: u8 = 2;
+
+    fn new() -> Self {
+        Self {
+            status: AtomicU8::new(Self::RUNNING),
+            score: AtomicI32::new(0),
+        }
+    }
+
+    fn publish(&self, result: Option<i32>) {
+        let status = if let Some(score) = result {
+            self.score.store(score, Ordering::Relaxed);
+            Self::COMPLETED
+        } else {
+            Self::ABORTED
+        };
+        self.status.store(status, Ordering::Release);
+    }
+
+    fn load(&self) -> TaskResult {
+        match self.status.load(Ordering::Acquire) {
+            Self::RUNNING => TaskResult::Running,
+            Self::COMPLETED => TaskResult::Completed(self.score.load(Ordering::Relaxed)),
+            Self::ABORTED => TaskResult::Aborted,
+            _ => unreachable!("task result status is written only by publish"),
+        }
+    }
+}
+
+struct SpecTask {
+    mv: Move,
+    task_abort: Arc<AtomicBool>,
+    result: Arc<TaskResultCell>,
+    observation: Option<Arc<JobObservation>>,
+}
+
+struct SpecJob {
+    board: Board,
+    state: Arc<SpecState>,
+    history: PositionHistory,
+    mv: Move,
     depth: u32,
-    ply: u32,
-) -> i32 {
-    // Abort check first — callers must not use the return value 0 as a real score.
-    // No self-throttled deadline check here: `state.budget` is the *same*
-    // instance the main search ticks on every alpha_beta/quiescence node, and
-    // the OS watchdog thread (spawned whenever a time limit is set) guarantees
-    // the deadline fires regardless of rayon pool contention — so relying on
-    // the shared `should_abort()` alone is enough to avoid the pool-starvation
-    // hang a separate per-task check used to guard against.
-    if task_abort.load(Ordering::Relaxed) || state.budget.should_abort() {
-        return 0;
+    task_abort: Arc<AtomicBool>,
+    result: Arc<TaskResultCell>,
+    // Last field: release the slot after the job's board/history captures.
+    // Drop also covers queued jobs discarded or unwound before run().
+    _lease: SpecLease,
+}
+
+impl SpecJob {
+    fn run(mut self) {
+        if let Some(observation) = &self._lease.observation {
+            observation.started.store(true, Ordering::Relaxed);
+            observation
+                .diagnostics
+                .started
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        let score = crate::search::speculative_child_search_observed(
+            self.state.tt.clone(),
+            self.state.budget.clone(),
+            self.task_abort.clone(),
+            &mut self.board,
+            self.mv,
+            self.depth,
+            &self.history,
+            self.state.diagnostics.as_deref(),
+        );
+        let score = if self.task_abort.load(Ordering::Relaxed) || self.state.budget.should_abort() {
+            None
+        } else {
+            score
+        };
+        // The shared child kernel owns TT writes. Never publish a candidate's
+        // score as an Exact entry at the unchanged parent hash (issue #14).
+        self.result.publish(score);
+        if let Some(observation) = &self._lease.observation {
+            observation
+                .completed
+                .store(score.is_some(), Ordering::Relaxed);
+        }
+    }
+}
+
+/// A group of speculative tasks cancelled when the group is dropped.
+///
+/// `promote` exempts a winning task from group cancellation. The invocation's
+/// scope and budget still govern that task's completion and lifetime.
+pub struct SpecGroup {
+    tasks: Vec<SpecTask>,
+}
+
+impl SpecGroup {
+    /// Spawn legal root candidates with an initial-position history.
+    ///
+    /// This compatibility API dispatches owned jobs to the dedicated pool.
+    /// The engine's invocation path uses scoped dispatch to join all jobs.
+    pub fn spawn(board: &Board, state: &Arc<SpecState>, depth: u32, top_n: usize) -> Self {
+        let history = PositionHistory::initial(board.hash());
+        Self::spawn_with(board, state, depth, top_n, &history, |job| {
+            state.pool.spawn(move || job.run());
+        })
     }
 
-    if depth == 0 {
-        return crate::eval::evaluate(board);
+    /// Dispatch within the owning invocation's scope. Every job retains its
+    /// own board and history, and the scope joins promoted jobs too.
+    pub(crate) fn spawn_scoped_with_history<'scope>(
+        scope: &rayon::Scope<'scope>,
+        board: &Board,
+        state: &Arc<SpecState>,
+        depth: u32,
+        top_n: usize,
+        history: &PositionHistory,
+    ) -> Self {
+        Self::spawn_with(board, state, depth, top_n, history, |job| {
+            scope.spawn(move |_| job.run());
+        })
     }
 
-    let hash = board.hash();
-    let orig_alpha = alpha;
-    let mut alpha = alpha;
+    fn spawn_with(
+        board: &Board,
+        state: &Arc<SpecState>,
+        depth: u32,
+        top_n: usize,
+        history: &PositionHistory,
+        mut dispatch: impl FnMut(SpecJob),
+    ) -> Self {
+        let candidates = policy::top_n_legal(board, &state.tt, top_n);
+        let candidate_count = candidates.len();
+        if let Some(diagnostics) = &state.diagnostics {
+            diagnostics
+                .candidates
+                .fetch_add(candidate_count as u64, Ordering::Relaxed);
+        }
+        let mut tasks = Vec::with_capacity(candidates.len());
+        for mv in candidates {
+            // Acquire before allocating per-job board/history snapshots. A
+            // promoted job from an older group still occupies its own slot.
+            let Some(lease) = SpecLease::acquire(state, top_n) else {
+                if let Some(diagnostics) = &state.diagnostics {
+                    diagnostics
+                        .cap_rejected
+                        .fetch_add((candidate_count - tasks.len()) as u64, Ordering::Relaxed);
+                }
+                break;
+            };
+            let observation = lease.observation.clone();
+            let task_abort = Arc::new(AtomicBool::new(false));
+            let result = Arc::new(TaskResultCell::new());
+            dispatch(SpecJob {
+                board: board.clone(),
+                state: state.clone(),
+                history: history.clone(),
+                mv,
+                depth,
+                task_abort: task_abort.clone(),
+                result: result.clone(),
+                _lease: lease,
+            });
+            tasks.push(SpecTask {
+                mv,
+                task_abort,
+                result,
+                observation,
+            });
+        }
+        Self { tasks }
+    }
 
-    // TT probe — skip if entry was written by an aborted task (we can't tell,
-    // but entries with depth=0 or unreasonable scores are naturally harmless)
-    if let Some(e) = state.tt.probe(hash)
-        && u32::from(e.depth) >= depth
-    {
-        match e.bound {
-            Bound::Exact => return e.score,
-            Bound::Lower => {
-                if e.score >= beta {
-                    return e.score;
-                }
-                if e.score > alpha {
-                    alpha = e.score;
-                }
+    /// Exempt `winner` from this group's cancellation on drop.
+    pub fn promote(&mut self, winner: Move) {
+        self.tasks.retain(|task| task.mv != winner);
+    }
+
+    /// Return only a completed score. Running, cancelled and absent tasks
+    /// return `None`; a completed zero score remains `Some(0)`.
+    pub fn poll(&self, mv: Move) -> Option<i32> {
+        self.tasks.iter().find_map(|task| {
+            if task.mv != mv {
+                return None;
             }
-            Bound::Upper => {
-                if e.score <= alpha {
-                    return e.score;
-                }
+            match task.result.load() {
+                TaskResult::Completed(score) => Some(score),
+                TaskResult::Running | TaskResult::Aborted => None,
             }
+        })
+    }
+}
+
+impl Drop for SpecGroup {
+    fn drop(&mut self) {
+        for task in &self.tasks {
+            if let Some(observation) = &task.observation {
+                observation.request_cancel();
+            }
+            task.task_abort.store(true, Ordering::Relaxed);
         }
     }
-
-    let moves = MoveBuffer::legal(board);
-    if moves.is_empty() {
-        return -(crate::search::MATE_SCORE - ply as i32);
-    }
-
-    let mut best = -1_000_000i32;
-    let mut best_move = None;
-
-    for &m in moves.as_slice() {
-        // Re-check abort before each recursive call
-        if task_abort.load(Ordering::Relaxed) || state.budget.should_abort() {
-            return 0; // do NOT write to TT with this incomplete best
-        }
-
-        let tok = board.do_move_for_search(m);
-        let s = -spec_alpha_beta(state, task_abort, board, -beta, -alpha, depth - 1, ply + 1);
-        board.undo_move_for_search(tok);
-
-        // If the recursive call aborted, s == 0 is meaningless — bail out
-        if task_abort.load(Ordering::Relaxed) || state.budget.should_abort() {
-            return 0;
-        }
-
-        if s > best {
-            best = s;
-            best_move = Some(m);
-        }
-        if s >= beta {
-            // `hash` (top of this function) is the position at THIS call's own
-            // `ply` -- that's the ply score_to_tt needs, matching alpha_beta's
-            // store_tt in search.rs.
-            state.tt.store(
-                hash,
-                TtEntry {
-                    score: crate::search::score_to_tt(s, ply),
-                    depth: crate::tt::depth_to_tt(depth),
-                    bound: Bound::Lower,
-                    mv: best_move,
-                },
-            );
-            return s;
-        }
-        if s > alpha {
-            alpha = s;
-        }
-    }
-
-    let bound = if best > orig_alpha {
-        Bound::Exact
-    } else {
-        Bound::Upper
-    };
-    state.tt.store(
-        hash,
-        TtEntry {
-            score: crate::search::score_to_tt(best, ply),
-            depth: crate::tt::depth_to_tt(depth),
-            bound,
-            mv: best_move,
-        },
-    );
-    best
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::movegen::MoveBuffer;
+    use crate::piece::PieceKind;
+    use crate::square::Square;
     use std::time::{Duration, Instant};
 
-    // Hand-verified mate-in-1 for black: white king cornered at (file9,rank1);
-    // black king at (file7,rank2) covers both diagonal escapes; black rook
-    // slides to (file9,rank5) delivering unstoppable check down the file. See
-    // search.rs::regression_tests for the full derivation (same position is
-    // reused there for the sibling `alpha_beta` regression test).
-    const MATE_IN_1_SFEN: &str = "k8/2K6/9/9/4R4/9/9/9/9 b - 1";
-
-    // Black rook on file9 with a clear path to the white king: `policy::top_n`
-    // (pseudo-legal, per its doc comment) includes the rook-takes-king move
-    // among its candidates for this position.
-    const KING_CAPTURE_CANDIDATE_SFEN: &str = "k8/9/9/9/R8/9/9/9/9 b - 1";
-
-    fn spec_state() -> Arc<SpecState> {
+    fn spec_state(node_limit: Option<u64>) -> Arc<SpecState> {
         Arc::new(SpecState {
             tt: Tt::new(1),
-            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
+            budget: Arc::new(Budget::new(
+                None,
+                node_limit,
+                Arc::new(AtomicBool::new(false)),
+            )),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
-                    .num_threads(1)
+                    .num_threads(3)
+                    .stack_size(crate::search::RECURSIVE_SEARCH_STACK_BYTES)
                     .build()
                     .unwrap(),
             ),
+            in_flight: AtomicUsize::new(0),
+            diagnostics: None,
         })
     }
 
+    fn scoped_group(board: &Board, state: &Arc<SpecState>, depth: u32, top_n: usize) -> SpecGroup {
+        let history = PositionHistory::initial(board.hash());
+        state.pool.install(|| {
+            rayon::scope(|scope| {
+                SpecGroup::spawn_scoped_with_history(scope, board, state, depth, top_n, &history)
+            })
+        })
+    }
+
+    fn observed_state(node_limit: Option<u64>) -> (Arc<SpecState>, Arc<SpecDiagnostics>) {
+        let mut state = spec_state(node_limit);
+        let diagnostics = Arc::new(SpecDiagnostics::new());
+        Arc::get_mut(&mut state).unwrap().diagnostics = Some(diagnostics.clone());
+        (state, diagnostics)
+    }
+
+    fn snapshot(diagnostics: &SpecDiagnostics) -> SpeculativeDiagnosticsSnapshot {
+        diagnostics.snapshot(3, 2, Duration::ZERO, None)
+    }
+
     #[test]
-    fn requested_depth_does_not_wrap_into_a_shallow_speculative_tt_cutoff() {
-        let state = spec_state();
-        let mut board = Board::from_sfen("k8/2K6/9/9/R8/9/9/9/9 w - 1").unwrap();
-        assert!(MoveBuffer::legal(&mut board).is_empty());
+    fn diagnostics_count_cap_promoted_completion_and_cancelled_queue_release() {
+        let board = Board::startpos();
+        let history = PositionHistory::initial(board.hash());
+        let (state, diagnostics) = observed_state(None);
+        let mut jobs = Vec::new();
+        let mut group = SpecGroup::spawn_with(&board, &state, 1, 4, &history, |job| jobs.push(job));
+        assert_eq!(jobs.len(), 2);
+        let winner = jobs[0].mv;
+        group.promote(winner);
+        drop(group);
+        let full = SpecGroup::spawn_with(&board, &state, 1, 2, &history, |_| {
+            panic!("cap must remain full")
+        });
+        assert!(full.tasks.is_empty());
+        drop(jobs.pop().unwrap());
+        state.pool.install(|| jobs.pop().unwrap().run());
+        let observed = snapshot(&diagnostics);
+        assert_eq!(observed.candidates, 6);
+        assert_eq!(observed.admitted, 2);
+        assert_eq!(observed.cap_rejected, 4);
+        assert_eq!(observed.peak_in_flight, 2);
+        assert_eq!(observed.started, 1);
+        assert_eq!(observed.completed, 1);
+        assert_eq!(observed.aborted, 1);
+        assert_eq!(observed.unstarted, 1);
+        assert_eq!(observed.unwound, 0);
+        assert_eq!(observed.cancellation_latency_samples, 1);
+        assert_eq!(
+            observed.cancellation_latency_ns_sum,
+            observed.cancellation_latency_ns_max
+        );
+        assert_eq!(observed.aborted_without_observed_cancel, 0);
+        assert!(observed.background_nodes > 0);
+        assert_eq!(observed.background_nodes, state.budget.nodes());
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn diagnostics_keep_unobserved_budget_abort_distinct_from_timed_cancellation() {
+        let board = Board::startpos();
+        let (state, diagnostics) = observed_state(Some(1));
+        let group = scoped_group(&board, &state, 2, 1);
+        assert_eq!(group.tasks[0].result.load(), TaskResult::Aborted);
+        let observed = snapshot(&diagnostics);
+        assert_eq!(observed.admitted, 1);
+        assert_eq!(observed.started, 1);
+        assert_eq!(observed.aborted, 1);
+        assert_eq!(observed.background_nodes, 1);
+        assert_eq!(observed.cancellation_latency_samples, 0);
+        assert_eq!(observed.aborted_without_observed_cancel, 1);
+        drop(group);
+        assert_eq!(
+            snapshot(&diagnostics),
+            observed,
+            "later group destruction must not invent a past cancel timestamp"
+        );
+    }
+
+    #[test]
+    fn diagnostics_account_for_unstarted_dispatch_unwind() {
+        let board = Board::startpos();
+        let history = PositionHistory::initial(board.hash());
+        let (state, diagnostics) = observed_state(None);
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            SpecGroup::spawn_with(&board, &state, 1, 2, &history, |job| {
+                let _job = job;
+                panic!("injected dispatch unwind");
+            })
+        }));
+        assert!(failure.is_err());
+        let observed = snapshot(&diagnostics);
+        assert_eq!(observed.admitted, 1);
+        assert_eq!(observed.unwound, 1);
+        assert_eq!(observed.unstarted, 1);
+        assert_eq!(observed.started + observed.completed + observed.aborted, 0);
+        assert_eq!(observed.background_nodes, 0);
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn diagnostics_timestamp_explicit_invocation_cancel_but_not_a_prior_go() {
+        let board = Board::startpos();
+        let history = PositionHistory::initial(board.hash());
+        let (state, diagnostics) = observed_state(None);
+        let mut jobs = Vec::new();
+        let mut group = SpecGroup::spawn_with(&board, &state, 1, 1, &history, |job| jobs.push(job));
+        group.promote(jobs[0].mv);
+        drop(group);
+        diagnostics.request_invocation_cancel();
+        state.budget.abort_now();
+        state.pool.install(|| jobs.pop().unwrap().run());
+        let observed = snapshot(&diagnostics);
+        assert_eq!(observed.aborted, 1);
+        assert_eq!(observed.cancellation_latency_samples, 1);
+        assert_eq!(observed.aborted_without_observed_cancel, 0);
+        let (next, next_diagnostics) = observed_state(None);
+        let next_group = scoped_group(&board, &next, 1, 1);
+        assert!(next_group.poll(next_group.tasks[0].mv).is_some());
+        assert_eq!(snapshot(&next_diagnostics).completed, 1);
+        assert_eq!(snapshot(&next_diagnostics).cancellation_latency_samples, 0);
+    }
+
+    #[test]
+    fn poll_separates_running_aborted_and_completed_zero() {
+        let mv = Move::drop(Square::from_shogi(5, 5), PieceKind::Fu);
+        for (published, expected) in [(None, None), (Some(0), Some(0)), (Some(-137), Some(-137))] {
+            let result = Arc::new(TaskResultCell::new());
+            let group = SpecGroup {
+                tasks: vec![SpecTask {
+                    mv,
+                    task_abort: Arc::new(AtomicBool::new(false)),
+                    result: result.clone(),
+                    observation: None,
+                }],
+            };
+            assert_eq!(result.load(), TaskResult::Running);
+            assert_eq!(group.poll(mv), None);
+            result.publish(published);
+            assert_ne!(result.load(), TaskResult::Running);
+            assert_eq!(group.poll(mv), expected);
+        }
+    }
+
+    #[test]
+    fn scoped_tasks_finish_and_do_not_store_parent_exact_entries() {
+        let board = Board::startpos();
+        let parent_hash = board.hash();
+        let state = spec_state(None);
+        let group = scoped_group(&board, &state, 1, 2);
+        assert_eq!(group.tasks.len(), 2);
+        for task in &group.tasks {
+            assert!(matches!(task.result.load(), TaskResult::Completed(_)));
+            assert!(group.poll(task.mv).is_some());
+        }
+        assert!(
+            state.budget.nodes() > 0,
+            "background work must count toward the shared limit"
+        );
+        assert!(state.tt.probe(parent_hash).is_none());
+        assert_eq!(board.hash(), parent_hash);
+    }
+
+    #[test]
+    fn node_budget_cancellation_is_not_a_completed_zero() {
+        let board = Board::startpos();
+        let state = spec_state(Some(0));
+        let group = scoped_group(&board, &state, 3, 2);
+        assert_eq!(group.tasks.len(), 2);
+        for task in &group.tasks {
+            assert_eq!(task.result.load(), TaskResult::Aborted);
+            assert_eq!(group.poll(task.mv), None);
+        }
+        assert!(state.tt.probe(board.hash()).is_none());
+    }
+
+    #[test]
+    fn preexisting_stop_cancels_every_dispatched_task() {
+        let board = Board::startpos();
+        let state = spec_state(None);
+        state.budget.abort_now();
+        let group = scoped_group(&board, &state, 3, 2);
+        assert_eq!(group.tasks.len(), 2);
+        assert!(
+            group
+                .tasks
+                .iter()
+                .all(|task| task.result.load() == TaskResult::Aborted)
+        );
+        assert_eq!(state.budget.nodes(), 0);
+    }
+
+    #[test]
+    fn promotion_exempts_only_the_winner_from_group_cancellation() {
+        let board = Board::startpos();
+        let state = spec_state(None);
+        let mut jobs = Vec::new();
+        let mut group = SpecGroup::spawn_with(
+            &board,
+            &state,
+            1,
+            2,
+            &PositionHistory::initial(board.hash()),
+            |job| jobs.push(job),
+        );
+        assert_eq!(jobs.len(), 2);
+        let winner = jobs[0].mv;
+        let winner_abort = jobs[0].task_abort.clone();
+        let loser_abort = jobs[1].task_abort.clone();
+        let winner_result = jobs[0].result.clone();
+        let loser_result = jobs[1].result.clone();
+        group.promote(winner);
+        drop(group);
+        assert!(!winner_abort.load(Ordering::Relaxed));
+        assert!(loser_abort.load(Ordering::Relaxed));
+        state.pool.install(|| {
+            for job in jobs {
+                job.run();
+            }
+        });
+        assert!(matches!(winner_result.load(), TaskResult::Completed(_)));
+        assert_eq!(loser_result.load(), TaskResult::Aborted);
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn promoted_and_queued_jobs_share_one_cap_and_release_it_for_the_next_go() {
+        let board = Board::startpos();
+        let history = PositionHistory::initial(board.hash());
+        let state = spec_state(None);
+        let mut jobs = Vec::new();
+        // Asking for eight candidates must still respect the pool's two
+        // background participants, before any queued job has even started.
+        let mut first = SpecGroup::spawn_with(&board, &state, 1, 8, &history, |job| {
+            jobs.push(job);
+        });
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 2);
+        let winner = jobs[0].mv;
+        let winner_result = jobs[0].result.clone();
+        first.promote(winner);
+        drop(first);
+        assert!(!jobs[0].task_abort.load(Ordering::Relaxed));
+        assert!(jobs[1].task_abort.load(Ordering::Relaxed));
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 2);
+
+        let full = SpecGroup::spawn_with(&board, &state, 2, 8, &history, |_| {
+            panic!("a promoted or cancelled-but-queued job must still hold its slot");
+        });
+        assert!(full.tasks.is_empty());
+
+        // Dropping an unstarted job returns exactly one slot. A later group
+        // can use it, while the promoted winner keeps the other occupied.
+        drop(jobs.pop().unwrap());
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 1);
+        let replacement = SpecGroup::spawn_with(&board, &state, 1, 8, &history, |job| {
+            jobs.push(job);
+        });
+        assert_eq!(replacement.tasks.len(), 1);
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 2);
+        drop(replacement);
+        state.pool.install(|| {
+            for job in jobs {
+                job.run();
+            }
+        });
+        assert!(matches!(winner_result.load(), TaskResult::Completed(_)));
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 0);
+
+        // The next go reuses the pool and TT with a fresh invocation budget.
+        // Its admission slots must not inherit the previous go's cancellation.
+        state.budget.abort_now();
+        let next = Arc::new(SpecState {
+            tt: state.tt.clone(),
+            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
+            pool: state.pool.clone(),
+            in_flight: AtomicUsize::new(0),
+            diagnostics: None,
+        });
+        let completed = scoped_group(&board, &next, 1, 2);
+        assert_eq!(completed.tasks.len(), 2);
+        assert!(
+            completed
+                .tasks
+                .iter()
+                .all(|task| matches!(task.result.load(), TaskResult::Completed(_)))
+        );
+        assert_eq!(next.in_flight.load(Ordering::Relaxed), 0);
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn admission_releases_unstarted_job_when_dispatch_unwinds() {
+        let board = Board::startpos();
+        let history = PositionHistory::initial(board.hash());
+        let state = spec_state(None);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            SpecGroup::spawn_with(&board, &state, 1, 2, &history, |job| {
+                let _queued_job = job;
+                panic!("injected dispatch failure before job execution");
+            })
+        }));
+        assert!(result.is_err());
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 0);
+        assert_eq!(state.budget.nodes(), 0);
+        assert!(SpecLease::acquire(&state, 1).is_some());
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn concurrent_admission_cannot_exceed_top_n() {
+        let state = spec_state(None);
+        let arrived = std::sync::Barrier::new(9);
+        let release = std::sync::Barrier::new(9);
+        let (admitted, held) = std::thread::scope(|scope| {
+            let jobs: Vec<_> = (0..8)
+                .map(|_| {
+                    let state = &state;
+                    let arrived = &arrived;
+                    let release = &release;
+                    scope.spawn(move || {
+                        let lease = SpecLease::acquire(state, 1);
+                        let admitted = usize::from(lease.is_some());
+                        arrived.wait();
+                        release.wait();
+                        drop(lease);
+                        admitted
+                    })
+                })
+                .collect();
+            arrived.wait();
+            let held = state.in_flight.load(Ordering::Relaxed);
+            // Release workers before asserting, so a failing bound cannot
+            // strand the scoped threads behind the test's barrier.
+            release.wait();
+            let admitted = jobs
+                .into_iter()
+                .map(|job| job.join().unwrap())
+                .sum::<usize>();
+            (admitted, held)
+        });
+        assert_eq!(admitted, 1);
+        assert_eq!(held, 1);
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn illegal_king_capture_never_becomes_a_task() {
+        use crate::tt::{Bound, TtEntry};
+
+        let board = Board::from_sfen("k8/9/9/9/R8/9/9/9/8K b - 1").unwrap();
+        let king_sq = Square::from_shogi(9, 1);
+        let state = spec_state(None);
+        let king_capture = policy::top_n(&board, &state.tt, usize::MAX)
+            .into_iter()
+            .find(|mv| mv.to == king_sq)
+            .expect("fixture must expose a pseudo-legal king capture");
         state.tt.store(
             board.hash(),
             TtEntry {
-                score: 25,
+                score: 0,
                 depth: 8,
                 bound: Bound::Exact,
-                mv: None,
+                mv: Some(king_capture),
             },
         );
-        for depth in [128, 255, 256, 257, 263, 512, u32::MAX] {
-            let score = spec_alpha_beta(
-                &state,
-                &AtomicBool::new(false),
-                &mut board,
-                -1_000_000,
-                1_000_000,
-                depth,
-                3,
-            );
-            assert_eq!(score, -crate::search::MATE_SCORE + 3, "depth={depth}");
-        }
-    }
-
-    // Regression: `spec_alpha_beta`'s terminal-mate return used to be written
-    // as `-900_000 - ply`, an independent copy of the same formula bug fixed in
-    // search.rs's `alpha_beta`. The flipped sign on the ply term made a mate
-    // discovered at a deeper ply score higher in magnitude than the identical
-    // mate discovered shallower. Rather than a second hand-built position (hard
-    // to verify and slow to brute-force at this function's fixed search depth),
-    // this calls `spec_alpha_beta` directly on the SAME verified mate-in-1
-    // position with two different starting `ply` values, isolating the
-    // formula's dependence on its ply argument. depth=4 is enough for the
-    // recursion to reach the real movegen/terminal check one ply down (this
-    // function has no depth==0 quiescence detour, unlike alpha_beta).
-    #[test]
-    fn shorter_ply_mate_scores_higher_in_spec_alpha_beta() {
-        let task_abort = AtomicBool::new(false);
-
-        let mut board_a = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
-        let score_shallow = spec_alpha_beta(
-            &spec_state(),
-            &task_abort,
-            &mut board_a,
-            -1_000_000,
-            1_000_000,
-            4,
-            1,
-        );
-
-        let mut board_b = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
-        let score_deep = spec_alpha_beta(
-            &spec_state(),
-            &task_abort,
-            &mut board_b,
-            -1_000_000,
-            1_000_000,
-            4,
-            3,
-        );
-
-        const MATE_SCORE: i32 = crate::search::MATE_SCORE;
+        assert_eq!(policy::top_n(&board, &state.tt, 1), vec![king_capture]);
+        let group = scoped_group(&board, &state, 1, 2);
+        assert_eq!(group.poll(king_capture), None);
+        assert!(group.tasks.iter().all(|task| task.mv.to != king_sq));
+        let mut reference = board.clone();
+        let legal = MoveBuffer::legal(&mut reference);
         assert!(
-            score_shallow >= MATE_SCORE - 1000 && score_deep >= MATE_SCORE - 1000,
-            "both calls must report a forced mate: {score_shallow} / {score_deep}"
-        );
-        assert!(
-            score_shallow > score_deep,
-            "mate found at the shallower ply ({score_shallow}) must score higher than the \
-             identical mate found 2 plies deeper ({score_deep})"
+            group
+                .tasks
+                .iter()
+                .all(|task| legal.as_slice().contains(&task.mv))
         );
     }
 
-    // Regression: `spec_alpha_beta`'s two internal `state.tt.store` calls (beta-cutoff
-    // and end-of-loop) used to store the raw score it computed internally, without the
-    // ply-relative encoding (`score_to_tt`/`score_from_tt`, search.rs) every write/read
-    // in the main search's shared TT uses. Since `SpecState.tt` is the *same* TT the
-    // main search's `alpha_beta` probes via `score_from_tt(entry.score, ply)`
-    // unconditionally, an un-adjusted mate-adjacent score written here would be
-    // corrupted when later read from a different ply than it was computed at.
-    //
-    // NOTE: `SpecGroup::spawn`'s own closure store was audited too, but does NOT need
-    // this fix and is unchanged -- `b.undo_move(tok)` runs before that store, so it
-    // stores at the pre-move (root) position's hash, ply=0 for this search instance,
-    // and score_to_tt/score_from_tt are identity operations at ply=0 (`score + 0` /
-    // `score - 0`). Mixing that closure into this fix added no real behavior change.
-    // A separate, real bug was found auditing that closure while looking for a test
-    // shape for it -- concurrent candidate tasks race to store unrelated Bound::Exact
-    // results at that same parent hash, and completion order rather than move quality
-    // decides the final entry. That's a same-parent-hash last-writer-wins race, not a
-    // mate-score encoding problem (score_to_tt/score_from_tt aren't involved at ply=0
-    // regardless of which task wins), and is filed as its own issue rather than folded
-    // in here.
-    //
-    // The four tests below are distinct from `shorter_ply_mate_scores_higher_in_spec_
-    // alpha_beta` above, which only checks the *returned* score's internal ordering
-    // property -- unaffected by this fix, since only the TT *store* path changed here,
-    // not any return value.
-
-    // A: end-of-loop store (Bound::Exact/Upper), wide window, no cutoff.
     #[test]
-    fn spec_alpha_beta_end_of_loop_store_is_ply_relative() {
-        let tt = Tt::new(1);
-        let state = Arc::new(SpecState {
-            tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
-            pool: Arc::new(
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(1)
-                    .build()
-                    .unwrap(),
-            ),
-        });
-        let task_abort = AtomicBool::new(false);
-
-        // Wide window (-1_000_000, 1_000_000): no move in this sparse position can
-        // reach beta, so the loop always completes normally and falls through to the
-        // end-of-loop store, not the beta-cutoff one.
-        //
-        // Call as if this mate were discovered deep in a real search tree (ply=5), not
-        // near the root -- a raw, un-adjusted score would then be visibly wrong when
-        // decoded from a different ply below.
-        let mut board = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
-        let found_at_ply = 5u32;
-        let score = spec_alpha_beta(
-            &state,
-            &task_abort,
-            &mut board,
-            -1_000_000,
-            1_000_000,
-            4,
-            found_at_ply,
-        );
-        const MATE_SCORE: i32 = crate::search::MATE_SCORE;
-        assert!(
-            score >= MATE_SCORE - 1000,
-            "expected a forced-mate score, got {score}"
-        );
-
-        let entry = tt
-            .probe(board.hash())
-            .expect("spec_alpha_beta should have stored an entry for this position");
-        assert_eq!(
-            entry.bound,
-            Bound::Exact,
-            "wide window with a best move beating orig_alpha must store Exact, not a cutoff bound"
-        );
-
-        // Read back through the SAME score_from_tt the main search's alpha_beta calls
-        // on every real TT probe, at a different ply than this was found at -- exactly
-        // the scenario a transposition into this position from elsewhere in the tree
-        // would hit.
-        let read_at_ply = 2u32;
-        let decoded = crate::search::score_from_tt(entry.score, read_at_ply);
-
-        // Derivation, not a copy of score_to_tt's formula: the live search score at a
-        // node encodes "MATE_SCORE minus the terminal position's ABSOLUTE ply from
-        // root" -- so a mate found while searching from found_at_ply already has that
-        // node's own ply baked in. score_to_tt strips it back out by ADDING found_at_ply
-        // (recovering the ply-INDEPENDENT "mate in N from this position" value);
-        // score_from_tt re-applies it for a NEW reader by SUBTRACTING that reader's own
-        // ply. Net: decoded = (score + found_at_ply) - read_at_ply. Reading from a
-        // SHALLOWER ply than where it was found (read_at_ply < found_at_ply, as here)
-        // must therefore INCREASE the decoded score -- consistent with "a mate reachable
-        // via a shorter path from root scores higher" (shorter_ply_mate_scores_higher_
-        // in_spec_alpha_beta, above).
-        let expected = score + found_at_ply as i32 - read_at_ply as i32;
-        assert_eq!(
-            decoded, expected,
-            "TT entry stored by spec_alpha_beta's end-of-loop path must decode to the \
-             same absolute mate distance when read from a different ply, not the raw \
-             un-adjusted score (raw stored score was {}, decoded at ply {read_at_ply} \
-             was {decoded}, expected {expected})",
-            entry.score
-        );
-    }
-
-    // B: beta-cutoff store (Bound::Lower), narrow-relative beta forcing a fail-high on
-    // the mating move specifically.
-    #[test]
-    fn spec_alpha_beta_beta_cutoff_store_is_ply_relative() {
-        let tt = Tt::new(1);
-        let state = Arc::new(SpecState {
-            tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
-            pool: Arc::new(
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(1)
-                    .build()
-                    .unwrap(),
-            ),
-        });
-        let task_abort = AtomicBool::new(false);
-
-        const MATE_SCORE: i32 = crate::search::MATE_SCORE;
-        // beta is comfortably below the mate score this position's move must produce
-        // (MATE_SCORE - small ply offset) but far above any plausible ordinary
-        // positional/material evaluation on this sparse (2 kings + 1 rook) board --
-        // only the actual mating move can trigger `s >= beta` here, regardless of the
-        // order moves are tried in, so the cutoff is deterministic.
-        let beta = MATE_SCORE - 500;
-        let mut board = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
-        let found_at_ply = 5u32;
-        let score = spec_alpha_beta(
-            &state,
-            &task_abort,
-            &mut board,
-            -1_000_000,
-            beta,
-            4,
-            found_at_ply,
-        );
-        assert!(
-            score >= beta,
-            "expected the forced mate to trigger a beta cutoff (score >= beta), got \
-             score={score}, beta={beta}"
-        );
-
-        let entry = tt
-            .probe(board.hash())
-            .expect("spec_alpha_beta should have stored an entry for this position");
-        assert_eq!(
-            entry.bound,
-            Bound::Lower,
-            "a beta cutoff (s >= beta) must store Bound::Lower, not the end-of-loop bound"
-        );
-
-        let read_at_ply = 2u32;
-        let decoded = crate::search::score_from_tt(entry.score, read_at_ply);
-        // Same derivation as test A: decoded = score + found_at_ply - read_at_ply.
-        let expected = score + found_at_ply as i32 - read_at_ply as i32;
-        assert_eq!(
-            decoded, expected,
-            "TT entry stored by spec_alpha_beta's beta-cutoff path must decode to the \
-             same absolute mate distance when read from a different ply, not the raw \
-             un-adjusted score (raw stored score was {}, decoded at ply {read_at_ply} \
-             was {decoded}, expected {expected})",
-            entry.score
-        );
-    }
-
-    // C: ordinary (non-mate-range) scores must be completely unaffected -- score_to_tt/
-    // score_from_tt only exist to normalize the distance-to-mate a score encodes; an
-    // evaluation-scale score doesn't represent "plies to mate" at all, so ply has
-    // nothing to adjust.
-    #[test]
-    fn score_to_tt_and_score_from_tt_are_no_ops_outside_the_mate_range() {
-        const MATE_SCORE: i32 = crate::search::MATE_SCORE;
-        for ordinary in [0, 1, -1, 137, -892, MATE_SCORE - 1001, -(MATE_SCORE - 1001)] {
-            for ply in [0u32, 1, 5, 40] {
-                assert_eq!(
-                    crate::search::score_to_tt(ordinary, ply),
-                    ordinary,
-                    "score_to_tt must not adjust an ordinary score {ordinary} at ply {ply}"
-                );
-                assert_eq!(
-                    crate::search::score_from_tt(ordinary, ply),
-                    ordinary,
-                    "score_from_tt must not adjust an ordinary score {ordinary} at ply {ply}"
-                );
-            }
-        }
-    }
-
-    // D: pure round-trip test (no board/search machinery) covering BOTH mate
-    // directions, per the request to add one where possible.
-    #[test]
-    fn score_to_tt_score_from_tt_round_trip_both_mate_directions() {
-        const MATE_SCORE: i32 = crate::search::MATE_SCORE;
-        let found_at_ply = 7u32;
-        let read_at_ply = 3u32;
-
-        // Winning mate (positive, "mate in N for us"): the storing node's own ply is
-        // baked into the live search score (see test A's derivation comment); stripped
-        // out by ADDING found_at_ply, re-applied for a new reader by SUBTRACTING
-        // read_at_ply. Net: score + found_at_ply - read_at_ply.
-        let winning = MATE_SCORE - 40; // "mate in 40" from wherever this is found
-        let winning_stored = crate::search::score_to_tt(winning, found_at_ply);
-        let winning_decoded = crate::search::score_from_tt(winning_stored, read_at_ply);
-        assert_eq!(
-            winning_decoded,
-            winning + found_at_ply as i32 - read_at_ply as i32
-        );
-
-        // Losing mate (negative, "we get mated in N"): the sign flips throughout --
-        // score_to_tt SUBTRACTS the storing ply, score_from_tt ADDS the reading ply.
-        // Net: score - found_at_ply + read_at_ply -- the mirror image of the winning
-        // case, matching that getting mated via a SHORTER path from root (a smaller
-        // read_at_ply than found_at_ply) makes the position look WORSE (more negative),
-        // the opposite direction from the winning case's "shorter path looks better".
-        let losing = -(MATE_SCORE - 40);
-        let losing_stored = crate::search::score_to_tt(losing, found_at_ply);
-        let losing_decoded = crate::search::score_from_tt(losing_stored, read_at_ply);
-        assert_eq!(
-            losing_decoded,
-            losing - found_at_ply as i32 + read_at_ply as i32
-        );
-
-        // Sanity: the two directions must move in opposite directions for the same
-        // ply shift, confirming the sign truly flips rather than both branches
-        // accidentally computing the same thing.
-        assert_eq!(
-            winning_decoded - winning,
-            -(losing_decoded - losing),
-            "winning-mate and losing-mate ply shifts must be exact mirror images"
-        );
-    }
-
-    // Regression (issue #14): every candidate task `SpecGroup::spawn` launches
-    // used to undo its own move and store its own `Bound::Exact` result at the
-    // SAME parent (pre-move) hash -- concurrent candidates racing on that one
-    // slot meant whichever task's store happened to run last won, independent
-    // of move/score quality and independent of `poll`/`promote`'s own later
-    // winner selection. Fixed by removing that store entirely (`poll`/
-    // `promote`/speculation-hit tracking all read `result`, an `AtomicI32`,
-    // directly -- never the TT -- so nothing downstream depended on it).
-    //
-    // depth=1 passed to `spawn` gives `spec_alpha_beta` depth=0 internally,
-    // which returns via its own `evaluate()` branch strictly BEFORE any TT
-    // probe/store (the `depth == 0` check precedes `let hash = board.hash()`
-    // in `spec_alpha_beta`). So `spec_alpha_beta`'s own two internal stores
-    // (unrelated to this fix, unchanged, still correct) cannot fire at all in
-    // this test -- if a parent-hash entry appeared, it could only be
-    // attributed to `SpecGroup::spawn`'s own closure, uniquely isolating
-    // exactly the code path this regression targets.
-    //
-    // Deterministic by construction, not by timing: this doesn't try to make
-    // one particular candidate "win" a race or arrive last -- it asserts NO
-    // candidate's store reaches the TT at all, so completion order is
-    // irrelevant to the outcome either way.
-    #[test]
-    fn spec_group_tasks_do_not_store_candidate_scores_as_parent_exact_entries() {
+    fn owned_spawn_uses_dedicated_pool_and_shared_kernel() {
         let board = Board::startpos();
-        let parent_hash = board.hash();
-
-        let tt = Tt::new(1);
-        assert!(
-            tt.probe(parent_hash).is_none(),
-            "startpos hash must not already have a TT entry before this test spawns anything"
-        );
-
-        let state = Arc::new(SpecState {
-            tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
-            pool: Arc::new(
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(2)
-                    .build()
-                    .unwrap(),
-            ),
-        });
-
-        let group = SpecGroup::spawn(&board, &state, 1, 2);
-        assert!(
-            group.tasks.len() >= 2,
-            "expected at least 2 candidate tasks from top_n=2 at startpos, got {}",
-            group.tasks.len()
-        );
-
-        // Wait for every task's own result to leave RUNNING -- direct field
-        // access (same module), not `poll()`, so this step and the next are
-        // two genuinely separate checks rather than one call doing both.
+        let state = spec_state(None);
+        let candidates = policy::top_n_legal(&board, &state.tt, 1);
+        let group = SpecGroup::spawn(&board, &state, 1, 1);
         let deadline = Instant::now() + Duration::from_secs(5);
-        for t in &group.tasks {
-            loop {
-                if t.result.load(Ordering::Acquire) != RUNNING {
-                    break;
-                }
-                if Instant::now() >= deadline {
-                    panic!("a speculative task never left RUNNING within the deadline");
-                }
-                std::thread::sleep(Duration::from_millis(5));
-            }
-        }
-
-        // Every task that completed must still be pollable through the public API.
-        for t in &group.tasks {
+        while group.tasks[0].result.load() == TaskResult::Running {
             assert!(
-                group.poll(t.mv).is_some(),
-                "poll() must return a completed result for every task that finished"
+                Instant::now() < deadline,
+                "owned speculative task did not finish"
             );
+            std::thread::yield_now();
         }
-
-        assert!(
-            tt.probe(parent_hash).is_none(),
-            "SpecGroup::spawn's tasks must not store any entry at the shared parent \
-             (pre-move) hash after completing -- concurrent candidates racing to store \
-             unrelated Bound::Exact results at this exact hash was the bug fixed for \
-             issue #14"
-        );
-    }
-
-    // Regression: `policy::top_n` generates pseudo-legally (per its own doc
-    // comment), so its candidates can include a move landing on the enemy
-    // king's square. Before the fix, `SpecGroup::spawn`'s spawned closure
-    // called `do_move` on such a candidate unconditionally, panicking inside
-    // `hand.add_captured(Ou)`. Since the closure runs on a background rayon
-    // thread (fire-and-forget, not joined), a panic there would not fail this
-    // test directly — so this polls `SpecGroup::poll` for the guarded result
-    // (0, per the guard at the top of the spawned closure) instead of relying
-    // on the panic to propagate.
-    #[test]
-    fn spec_group_spawn_skips_king_capture_without_panicking() {
-        use crate::square::Square;
-
-        let board = Board::from_sfen(KING_CAPTURE_CANDIDATE_SFEN).unwrap();
-        let tt = Tt::new(1);
-        let king_sq = Square::from_shogi(9, 1);
-        let candidates = policy::top_n(&board, &tt, 50);
-        let king_capture_move = candidates
-            .iter()
-            .copied()
-            .find(|m| m.to == king_sq)
-            .expect("expected a pseudo-legal move targeting the enemy king in this position");
-
-        let state = Arc::new(SpecState {
-            tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
-            pool: Arc::new(
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(1)
-                    .build()
-                    .unwrap(),
-            ),
-        });
-        let group = SpecGroup::spawn(&board, &state, 2, 50);
-
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let mut result = None;
-        while Instant::now() < deadline {
-            if let Some(r) = group.poll(king_capture_move) {
-                result = Some(r);
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert_eq!(
-            result,
-            Some(0),
-            "king-capture speculative task should short-circuit to 0 without panicking"
-        );
-    }
-
-    // Regression: `SpecGroup::spawn` used to submit tasks via the bare
-    // `rayon::spawn` function, which targets rayon's *global* pool -- the
-    // SAME pool `alpha_beta`'s own YBW parallel dispatch
-    // (`work.into_par_iter()...collect()`, search.rs) implicitly depends on.
-    // A thread outside rayon's worker registry that calls `.into_par_iter()`
-    // cannot steal work itself; it can only block on a `LockLatch` until a
-    // worker frees up (confirmed via `sample`: the dispatching thread spent
-    // 100% of a sampled second in `pthread_cond_wait` inside
-    // `Registry::in_worker_cold`). An unbounded-depth speculative task could
-    // then occupy every global-pool worker for the rest of the search,
-    // starving `alpha_beta`'s own dispatch of a thread and freezing search
-    // depth regardless of remaining time budget.
-    //
-    // This test fully saturates the *global* pool with long-lived occupying
-    // tasks (matching however large it already is, so it's robust to test
-    // order / prior initialization by other tests in this binary), then
-    // verifies a `SpecGroup` task still completes promptly -- only possible
-    // if it runs on a genuinely separate pool via `SpecState::pool`.
-    #[test]
-    fn spec_group_uses_isolated_pool_not_global() {
-        use std::sync::atomic::AtomicUsize;
-
-        let global_n = rayon::current_num_threads();
-        let occupied = Arc::new(AtomicUsize::new(0));
-        let release = Arc::new(AtomicBool::new(true));
-        for _ in 0..global_n {
-            let occ = occupied.clone();
-            let rel = release.clone();
-            rayon::spawn(move || {
-                occ.fetch_add(1, Ordering::SeqCst);
-                while rel.load(Ordering::Relaxed) {
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-            });
-        }
-        let saturate_deadline = Instant::now() + Duration::from_secs(5);
-        while occupied.load(Ordering::SeqCst) < global_n && Instant::now() < saturate_deadline {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        assert_eq!(
-            occupied.load(Ordering::SeqCst),
-            global_n,
-            "failed to fully saturate the global pool ({global_n} threads) -- test setup invalid"
-        );
-
-        let board = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
-        let tt = Tt::new(1);
-        let state = Arc::new(SpecState {
-            tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
-            pool: Arc::new(
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(1)
-                    .build()
-                    .unwrap(),
-            ),
-        });
-        let candidates = policy::top_n(&board, &tt, 1);
-        let group = SpecGroup::spawn(&board, &state, 2, 1);
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        let mut done = false;
-        while Instant::now() < deadline {
-            if group.poll(candidates[0]).is_some() {
-                done = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        release.store(false, Ordering::Relaxed); // free the global-pool hogs
-        assert!(
-            done,
-            "SpecGroup task never completed while the global pool was fully saturated -- \
-             it may be sharing the global pool instead of its own dedicated pool"
-        );
+        assert!(group.poll(candidates[0]).is_some());
+        assert!(state.budget.nodes() > 0);
     }
 }

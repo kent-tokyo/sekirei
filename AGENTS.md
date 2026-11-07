@@ -91,6 +91,8 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-11-07: Complete P0 through P3 of the YaneuraOu-derived strengthening plan, including implementation and independent validation; preserve frozen evidence, resource admission, Pure Safe Rust, and qualification before adoption.
+
 * 2026-10-29: Keep learning data out of GitHub. Store retained but infrequently used data on the external SSD at `/Volumes/ESD-EPA/Projects/sekirei_data`; verify archives and record restoration steps before removing local copies.
 
 * 2026-10-28: Resume the self-NNUE improvement lane in a separately recorded recovery attempt; retain failed evidence and verify resource recovery before starting new generation or games.

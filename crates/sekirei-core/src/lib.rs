@@ -5,6 +5,7 @@
 
 pub mod bitboard;
 pub mod board;
+pub mod book_graph;
 mod budget;
 pub mod color;
 pub mod dfpn;

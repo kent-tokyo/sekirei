@@ -39,7 +39,8 @@ use crate::mv::{Move, MoveToken};
 use crate::nnue::weights_active;
 use crate::piece::PieceKind;
 use crate::sfen::{PositionHistory, PositionHistoryEntry, RepetitionOutcome};
-use crate::speculative::{SpecGroup, SpecState};
+pub use crate::speculative::SpeculativeDiagnosticsSnapshot;
+use crate::speculative::{SpecDiagnostics, SpecGroup, SpecState};
 #[cfg(test)]
 use crate::square::Square;
 use crate::tt::{Bound, Tt, TtEntry};
@@ -88,8 +89,11 @@ mod root_hint_retry;
 mod root_safety;
 mod root_split;
 mod singular;
+mod speculative_child;
 mod static_pruning;
+pub(crate) mod tt_attribution;
 mod tt_probe;
+pub use tt_attribution::SpeculativeTtSnapshot;
 mod v2;
 pub use aspiration::AspirationSnapshot;
 use child_search::pvs_child;
@@ -124,6 +128,7 @@ pub use root_split::{
     CooperativeRootPrestartStats, CooperativeRootStats, CooperativeRootWaitStats,
 };
 use singular::{SingularContext, SingularOutcome};
+pub(crate) use speculative_child::speculative_child_search_observed;
 use static_pruning::{prepare_node_evaluation, razoring_score, reverse_futility_score};
 use tt_probe::TtProbe;
 pub use v2::NmpSnapshot;
@@ -385,6 +390,7 @@ pub struct SearchDiagnostics {
     /// then be classified as local, foreign-worker, or untracked without
     /// changing the production TT layout.
     tt_reuse: Option<TtReuseObserver>,
+    tt_attribution: Option<tt_attribution::Endpoint>,
 }
 
 const WORK_SAMPLE_LOG2: u32 = 8;
@@ -936,6 +942,7 @@ impl SearchDiagnostics {
             qsearch: std::array::from_fn(|_| AtomicU64::new(0)),
             work_overlap: None,
             tt_reuse: None,
+            tt_attribution: None,
         }
     }
 
@@ -1290,6 +1297,12 @@ struct SearchState {
 }
 
 impl SearchState {
+    #[inline]
+    fn tt_attribution(&self) -> Option<&tt_attribution::Endpoint> {
+        self.diagnostics
+            .as_ref()
+            .and_then(|d| d.tt_attribution.as_ref())
+    }
     /// Timer for one cost counter, live only when a timing observer is attached.
     #[inline(always)]
     fn timer(&self, counter: fn(&SearchDiagnostics) -> &AtomicU64) -> ProfileTimer<'_> {
@@ -1350,9 +1363,27 @@ fn probe_tt_for_search(state: &SearchState, hash: u64) -> Option<TtEntry> {
 /// [`probe_tt_for_search`] with the entry's PV flag.
 #[inline]
 fn probe_tt_for_search_pv(state: &SearchState, hash: u64) -> Option<(TtEntry, bool)> {
+    probe_tt_for_search_observed(state, hash).map(|(entry, pv, _)| (entry, pv))
+}
+
+#[inline]
+fn probe_tt_for_search_observed(
+    state: &SearchState,
+    hash: u64,
+) -> Option<(TtEntry, bool, tt_attribution::Origin)> {
     let entry = {
         let _timer = state.timer(|d| &d.tt_probe_ns);
-        state.tt.probe_pv(hash)
+        if let Some(observer) = state.tt_attribution() {
+            state
+                .tt
+                .probe_pv_attributed(hash)
+                .map(|read| (read.entry, read.pv, observer.observe(&state.tt, &read)))
+        } else {
+            state
+                .tt
+                .probe_pv(hash)
+                .map(|(entry, pv)| (entry, pv, tt_attribution::Origin::default()))
+        }
     };
     if let Some(diagnostics) = state.counters() {
         diagnostics.tt_probes.fetch_add(1, Ordering::Relaxed);
@@ -1381,7 +1412,13 @@ fn store_tt_for_search(state: &SearchState, hash: u64, entry: TtEntry) {
 #[inline]
 fn store_tt_for_search_pv(state: &SearchState, hash: u64, entry: TtEntry, pv: bool) {
     let _timer = state.timer(|d| &d.tt_store_ns);
-    let committed = state.tt.store_pv_with_result(hash, entry, pv);
+    let committed = if let Some(observer) = state.tt_attribution() {
+        state
+            .tt
+            .store_pv_attributed(hash, entry, pv, observer.writer())
+    } else {
+        state.tt.store_pv_with_result(hash, entry, pv)
+    };
     if committed && let Some(endpoint) = &state.retirement {
         endpoint
             .channel
@@ -3242,6 +3279,14 @@ fn alpha_beta(
         d.record_tt_probe(depth, tt.hit, tt.se_depth);
     }
     if let Some(score) = tt.cutoff {
+        tt.origin.cutoff(
+            state,
+            if tt.slack_cutoff {
+                tt_attribution::Cutoff::Slack
+            } else {
+                tt_attribution::Cutoff::Main
+            },
+        );
         if let Some(d) = state.counters() {
             d.exit(1);
             d.at_depth(entry_depth, 1);
@@ -3448,6 +3493,9 @@ fn alpha_beta(
 
     // ---------- First child: always sequential ----------
     let first_move = ordered[0];
+    let tt_first_used = tt
+        .origin
+        .start_move(state, moves.deferred_order() && tt_mv == Some(first_move));
     if let Some(d) = state.counters() {
         d.loop_nodes[usize::from(tt_mv.is_some_and(|t| t == first_move))]
             .fetch_add(1, Ordering::Relaxed);
@@ -3487,6 +3535,7 @@ fn alpha_beta(
     }
 
     let mut best_score = score0;
+    tt_attribution::Origin::finish_move(state, tt_first_used, score0 >= beta);
     let mut best_move = Some(first_move);
 
     if score0 >= beta {
@@ -4069,11 +4118,14 @@ fn quiescence_with_pending(
     let qs_tt = p::QS_TT();
     let tt_here = qply == 0 || qs_tt & 1 != 0;
     let mut tt_bound: Option<(Bound, i32)> = None;
-    let tt_entry = if tt_here || qs_tt & 4 != 0 {
-        probe_tt_for_search(state, hash)
+    let observed_entry = if tt_here || qs_tt & 4 != 0 {
+        probe_tt_for_search_observed(state, hash)
     } else {
         None
     };
+    let tt_entry = observed_entry.map(|(entry, _, _)| entry);
+    let tt_origin =
+        observed_entry.map_or_else(tt_attribution::Origin::default, |(_, _, origin)| origin);
     if qs_tt & 4 != 0
         && let Some(entry) = tt_entry
         && entry.depth > 0
@@ -4089,6 +4141,7 @@ fn quiescence_with_pending(
         tt_bound = Some((entry.bound, adj));
         match entry.bound {
             Bound::Exact => {
+                tt_origin.cutoff(state, tt_attribution::Cutoff::Quiescence);
                 if let Some(diagnostics) = state.counters() {
                     diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
                 }
@@ -4098,6 +4151,7 @@ fn quiescence_with_pending(
             }
             Bound::Lower => {
                 if adj >= beta {
+                    tt_origin.cutoff(state, tt_attribution::Cutoff::Quiescence);
                     if let Some(diagnostics) = state.counters() {
                         diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
                     }
@@ -4111,6 +4165,7 @@ fn quiescence_with_pending(
             }
             Bound::Upper => {
                 if adj <= alpha {
+                    tt_origin.cutoff(state, tt_attribution::Cutoff::Quiescence);
                     if let Some(diagnostics) = state.counters() {
                         diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
                     }
@@ -4343,6 +4398,10 @@ fn quiescence_with_pending(
                 continue;
             }
         }
+        let tt_first_used = tt_origin.start_move(
+            state,
+            tt_mv == Some(m) && move_buffer.as_slice().first() == Some(&m),
+        );
         let score = -quiescence(
             state,
             board,
@@ -4361,6 +4420,7 @@ fn quiescence_with_pending(
         if state.budget.should_abort() {
             return 0;
         }
+        tt_attribution::Origin::finish_move(state, tt_first_used, score >= beta);
         if score >= beta {
             if let Some(diagnostics) = state.counters() {
                 diagnostics.qsearch[6].fetch_add(1, Ordering::Relaxed);
@@ -4586,9 +4646,9 @@ impl SpeculativeSearcher {
     }
 
     /// Run speculative search with the externally played history preserved.
-    /// The foreground alpha-beta path uses it for fourfold-repetition
-    /// adjudication; speculative background work remains a cache-only hint and
-    /// never supplies a history-dependent score to the foreground result.
+    /// Both foreground and speculative children use the same alpha-beta,
+    /// quiescence and repetition rules. Background tasks are joined before
+    /// returning, including tasks promoted during an earlier depth iteration.
     pub fn search_with_history(
         &self,
         board: &mut Board,
@@ -4596,7 +4656,44 @@ impl SpeculativeSearcher {
         history: &PositionHistory,
     ) -> SpecSearchInfo {
         self.spec_pool
-            .install(|| self.search_with_history_on_worker(board, config, history))
+            .install(|| self.search_with_history_on_worker(board, config, history, None))
+    }
+
+    /// Run with task-boundary telemetry and a fresh initial-position history.
+    /// Counters and task clocks perturb scheduling; use the normal API for
+    /// counter-free timing and keep these observations separate from strength.
+    pub fn search_with_diagnostics(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+    ) -> (SpecSearchInfo, SpeculativeDiagnosticsSnapshot) {
+        let history = PositionHistory::initial(board.hash());
+        self.search_with_history_and_diagnostics(board, config, &history)
+    }
+
+    /// Preserve the real game history while observing task admission and cleanup.
+    /// With [`Tt::new_with_attribution`] (or its evaluator-domain variant),
+    /// also records exact speculative TT origins and actual kernel use in
+    /// `tt_use`. Ordinary tables leave that separate snapshot unavailable.
+    /// These events do not establish counterfactual saved work or strength.
+    pub fn search_with_history_and_diagnostics(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> (SpecSearchInfo, SpeculativeDiagnosticsSnapshot) {
+        let diagnostics = Arc::new(SpecDiagnostics::with_tt(&self.tt));
+        let info = self.spec_pool.install(|| {
+            self.search_with_history_on_worker(board, config, history, Some(diagnostics.clone()))
+        });
+        let workers = self.spec_pool.current_num_threads();
+        let snapshot = diagnostics.snapshot(
+            workers,
+            self.top_n.min(workers.saturating_sub(1)),
+            info.elapsed,
+            config.time_limit,
+        );
+        (info, snapshot)
     }
 
     /// Foreground implementation, always executed on the dedicated search
@@ -4606,7 +4703,9 @@ impl SpeculativeSearcher {
         board: &mut Board,
         config: SearchConfig,
         history: &PositionHistory,
+        diagnostics: Option<Arc<SpecDiagnostics>>,
     ) -> SpecSearchInfo {
+        reset_root_order_state();
         debug_assert_eq!(
             history.entries().last().map(|entry| entry.hash),
             Some(board.hash())
@@ -4625,19 +4724,23 @@ impl SpeculativeSearcher {
             killers: KillerTable::new(),
             history: self.history.clone(),
             countermoves: self.countermoves.clone(),
-            diagnostics: None,
+            diagnostics: diagnostics
+                .as_ref()
+                .and_then(|observer| observer.kernel_diagnostics(false)),
             eval_cache: self.eval_cache.clone(),
             pruning: PruningConfig::default(),
             retirement: None,
         });
 
-        // Spec tasks share the *same* Budget as the main search (not an
-        // independent copy) so a USI stop or the watchdog firing is visible
-        // to both without hand-syncing a separate flag between them.
+        // Each speculative task uses a cooperative child of this invocation
+        // budget. Background nodes count toward the same limit, while local
+        // task cancellation leaves the foreground budget running.
         let spec_state = Arc::new(SpecState {
             tt: self.tt.clone(),
             budget: state.budget.clone(),
             pool: self.spec_pool.clone(),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
+            diagnostics: diagnostics.clone(),
         });
 
         // Watchdog: guarantee the search stops at the hard deadline regardless of
@@ -4648,126 +4751,200 @@ impl SpeculativeSearcher {
         // call), so a late fire after an early return is harmless.
         if let Some(lim) = config.time_limit {
             let budget = state.budget.clone();
+            let diagnostics = diagnostics.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(lim);
+                if let Some(diagnostics) = &diagnostics
+                    && !budget.should_abort()
+                {
+                    diagnostics.request_invocation_cancel();
+                }
                 budget.abort_now();
             });
         }
 
-        let mut best_move = None;
-        let mut best_score = NEG_INF;
-        let mut done_depth = 0u32;
-        let mut spec_hits = 0u32;
-        let mut spec_total = 0u32;
-        let mut prev_best: Option<Move> = None;
-        let mut pv_list: Vec<(Move, i32)> = Vec::new();
-        let mut best_pv = Vec::new();
-        let mut bestmove_changes = 0u32;
-        let use_spec = config.multi_pv == 1;
-
-        for depth in 1..=config.max_depth {
-            // Speculative search only makes sense for single-PV (predicts opponent's reply to PV[0])
-            let mut spec_group = if use_spec {
-                spec_total += 1;
-                Some(SpecGroup::spawn(board, &spec_state, depth + 1, self.top_n))
-            } else {
-                None
+        let (
+            best_move,
+            best_score,
+            done_depth,
+            spec_hits,
+            spec_total,
+            pv_list,
+            best_pv,
+            bestmove_changes,
+            join_started,
+        ) = rayon::scope(|scope| {
+            struct AbortOnExit<'a> {
+                budget: &'a Budget,
+                diagnostics: Option<&'a SpecDiagnostics>,
+            }
+            impl AbortOnExit<'_> {
+                fn cancel(&self) {
+                    if let Some(diagnostics) = self.diagnostics
+                        && !self.budget.should_abort()
+                    {
+                        diagnostics.request_invocation_cancel();
+                    }
+                    self.budget.abort_now();
+                }
+            }
+            impl Drop for AbortOnExit<'_> {
+                fn drop(&mut self) {
+                    self.cancel();
+                }
+            }
+            // The scope waits after its body returns or unwinds. Signal first
+            // on both paths, so promoted jobs cannot delay a foreground panic.
+            let abort_on_exit = AbortOnExit {
+                budget: &state.budget,
+                diagnostics: diagnostics.as_deref(),
             };
+            let mut best_move = None;
+            let mut best_score = NEG_INF;
+            let mut done_depth = 0u32;
+            let mut spec_hits = 0u32;
+            let mut spec_total = 0u32;
+            let mut prev_best: Option<Move> = None;
+            let mut pv_list: Vec<(Move, i32)> = Vec::new();
+            let mut best_pv = Vec::new();
+            let mut bestmove_changes = 0u32;
+            let use_spec = config.multi_pv == 1;
 
-            // MultiPV: run N root searches per depth, excluding previously found moves
-            let mut depth_pv: Vec<(Move, i32)> = Vec::new();
-            let mut excluded: Vec<Move> = Vec::new();
-            for _ in 0..config.multi_pv {
-                let (m, score, _) = root_search(
-                    &state,
-                    board,
-                    depth,
-                    best_score,
-                    &excluded,
-                    None,
-                    true,
-                    &SearchHistory::root(history),
-                    0,
-                    false,
-                    None,
-                    None,
-                );
-                if state.budget.should_abort() {
+            for depth in 1..=config.max_depth {
+                // Search likely root candidates one ply ahead of this iteration.
+                let mut spec_group = if use_spec {
+                    spec_total += 1;
+                    Some(SpecGroup::spawn_scoped_with_history(
+                        scope,
+                        board,
+                        &spec_state,
+                        depth + 1,
+                        self.top_n,
+                        history,
+                    ))
+                } else {
+                    None
+                };
+
+                // MultiPV: run N root searches per depth, excluding previously found moves
+                let mut depth_pv: Vec<(Move, i32)> = Vec::new();
+                let mut excluded: Vec<Move> = Vec::new();
+                for _ in 0..config.multi_pv {
+                    let (m, score, _) = root_search(
+                        &state,
+                        board,
+                        depth,
+                        best_score,
+                        &excluded,
+                        None,
+                        true,
+                        &SearchHistory::root(history),
+                        0,
+                        false,
+                        None,
+                        None,
+                    );
+                    if state.budget.should_abort() {
+                        break;
+                    }
+                    match m {
+                        Some(mv) => {
+                            depth_pv.push((mv, score));
+                            excluded.push(mv);
+                        }
+                        None => break,
+                    }
+                }
+                let m = depth_pv.first().map(|&(mv, _)| mv);
+                let score = depth_pv.first().map(|&(_, s)| s).unwrap_or(NEG_INF);
+
+                let timed_out = state.budget.should_abort();
+
+                if let Some(ref mut sg) = spec_group
+                    && let Some(winner) = m
+                {
+                    let hit = sg.poll(winner).is_some();
+                    if hit {
+                        spec_hits += 1;
+                    }
+                    if !timed_out {
+                        sg.promote(winner);
+                    }
+                }
+                drop(spec_group);
+
+                if timed_out {
                     break;
                 }
-                match m {
-                    Some(mv) => {
-                        depth_pv.push((mv, score));
-                        excluded.push(mv);
-                    }
-                    None => break,
+
+                if !depth_pv.is_empty() {
+                    pv_list = depth_pv;
+                    best_move = m.or(best_move);
+                    best_score = score;
+                    done_depth = depth;
+                    // Capture the primary line while the TT still represents this
+                    // completed iteration. A later, interrupted iteration may
+                    // replace exact child entries, but must not detach the score,
+                    // depth, and best move above from the PV that explained them.
+                    best_pv = extract_pv(&self.tt, board, best_move, depth);
+                }
+
+                if score.abs() >= MATE_SCORE - 1000 {
+                    break;
+                }
+
+                if best_move != prev_best && depth >= 3 {
+                    bestmove_changes += 1;
+                }
+
+                // Soft limit: exit after a completed depth when bestmove is stable.
+                if soft_limit_expired(
+                    &state.budget,
+                    config.soft_limit,
+                    depth,
+                    best_move == prev_best,
+                ) {
+                    break;
+                }
+                prev_best = best_move;
+            }
+
+            // A deadline may arrive before any complete iterative-deepening
+            // result, especially on a contended or slow host. Still return a
+            // legal move instead of an empty bestmove response.
+            if best_move.is_none() {
+                best_move = MoveBuffer::legal(board).as_slice().first().copied();
+                if best_move.is_some() {
+                    best_score = evaluate(board);
                 }
             }
-            let m = depth_pv.first().map(|&(mv, _)| mv);
-            let score = depth_pv.first().map(|&(_, s)| s).unwrap_or(NEG_INF);
 
-            let timed_out = state.budget.should_abort();
+            abort_on_exit.cancel();
+            let join_started = diagnostics.as_ref().map(|_| Instant::now());
 
-            if let Some(ref mut sg) = spec_group
-                && let Some(winner) = m
-            {
-                let hit = sg.poll(winner).is_some();
-                if hit {
-                    spec_hits += 1;
-                }
-                if !timed_out {
-                    sg.promote(winner);
-                }
-            }
-            drop(spec_group);
+            (
+                best_move,
+                best_score,
+                done_depth,
+                spec_hits,
+                spec_total,
+                pv_list,
+                best_pv,
+                bestmove_changes,
+                join_started,
+            )
+        });
 
-            if timed_out {
-                break;
-            }
-
-            if !depth_pv.is_empty() {
-                pv_list = depth_pv;
-                best_move = m.or(best_move);
-                best_score = score;
-                done_depth = depth;
-                // Capture the primary line while the TT still represents this
-                // completed iteration. A later, interrupted iteration may
-                // replace exact child entries, but must not detach the score,
-                // depth, and best move above from the PV that explained them.
-                best_pv = extract_pv(&self.tt, board, best_move, depth);
-            }
-
-            if score.abs() >= MATE_SCORE - 1000 {
-                break;
-            }
-
-            if best_move != prev_best && depth >= 3 {
-                bestmove_changes += 1;
-            }
-
-            // Soft limit: exit after a completed depth when bestmove is stable.
-            if soft_limit_expired(
-                &state.budget,
-                config.soft_limit,
-                depth,
-                best_move == prev_best,
-            ) {
-                break;
-            }
-            prev_best = best_move;
+        // The scope has now joined every background job. In particular, a
+        // promoted job cannot outlive this invocation and write after a caller
+        // clears the TT or starts the next go. Count cooperative tail reports
+        // and cancellation latency in the returned statistics.
+        if let (Some(diagnostics), Some(started)) = (&diagnostics, join_started) {
+            diagnostics.joined(
+                started.elapsed(),
+                spec_state.in_flight.load(Ordering::Relaxed),
+            );
         }
-
-        // A deadline may arrive before any complete iterative-deepening
-        // result, especially on a contended or slow host. Still return a
-        // legal move instead of an empty bestmove response.
-        if best_move.is_none() {
-            best_move = MoveBuffer::legal(board).as_slice().first().copied();
-            if best_move.is_some() {
-                best_score = evaluate(board);
-            }
-        }
-
-        state.budget.abort_now();
 
         let pv = if best_pv.is_empty() {
             extract_pv(&self.tt, board, best_move, done_depth)
@@ -4798,9 +4975,8 @@ impl SpeculativeSearcher {
 /// Mate scores encode the distance to mate; we strip the ply component so the stored
 /// score is "mate in N from THIS position" independent of when we found it.
 ///
-/// `pub(crate)`: also called from `speculative.rs`, which writes to this same shared
-/// TT and must use the identical encoding, or `alpha_beta`'s `score_from_tt` on read
-/// will misinterpret an un-adjusted mate score as already ply-relative.
+/// Every foreground and speculative child uses this encoding through the
+/// shared search kernel.
 #[inline]
 pub(crate) fn score_to_tt(score: i32, ply: u32) -> i32 {
     let p = ply as i32;
@@ -4819,10 +4995,7 @@ pub(crate) fn score_to_tt(score: i32, ply: u32) -> i32 {
 
 /// Convert a position-relative TT score back to a ply-relative search score.
 ///
-/// `pub(crate)`: exercised directly from `speculative.rs`'s own tests, which assert
-/// entries `speculative.rs` stores decode correctly through this same function (the
-/// one `alpha_beta` actually calls on a real TT probe), not a reimplementation of its
-/// logic in the test that could hide a matching bug in both places.
+/// Applied before the common search kernel compares a TT bound to its window.
 #[inline]
 pub(crate) fn score_from_tt(stored: i32, ply: u32) -> i32 {
     let p = ply as i32;

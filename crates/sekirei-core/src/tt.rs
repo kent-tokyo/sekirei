@@ -1,13 +1,13 @@
-//! Lock-free Transposition Table backed by AtomicU64 pairs.
+//! Lock-free Transposition Table backed by atomic slots.
 //!
-//! Each slot uses two 64-bit atomics and the XOR-trick for wait-free reads:
+//! Each slot uses a CAS-claimed publication version and two 64-bit atomics:
 //!
 //!   key_stored  = hash ^ data
 //!   data_stored = packed score + depth + bound + move
 //!
-//! A reader XORs the two loaded words; if the result matches `hash` the entry
-//! is consistent. A torn write (concurrent overwrite) produces a key mismatch
-//! and is discarded as a cache miss — safe, never incorrect.
+//! Readers accept only a matching key from a stable, even publication version.
+//! The XOR check alone is insufficient: an old key and new data can happen to
+//! match a third hash that was never stored.
 //!
 //! Data word bit layout (64 bits):
 //!
@@ -23,8 +23,8 @@
 //! [3:0]    (spare)
 //! ```
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, Weak};
 
 use crate::mv::Move;
 use crate::piece::PieceKind;
@@ -297,14 +297,137 @@ fn unpack(data: u64) -> TtEntry {
 // ---- Slot ----
 
 struct TtSlot {
+    version: AtomicU64,
     key: AtomicU64, // hash XOR data (consistency check)
     data: AtomicU64,
 }
 
-/// Four slots on one 64-byte cache line: the `TT_BUCKET` bucket, and four
-/// independent slots of the direct-mapped layout.
-#[repr(align(64))]
-struct Bucket([TtSlot; BUCKET]);
+impl TtSlot {
+    #[inline]
+    fn read(&self) -> Option<(u64, u64)> {
+        let before = self.version.load(Ordering::SeqCst);
+        if before & 1 != 0 {
+            return None;
+        }
+        let data = self.data.load(Ordering::SeqCst);
+        let key = self.key.load(Ordering::SeqCst);
+        (self.version.load(Ordering::SeqCst) == before).then_some((key, data))
+    }
+
+    #[cfg(test)]
+    #[inline]
+    fn claim(&self) -> Option<SlotClaim<'_>> {
+        self.claim_with_origin(None)
+    }
+
+    #[inline]
+    fn claim_with_origin<'a>(&'a self, origin: Option<&'a AtomicU32>) -> Option<SlotClaim<'a>> {
+        let version = self.version.load(Ordering::SeqCst);
+        if version & 1 != 0 || version >= u64::MAX - 1 {
+            return None;
+        }
+        self.version
+            .compare_exchange(version, version + 1, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()?;
+        Some(SlotClaim {
+            slot: self,
+            version,
+            old_key: self.key.load(Ordering::SeqCst),
+            old_data: self.data.load(Ordering::SeqCst),
+            old_origin: origin.map_or(0, |origin| origin.load(Ordering::SeqCst)),
+            origin,
+            committed: false,
+        })
+    }
+}
+
+/// Restore the old pair on an unwind before publishing an even version.
+struct SlotClaim<'a> {
+    slot: &'a TtSlot,
+    version: u64,
+    old_key: u64,
+    old_data: u64,
+    old_origin: u32,
+    origin: Option<&'a AtomicU32>,
+    committed: bool,
+}
+
+impl SlotClaim<'_> {
+    #[inline]
+    fn write(&mut self, key_hash: u64, data: u64) {
+        self.write_with_origin(key_hash, data, 0);
+    }
+
+    #[inline]
+    fn write_with_origin(&mut self, key_hash: u64, data: u64, origin: u32) {
+        self.slot.data.store(data, Ordering::SeqCst);
+        self.slot.key.store(key_hash ^ data, Ordering::SeqCst);
+        if let Some(tag) = self.origin {
+            tag.store(origin, Ordering::SeqCst);
+        }
+        self.committed = true;
+    }
+}
+
+impl Drop for SlotClaim<'_> {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.slot.data.store(self.old_data, Ordering::SeqCst);
+            self.slot.key.store(self.old_key, Ordering::SeqCst);
+            if let Some(origin) = self.origin {
+                origin.store(self.old_origin, Ordering::SeqCst);
+            }
+        }
+        self.slot.version.store(self.version + 2, Ordering::SeqCst);
+    }
+}
+
+/// Four slots per bucket. The publication word increases the bucket footprint.
+#[repr(C, align(64))]
+struct Bucket([TtSlot; BUCKET], [AtomicU32; BUCKET]);
+
+#[inline]
+fn origin_for_store(writer: u16, supplied_move: bool, inherited: bool, old: u32) -> u32 {
+    let move_writer = if supplied_move {
+        u32::from(writer)
+    } else if inherited {
+        old >> 16
+    } else {
+        0
+    };
+    u32::from(writer) | move_writer << 16
+}
+
+/// IDs are never reused during this table's lifetime. A Weak owner prevents
+/// allocator address reuse while a token survives, without retaining the TT.
+#[derive(Clone)]
+pub(crate) struct TtWriter {
+    owner: Weak<Tt>,
+    pub(crate) id: u16,
+}
+
+impl TtWriter {
+    pub(crate) fn belongs_to(&self, table: &Tt) -> bool {
+        std::ptr::eq(table, self.owner.as_ptr())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TtPublication {
+    pub(crate) slot: usize,
+    pub(crate) version: u64,
+}
+
+/// Score, move and origins from the same stable publication. The identities
+/// refer to publications/actors, not collision-free shogi position proofs.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AttributedTtEntry {
+    pub(crate) entry: TtEntry,
+    pub(crate) pv: bool,
+    pub(crate) publication: TtPublication,
+    pub(crate) score_writer: u16,
+    pub(crate) move_writer: u16,
+}
 
 // ---- Public API ----
 
@@ -321,13 +444,39 @@ pub struct Tt {
     /// Fixed `TT_BUCKET` layout for this table (tests and diagnostics), or
     /// `None` to follow the search parameter.
     layout: Option<i32>,
+    attribution: bool,
+    next_writer: AtomicU32,
 }
 
 impl Tt {
     /// Create a TT with capacity rounded down to the nearest power of two.
-    /// `size_mb` is in mebibytes; each slot is 16 bytes.
+    /// `size_mb` is in mebibytes; capacity accounts for the actual bucket size.
     pub fn new(size_mb: usize) -> Arc<Self> {
         Self::new_with_stats(size_mb, None)
+    }
+
+    /// Opt-in publication provenance for diagnostic searches. Normal tables
+    /// never read/write origin tags. This does not prove a playing-strength gain.
+    pub fn new_with_attribution(size_mb: usize) -> Arc<Self> {
+        let mut tt = Self::new(size_mb);
+        Arc::get_mut(&mut tt).unwrap().attribution = true;
+        tt
+    }
+
+    pub(crate) fn new_writer(self: &Arc<Self>) -> Option<TtWriter> {
+        if !self.attribution {
+            return None;
+        }
+        let id = self
+            .next_writer
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| {
+                (id <= u32::from(u16::MAX)).then_some(id + 1)
+            })
+            .ok()?;
+        Some(TtWriter {
+            owner: Arc::downgrade(self),
+            id: id as u16,
+        })
     }
 
     /// Create a table with an optional write-topology observer.
@@ -368,20 +517,32 @@ impl Tt {
         Self::new_with_stats_and_domain(size_mb, None, domain)
     }
 
+    /// The same evaluator-domain isolation as `new_for_evaluation`, with
+    /// explicit publication provenance enabled for a separate counter lane.
+    pub fn new_for_evaluation_with_attribution(size_mb: usize, nnue: bool) -> Arc<Self> {
+        let mut tt = Self::new_for_evaluation(size_mb, nnue);
+        Arc::get_mut(&mut tt).unwrap().attribution = true;
+        tt
+    }
+
     fn new_with_stats_and_domain(
         size_mb: usize,
         stats: Option<Arc<TtWriteStats>>,
         domain: u64,
     ) -> Arc<Self> {
         let bytes = size_mb.max(1) * 1024 * 1024;
-        let count = floor_pow2((bytes / 16).max(1));
+        let count = floor_pow2((bytes / std::mem::size_of::<Bucket>()).max(1)) * BUCKET;
         let count = count.max(BUCKET);
         let table: Box<[Bucket]> = (0..count / BUCKET)
             .map(|_| {
-                Bucket(std::array::from_fn(|_| TtSlot {
-                    key: AtomicU64::new(0),
-                    data: AtomicU64::new(0),
-                }))
+                Bucket(
+                    std::array::from_fn(|_| TtSlot {
+                        version: AtomicU64::new(0),
+                        key: AtomicU64::new(0),
+                        data: AtomicU64::new(0),
+                    }),
+                    std::array::from_fn(|_| AtomicU32::new(0)),
+                )
             })
             .collect::<Vec<_>>()
             .into_boxed_slice();
@@ -392,6 +553,8 @@ impl Tt {
             domain,
             generation: AtomicU8::new(0),
             layout: None,
+            attribution: false,
+            next_writer: AtomicU32::new(1),
         })
     }
 
@@ -433,42 +596,86 @@ impl Tt {
             .map(|data| (unpack(data), data & PV_BIT != 0))
     }
 
+    pub(crate) fn probe_pv_attributed(&self, hash: u64) -> Option<AttributedTtEntry> {
+        let key_hash = self.key_hash(hash);
+        let index = key_hash as usize & self.mask;
+        let bucket = &self.table[index / BUCKET];
+        let range = if self.layout() & 1 != 0 {
+            0..BUCKET
+        } else {
+            index % BUCKET..index % BUCKET + 1
+        };
+        for i in range {
+            let slot = &bucket.0[i];
+            let version = slot.version.load(Ordering::SeqCst);
+            if version & 1 != 0 {
+                continue;
+            }
+            let data = slot.data.load(Ordering::SeqCst);
+            let key = slot.key.load(Ordering::SeqCst);
+            let origin = if self.attribution {
+                bucket.1[i].load(Ordering::SeqCst)
+            } else {
+                0
+            };
+            if slot.version.load(Ordering::SeqCst) == version && data != 0 && key ^ data == key_hash
+            {
+                return Some(AttributedTtEntry {
+                    entry: unpack(data),
+                    pv: data & PV_BIT != 0,
+                    publication: TtPublication {
+                        slot: index / BUCKET * BUCKET + i,
+                        version,
+                    },
+                    score_writer: origin as u16,
+                    move_writer: (origin >> 16) as u16,
+                });
+            }
+        }
+        None
+    }
+
     #[inline]
     fn probe_data(&self, hash: u64) -> Option<u64> {
         let key_hash = self.key_hash(hash);
         if self.layout() & 1 != 0 {
             let bucket = &self.table[(key_hash as usize & self.mask) / BUCKET];
             for slot in &bucket.0 {
-                let data = slot.data.load(Ordering::Relaxed);
-                let key = slot.key.load(Ordering::Relaxed);
-                if key ^ data == key_hash {
+                let Some((key, data)) = slot.read() else {
+                    continue;
+                };
+                if data != 0 && key ^ data == key_hash {
                     return Some(data);
                 }
             }
             return None;
         }
         let slot = self.slot(hash);
-        // Load data first, then key. With the XOR trick, a torn write makes key ^ data != hash.
-        let data = slot.data.load(Ordering::Relaxed);
-        let key = slot.key.load(Ordering::Relaxed);
-        (key ^ data == key_hash).then_some(data)
+        let (key, data) = slot.read()?;
+        (data != 0 && key ^ data == key_hash).then_some(data)
     }
 
     /// Store into the four-slot bucket of `hash` (`TT_BUCKET` bit 0).
-    fn store_bucket(&self, key_hash: u64, entry: &TtEntry, mode: i32, flags: u64) -> bool {
+    fn store_bucket(
+        &self,
+        key_hash: u64,
+        entry: &TtEntry,
+        mode: i32,
+        flags: u64,
+        writer: u16,
+    ) -> bool {
         let generation = self.generation_bits();
-        let slots = &self.table[(key_hash as usize & self.mask) / BUCKET].0;
+        let bucket = &self.table[(key_hash as usize & self.mask) / BUCKET];
+        let slots = &bucket.0;
         let mut victim = 0;
         let mut victim_value = i32::MAX;
         for (i, slot) in slots.iter().enumerate() {
-            let data = slot.data.load(Ordering::Relaxed);
-            let key = slot.key.load(Ordering::Relaxed);
-            if key ^ data == key_hash {
-                if let Some(data) = self.same_position_data(data, entry, mode, generation, flags) {
-                    self.write(slot, key_hash, data);
-                    return true;
-                }
-                return false;
+            let Some((key, data)) = slot.read() else {
+                continue;
+            };
+            if data != 0 && key ^ data == key_hash {
+                victim = i;
+                break;
             }
             let value = if data == 0 {
                 i32::MIN
@@ -481,12 +688,32 @@ impl Tt {
                 victim = i;
             }
         }
-        if let Some(stats) = &self.write_stats
-            && slots[victim].data.load(Ordering::Relaxed) != 0
-        {
-            stats.collision_overwrites.fetch_add(1, Ordering::Relaxed);
-        }
-        self.write(&slots[victim], key_hash, pack(entry) | flags | generation);
+        let Some(mut claim) =
+            slots[victim].claim_with_origin(self.attribution.then_some(&bucket.1[victim]))
+        else {
+            return false;
+        };
+        let same = claim.old_data != 0 && claim.old_key ^ claim.old_data == key_hash;
+        let data = if same {
+            match self.same_position_data(claim.old_data, entry, mode, generation, flags) {
+                Some(data) => data,
+                None => return false,
+            }
+        } else {
+            if claim.old_data != 0
+                && let Some(stats) = &self.write_stats
+            {
+                stats.collision_overwrites.fetch_add(1, Ordering::Relaxed);
+            }
+            pack(entry) | flags | generation
+        };
+        let origin = origin_for_store(
+            writer,
+            entry.mv.is_some(),
+            same && mode & 2 != 0,
+            claim.old_origin,
+        );
+        self.write(&mut claim, key_hash, data, origin);
         true
     }
 
@@ -534,9 +761,8 @@ impl Tt {
     }
 
     #[inline]
-    fn write(&self, slot: &TtSlot, key_hash: u64, data: u64) {
-        slot.data.store(data, Ordering::Relaxed);
-        slot.key.store(key_hash ^ data, Ordering::Relaxed);
+    fn write(&self, claim: &mut SlotClaim<'_>, key_hash: u64, data: u64, origin: u32) {
+        claim.write_with_origin(key_hash, data, origin);
         if let Some(stats) = &self.write_stats {
             stats.committed.fetch_add(1, Ordering::Relaxed);
         }
@@ -562,7 +788,32 @@ impl Tt {
         self.store_flags(hash, entry, if pv { PV_BIT } else { 0 })
     }
 
-    fn store_flags(&self, hash: u64, mut entry: TtEntry, flags: u64) -> bool {
+    pub(crate) fn store_pv_attributed(
+        &self,
+        hash: u64,
+        entry: TtEntry,
+        pv: bool,
+        writer: &TtWriter,
+    ) -> bool {
+        let id = if writer.belongs_to(self) {
+            writer.id
+        } else {
+            0
+        };
+        self.store_flags_attributed(hash, entry, if pv { PV_BIT } else { 0 }, id)
+    }
+
+    fn store_flags(&self, hash: u64, entry: TtEntry, flags: u64) -> bool {
+        self.store_flags_attributed(hash, entry, flags, 0)
+    }
+
+    fn store_flags_attributed(
+        &self,
+        hash: u64,
+        mut entry: TtEntry,
+        flags: u64,
+        writer: u16,
+    ) -> bool {
         // Normalize before both replacement and packing: bit 7 would overlap
         // the score, and diagnostics must compare the same depth we store.
         entry.depth = entry.depth.min(MAX_STORED_DEPTH);
@@ -572,13 +823,20 @@ impl Tt {
         let key_hash = self.key_hash(hash);
         let mode = self.layout();
         if mode & 1 != 0 {
-            return self.store_bucket(key_hash, &entry, mode, flags);
+            return self.store_bucket(key_hash, &entry, mode, flags, writer);
         }
         let slot = self.slot(hash);
+        let index = key_hash as usize & self.mask;
+        let Some(mut claim) = slot.claim_with_origin(
+            self.attribution
+                .then_some(&self.table[index / BUCKET].1[index % BUCKET]),
+        ) else {
+            return false;
+        };
         if mode & 2 != 0 {
-            let existing_data = slot.data.load(Ordering::Relaxed);
-            let existing_key = slot.key.load(Ordering::Relaxed);
-            let data = if existing_key ^ existing_data == key_hash {
+            let existing_data = claim.old_data;
+            let existing_key = claim.old_key;
+            let data = if existing_data != 0 && existing_key ^ existing_data == key_hash {
                 match self.same_position_data(
                     existing_data,
                     &entry,
@@ -592,13 +850,15 @@ impl Tt {
             } else {
                 pack(&entry) | flags | self.generation_bits()
             };
-            self.write(slot, key_hash, data);
+            let inherited = existing_data != 0 && existing_key ^ existing_data == key_hash;
+            let origin = origin_for_store(writer, entry.mv.is_some(), inherited, claim.old_origin);
+            self.write(&mut claim, key_hash, data, origin);
             return true;
         }
-        let existing_data = slot.data.load(Ordering::Relaxed);
-        let existing_key = slot.key.load(Ordering::Relaxed);
+        let existing_data = claim.old_data;
+        let existing_key = claim.old_key;
         let occupied = existing_data != 0;
-        let same_hash = existing_key ^ existing_data == key_hash;
+        let same_hash = occupied && existing_key ^ existing_data == key_hash;
         if let Some(stats) = &self.write_stats {
             if same_hash {
                 stats.same_hash.fetch_add(1, Ordering::Relaxed);
@@ -621,11 +881,8 @@ impl Tt {
             }
         }
         let data = pack(&entry) | flags;
-        slot.data.store(data, Ordering::Relaxed);
-        slot.key.store(key_hash ^ data, Ordering::Relaxed);
-        if let Some(stats) = &self.write_stats {
-            stats.committed.fetch_add(1, Ordering::Relaxed);
-        }
+        let origin = origin_for_store(writer, entry.mv.is_some(), false, 0);
+        self.write(&mut claim, key_hash, data, origin);
         true
     }
 
@@ -657,11 +914,23 @@ impl Tt {
     /// every game, so a later game's search can hit depth-preferred entries
     /// written by an earlier, unrelated game instead of searching fresh. That
     /// breaks reproducibility between match runs and lets one game's search
-    /// state leak into another's result.
+    /// state leak into another's result. Call after all searches from the old
+    /// game have joined, because a concurrent new store can refill a cleared slot.
     pub fn clear(&self) {
-        for slot in self.table.iter().flat_map(|bucket| bucket.0.iter()) {
-            slot.data.store(0, Ordering::Relaxed);
-            slot.key.store(0, Ordering::Relaxed);
+        for (slot, origin) in self
+            .table
+            .iter()
+            .flat_map(|bucket| bucket.0.iter().zip(&bucket.1))
+        {
+            // Retry a contended slot so every slot is actually cleared.
+            loop {
+                if let Some(mut claim) = slot.claim_with_origin(self.attribution.then_some(origin))
+                {
+                    claim.write(0, 0);
+                    break;
+                }
+                std::hint::spin_loop();
+            }
         }
     }
 }
@@ -681,15 +950,299 @@ mod tests {
     use std::sync::{Arc, Barrier};
     use std::thread;
 
-    // Regression test for a bug where `Tt::new` computed capacity as
-    // `(bytes/16).next_power_of_two() >> 1`. When bytes/16 was already an
-    // exact power of two (as it is for a round size_mb like 64), that
-    // formula silently halved the requested capacity. 64 MiB / 16 bytes
-    // == 4,194,304 == 1<<22 exactly, which is the case that used to trigger it.
+    fn attributed(layout: i32) -> Arc<Tt> {
+        let mut tt = Tt::new_with_attribution(1);
+        Arc::get_mut(&mut tt).unwrap().layout = Some(layout);
+        tt
+    }
+
     #[test]
-    fn new_does_not_halve_power_of_two_capacity() {
+    fn attribution_bucket_keeps_slot_offsets_and_128_byte_footprint() {
+        assert_eq!(std::mem::size_of::<TtSlot>(), 24);
+        assert_eq!(std::mem::size_of::<Bucket>(), 128);
+        assert_eq!(std::mem::offset_of!(Bucket, 0), 0);
+        assert_eq!(std::mem::offset_of!(Bucket, 1), 96);
+        assert_eq!(std::mem::align_of::<Bucket>(), 64);
+    }
+
+    #[test]
+    fn attribution_publication_model_rejects_all_torn_origins() {
+        // Exhaustive SC interleavings: one CAS writer's claim/data/key/tag/
+        // release and one reader's version/data/key/tag/version. No sleeping
+        // or random scheduler luck is needed to expose a mixed publication.
+        let mut accepted = 0;
+        for schedule in 0u16..1024 {
+            if schedule.count_ones() != 5 {
+                continue;
+            }
+            let (mut version, mut data, mut key, mut tag) = (0, 10, 11, 12);
+            let (mut before, mut rd, mut rk, mut rt, mut after) = (0, 0, 0, 0, 0);
+            let (mut w, mut r) = (0, 0);
+            for step in 0..10 {
+                if schedule & (1 << step) != 0 {
+                    match w {
+                        0 => version = 1,
+                        1 => data = 20,
+                        2 => key = 21,
+                        3 => tag = 22,
+                        4 => version = 2,
+                        _ => unreachable!(),
+                    }
+                    w += 1;
+                } else {
+                    match r {
+                        0 => before = version,
+                        1 => rd = data,
+                        2 => rk = key,
+                        3 => rt = tag,
+                        4 => after = version,
+                        _ => unreachable!(),
+                    }
+                    r += 1;
+                }
+            }
+            if before & 1 == 0 && before == after {
+                accepted += 1;
+                assert!(
+                    [(10, 11, 12), (20, 21, 22)].contains(&(rd, rk, rt)),
+                    "schedule={schedule:010b}"
+                );
+            }
+        }
+        assert!(accepted > 0);
+    }
+
+    #[test]
+    fn attribution_unwind_restores_tags_and_version_cannot_recycle() {
+        let tt = attributed(0);
+        let writer = tt.new_writer().unwrap();
+        tt.store_pv_attributed(42, entry(8, Bound::Exact, None), false, &writer);
+        let index = tt.key_hash(42) as usize & tt.mask;
+        let slot = &tt.table[index / BUCKET].0[index % BUCKET];
+        let origin = &tt.table[index / BUCKET].1[index % BUCKET];
+        let before = tt.probe_pv_attributed(42).unwrap();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _claim = slot.claim_with_origin(Some(origin)).unwrap();
+            origin.store(65535, Ordering::SeqCst);
+            slot.data.store(1, Ordering::SeqCst);
+            assert!(tt.probe_pv_attributed(42).is_none());
+            panic!("partial attributed write unwound");
+        }));
+        assert!(result.is_err());
+        let after = tt.probe_pv_attributed(42).unwrap();
+        assert_eq!(after.entry.score, before.entry.score);
+        assert_eq!(after.score_writer, before.score_writer);
+        assert_ne!(after.publication, before.publication);
+        slot.version.store(u64::MAX - 1, Ordering::SeqCst);
+        assert!(!tt.store_pv_attributed(42, entry(8, Bound::Exact, None), false, &writer));
+        assert_eq!(
+            tt.probe_pv_attributed(42).unwrap().publication.version,
+            u64::MAX - 1
+        );
+    }
+
+    #[test]
+    fn attribution_preserves_evaluator_domains() {
+        for nnue in [false, true] {
+            let plain = Tt::new_for_evaluation(1, nnue);
+            let observed = Tt::new_for_evaluation_with_attribution(1, nnue);
+            assert_eq!(plain.domain, observed.domain);
+            assert!(observed.new_writer().is_some());
+            assert!(plain.new_writer().is_none());
+        }
+        assert_ne!(
+            Tt::new_for_evaluation_with_attribution(1, false).domain,
+            Tt::new_for_evaluation_with_attribution(1, true).domain
+        );
+    }
+
+    #[test]
+    fn attribution_snapshots_do_not_follow_later_writers_or_hash_registry_order() {
+        for layout in [0, 1, 2, 3] {
+            let tt = attributed(layout);
+            let speculative = tt.new_writer().unwrap();
+            let foreground = tt.new_writer().unwrap();
+            let hash = 42;
+            tt.store_pv_attributed(
+                hash,
+                TtEntry {
+                    score: 111,
+                    ..entry(8, Bound::Exact, None)
+                },
+                false,
+                &speculative,
+            );
+            let old = tt.probe_pv_attributed(hash).unwrap();
+            tt.store_pv_attributed(
+                hash,
+                TtEntry {
+                    score: 222,
+                    ..entry(8, Bound::Exact, None)
+                },
+                false,
+                &foreground,
+            );
+            let current = tt.probe_pv_attributed(hash).unwrap();
+            // A late observer for the first store cannot retag the second
+            // publication; the first read also keeps its own immutable tag.
+            assert_eq!((old.entry.score, old.score_writer), (111, speculative.id));
+            assert_eq!(
+                (current.entry.score, current.score_writer),
+                (222, foreground.id)
+            );
+            assert_ne!(old.publication, current.publication);
+            tt.store(hash, entry(8, Bound::Exact, None));
+            assert_eq!(tt.probe_pv_attributed(hash).unwrap().score_writer, 0);
+        }
+    }
+
+    #[test]
+    fn attribution_keeps_score_and_inherited_move_producers_separate() {
+        let tt = attributed(3);
+        let speculative = tt.new_writer().unwrap();
+        let foreground = tt.new_writer().unwrap();
+        let mv = Move::drop(Square::from_shogi(5, 5), PieceKind::Fu);
+        tt.store_pv_attributed(42, entry(8, Bound::Exact, Some(mv)), false, &speculative);
+        tt.store_pv_attributed(42, entry(8, Bound::Exact, None), false, &foreground);
+        let read = tt.probe_pv_attributed(42).unwrap();
+        assert_eq!(read.entry.mv, Some(mv));
+        assert_eq!(read.score_writer, foreground.id);
+        assert_eq!(read.move_writer, speculative.id);
+        tt.store_pv_attributed(42, entry(8, Bound::Exact, Some(mv)), false, &foreground);
+        assert_eq!(
+            tt.probe_pv_attributed(42).unwrap().move_writer,
+            foreground.id
+        );
+    }
+
+    #[test]
+    fn attribution_rejection_clear_writer_exhaustion_and_other_table_fail_closed() {
+        let tt = attributed(0);
+        let producer = tt.new_writer().unwrap();
+        let other = attributed(0).new_writer().unwrap();
+        tt.store_pv_attributed(42, entry(8, Bound::Exact, None), false, &producer);
+        assert!(!tt.store_pv_attributed(42, entry(1, Bound::Lower, None), false, &other));
+        assert_eq!(
+            tt.probe_pv_attributed(42).unwrap().score_writer,
+            producer.id
+        );
+        let old = tt.probe_pv_attributed(42).unwrap();
+        tt.clear();
+        tt.store_pv_attributed(42, entry(8, Bound::Exact, None), false, &other);
+        let new = tt.probe_pv_attributed(42).unwrap();
+        assert_eq!(new.score_writer, 0);
+        assert_ne!(old.publication, new.publication);
+        tt.next_writer.store(u32::from(u16::MAX), Ordering::Relaxed);
+        assert_eq!(tt.new_writer().unwrap().id, u16::MAX);
+        assert!(tt.new_writer().is_none());
+        assert!(Tt::new(1).new_writer().is_none());
+    }
+
+    // Capacity must follow the actual publication-safe bucket footprint.
+    #[test]
+    fn new_respects_byte_capacity() {
         let tt = Tt::new(64);
-        assert_eq!(tt.len(), 1 << 22);
+        assert_eq!(tt.table.len() * std::mem::size_of::<Bucket>(), 64 << 20);
+        assert_eq!(
+            tt.len(),
+            (64 << 20) / std::mem::size_of::<Bucket>() * BUCKET
+        );
+    }
+
+    #[test]
+    fn empty_slots_never_claim_a_zero_internal_key() {
+        for layout in [0, 3] {
+            let tt = Tt::new_with_layout(1, None, layout);
+            assert!(tt.probe(0).is_none());
+            tt.store(0, entry(1, Bound::Exact, None));
+            assert!(tt.probe(0).is_some());
+            tt.clear();
+            assert!(tt.probe(0).is_none());
+        }
+        let tt = Tt::new_for_evaluation(1, true);
+        assert!(tt.probe(tt.domain).is_none());
+    }
+
+    #[test]
+    fn updating_pair_cannot_fabricate_an_unstored_hash() {
+        let tt = Tt::new_with_layout(1, None, 0);
+        let hash_a = 0x0000_0000_0000_0488;
+        let hash_b = 0x0000_0000_0001_0488;
+        let a = TtEntry {
+            score: 1,
+            ..entry(6, Bound::Exact, None)
+        };
+        let b = TtEntry {
+            score: 2,
+            ..entry(6, Bound::Exact, None)
+        };
+        tt.store(hash_a, a);
+        let slot = tt.slot(hash_a);
+        let mut claim = slot.claim().expect("single writer");
+        let new_data = pack(&b);
+        // This exact interleaving accepted hash_a ^ old_data ^ new_data with
+        // the old XOR-only protocol, although that hash was never stored.
+        let forged_hash = hash_a ^ claim.old_data ^ new_data;
+        assert_ne!(forged_hash, hash_a);
+        assert_eq!(tt.slot(forged_hash) as *const _, slot as *const _);
+        slot.data.store(new_data, Ordering::SeqCst);
+        assert!(tt.probe(forged_hash).is_none());
+        claim.write(tt.key_hash(hash_b), new_data);
+        drop(claim);
+        assert_eq!(tt.probe(hash_b).map(|entry| entry.score), Some(2));
+    }
+
+    #[test]
+    fn publication_protocol_rejects_every_one_writer_one_reader_torn_pair() {
+        // Enumerate all sequentially consistent schedules of one writer's
+        // claim/data/key/release and one reader's version/data/key/version.
+        // The CAS permits only one writer in this interval. This finite model
+        // checks the ordering argument separately from the threaded stress.
+        const OLD_HASH: u64 = 0x18;
+        const NEW_HASH: u64 = 0x28;
+        const OLD_DATA: u64 = 0x11_0000_0000;
+        const NEW_DATA: u64 = 0x22_0000_0000;
+        for writer_positions in 0u16..256 {
+            if writer_positions.count_ones() != 4 {
+                continue;
+            }
+            let mut version = 0;
+            let mut data = OLD_DATA;
+            let mut key = OLD_HASH ^ OLD_DATA;
+            let mut read_version_before = 0;
+            let mut read_data = 0;
+            let mut read_key = 0;
+            let mut read_version_after = 0;
+            let (mut w, mut r) = (0, 0);
+            for step in 0..8 {
+                if writer_positions & (1 << step) != 0 {
+                    match w {
+                        0 => version = 1,
+                        1 => data = NEW_DATA,
+                        2 => key = NEW_HASH ^ NEW_DATA,
+                        3 => version = 2,
+                        _ => unreachable!(),
+                    }
+                    w += 1;
+                } else {
+                    match r {
+                        0 => read_version_before = version,
+                        1 => read_data = data,
+                        2 => read_key = key,
+                        3 => read_version_after = version,
+                        _ => unreachable!(),
+                    }
+                    r += 1;
+                }
+            }
+            if read_version_before & 1 == 0 && read_version_before == read_version_after {
+                assert!(
+                    (read_key, read_data) == (OLD_HASH ^ OLD_DATA, OLD_DATA)
+                        || (read_key, read_data) == (NEW_HASH ^ NEW_DATA, NEW_DATA),
+                    "accepted a torn pair in schedule {writer_positions:08b}"
+                );
+            }
+        }
     }
 
     fn entry(depth: u8, bound: Bound, mv: Option<Move>) -> TtEntry {
