@@ -137,6 +137,25 @@ class PrototypeContractTest(unittest.TestCase):
         for index, row in models["baseline"]["rows"].items():
             self.assertEqual(row, models["king_extension"]["rows"][index])
 
+    def test_move_fixtures_cover_both_colors_and_restore_initial_state(self):
+        coverage = {name: 0 for name in ("king_move", "drop", "capture", "promotion")}
+        edges = 0
+        promoted_by_side = set()
+        for _, initial, moves in prototype.MOVE_CASES:
+            events = prototype.move_events(initial, moves)
+            self.assertEqual(len(events), 1+2*len(moves))
+            self.assertEqual(events[0]["sfen"], events[-1]["sfen"])
+            for index, event in enumerate(events):
+                if event["phase"] == "do":
+                    edges += 1
+                    for kind in coverage:
+                        coverage[kind] += int(event[kind])
+                    if event["promotion"]:
+                        promoted_by_side.add(events[index-1]["sfen"].split()[1])
+        self.assertEqual(edges, 22)
+        self.assertEqual(coverage, {"king_move": 11, "drop": 4, "capture": 4, "promotion": 2})
+        self.assertEqual(promoted_by_side, {"b", "w"})
+
 
 @unittest.skipUnless(NATIVE, "set SEKIREI_HALFKA_PROBE for native synthetic inference tests")
 class NativePrototypeTest(unittest.TestCase):
@@ -193,6 +212,57 @@ class NativePrototypeTest(unittest.TestCase):
         for sfen in (KINGS.replace("4K4", "9"), KINGS.replace("4K4", "3KK4"), KINGS.replace(" - ", " 19P ")):
             with self.subTest(sfen=sfen):
                 self.assertEqual(self.native([sfen]).returncode, 2)
+
+    def native_moves(self, initial, moves, kind):
+        return subprocess.run([str(Path(NATIVE).resolve()), str(self.path), kind, "--moves"],
+                              input=initial+"\t"+" ".join(moves)+"\n", text=True,
+                              capture_output=True, timeout=10, check=False)
+
+    def test_actual_legal_board_moves_and_lifo_undo_match_every_layer(self):
+        sfens = [event["sfen"] for _,initial,moves in prototype.MOVE_CASES for event in prototype.move_events(initial,moves)]
+        models = prototype.synthetic_models(sfens, 20261108)
+        for label, model in models.items():
+            parsed = prototype.load(self.save(model), model["kind"])
+            for case, initial, moves in prototype.MOVE_CASES:
+                with self.subTest(label=label,case=case):
+                    result = self.native_moves(initial, moves, model["kind"])
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    rows = [json.loads(line) for line in result.stdout.splitlines()]
+                    prototype.verify_move_trace(parsed, initial, moves, rows)
+                    # Opponent king motion must add/remove two king columns;
+                    # this is the missing path in the production HalfKP feature set.
+                    for row in rows:
+                        if row["phase"] == "do" and row["king_move"]:
+                            expected_delta = (512 if model["kind"] == "halfka-kings" else 0) + (512 if row["capture"] else 0)
+                            self.assertEqual(row["logical_edge_delta_adds"], expected_delta)
+                        if row["phase"] == "undo":
+                            self.assertEqual(row["logical_edge_refresh_adds"], 0)
+
+    def test_board_move_inverse_survives_i16_wrap_and_promoted_capture(self):
+        sfens = [event["sfen"] for _,initial,moves in prototype.MOVE_CASES for event in prototype.move_events(initial,moves)]
+        model = prototype.synthetic_models(sfens, 20261108)["king_extension"]
+        model["bias"] = [32767]*256
+        for row in model["rows"].values():
+            row[:] = [32767]*256
+        parsed = prototype.load(self.save(model), model["kind"])
+        saw_negative = False
+        for _, initial, moves in prototype.MOVE_CASES:
+            result = self.native_moves(initial, moves, model["kind"])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            rows = [json.loads(line) for line in result.stdout.splitlines()]
+            prototype.verify_move_trace(parsed, initial, moves, rows)
+            saw_negative |= any(value < 0 for row in rows for value in row["trace"]["acc_us"])
+        self.assertTrue(saw_negative)
+
+    def test_illegal_board_moves_fail_before_any_move_event(self):
+        self.save()
+        for move in ("P*7f", "5i5f", "5a5b", '5i5h"suffix'):
+            with self.subTest(move=move):
+                result = self.native_moves(KINGS, [move], "halfka-kings")
+                self.assertEqual(result.returncode, 2)
+                rows = [json.loads(line) for line in result.stdout.splitlines()]
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["phase"], "initial")
 
 
 if __name__ == "__main__":

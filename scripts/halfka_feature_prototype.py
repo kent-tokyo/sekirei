@@ -20,7 +20,7 @@ import subprocess
 
 from compare_halfkp_parameters import write_new_report
 from freeze_material_gate_openings import canonical_identity
-from generate_search_diagnostic import decode
+from generate_search_diagnostic import apply as apply_move, decode, square
 from sekirei_tools.artifacts import file_sha256
 from verify_halfkp_native_parity import FIXTURES
 
@@ -36,6 +36,55 @@ HANDS = {"P": (1, 20), "L": (39, 44), "N": (49, 54), "S": (59, 64), "G": (69, 74
 INVENTORY = {"P": 18, "L": 4, "N": 4, "S": 4, "G": 4, "B": 2, "R": 2}
 TRACE_KEYS = ("features_us", "features_them", "acc_us", "acc_them", "l1", "l2", "raw_output", "score",
               "logical_refresh_adds", "logical_delta_adds", "delta_checked", "logical_dense_macs")
+MOVE_CASES = (
+    ("nested-kings", "4k4/9/9/9/9/9/9/9/4K4 b - 1", ("5i5h", "5a5b", "5h4h", "5b4b")),
+    ("both-drops", "4k4/9/9/9/9/9/9/9/4K4 b Pp 1", ("P*7f", "P*3d", "7f7e", "3d3e")),
+    ("black-capture-promotion", "k8/9/4p4/4P4/9/9/9/9/4K4 b - 1", ("5d5c+", "9a9b", "5c4c")),
+    ("king-captures-promoted-piece", "k8/9/9/9/9/9/9/4+p4/4K4 b - 1", ("5i5h", "9a9b", "P*7f", "9b8b", "5h4g")),
+    ("white-capture-promotion", "4k4/9/9/9/9/4p4/4P4/9/8K w - 1", ("5f5g+", "1i1h", "5g6g")),
+    ("capture-and-bishop-drop", "4k4/9/9/9/4b4/4R4/9/9/4K4 b - 1", ("5f5e", "5a4a", "B*7g")),
+)
+
+
+def move_events(sfen, moves):
+    """Independent expected board states; legality is checked by native MoveGen."""
+    result = [{"phase": "initial", "move": "", "sfen": sfen, "stack_depth": 0,
+               "king_move": False, "drop": False, "capture": False, "promotion": False}]
+    frames = []
+    for depth, move in enumerate(moves, 1):
+        board, _, _, _ = decode(sfen)
+        drop = move[1] == "*"
+        kinds = {"king_move": not drop and board[square(move[:2])].upper() == "K", "drop": drop,
+                 "capture": board[square(move[2:4])] is not None, "promotion": move.endswith("+")}
+        before = sfen
+        sfen = apply_move(sfen, move)
+        result.append({"phase": "do", "move": move, "sfen": sfen, "stack_depth": depth, **kinds})
+        frames.append((before, move, kinds))
+    for depth, (before, move, kinds) in reversed(list(enumerate(frames))):
+        result.append({"phase": "undo", "move": move, "sfen": before, "stack_depth": depth, **kinds})
+    return result
+
+
+def verify_move_trace(model, initial_sfen, moves, rows):
+    expected = move_events(initial_sfen, moves)
+    if len(rows) != len(expected):
+        raise ValueError("Board do/undo event coverage mismatch")
+    hashes = []
+    for row, event in zip(rows, expected):
+        if any(row.get(key) != value for key, value in event.items()):
+            raise ValueError("Board do/undo transition differs from independent SFEN replay")
+        if row.get("trace") != trace(model, event["sfen"]):
+            raise ValueError("Board incremental trace differs from independent integer reference")
+        if event["phase"] != "undo":
+            hashes.append(row["hash"])
+        elif row["hash"] != hashes[event["stack_depth"]]:
+            raise ValueError("Board undo hash differs from its ancestor")
+        if row["saved_king_payload_bytes"] != (512 if event["king_move"] else 0):
+            raise ValueError("unexpected saved king accumulator payload")
+        if (not event["king_move"] or event["phase"] == "undo") and row["logical_edge_refresh_adds"] != 0:
+            raise ValueError("non-king or undo path unexpectedly performed a refresh")
+    if rows[0]["sfen"] != rows[-1]["sfen"] or rows[0]["trace"] != rows[-1]["trace"]:
+        raise ValueError("complete undo did not restore original position/forward")
 
 
 def feature_views(sfen, kind):
@@ -250,14 +299,66 @@ def smoke(native, output, seed=20261107):
     return report
 
 
+def board_smoke(native, output, seed=20261108):
+    native, output = Path(native).resolve(strict=True), Path(output).resolve()
+    if shutil.disk_usage(output.parent).free < 1024**3 + 16*1024**2:
+        raise ValueError("Board smoke requires 1 GiB floor plus 16 MiB output budget")
+    output.mkdir(mode=0o700, exist_ok=False)
+    sfens = [event["sfen"] for _, initial, moves in MOVE_CASES for event in move_events(initial, moves)]
+    models = synthetic_models(sfens, seed)
+    binary_hash = file_sha256(native)
+    files, all_traces = {}, {}
+    comparisons = 0
+    for label, model in models.items():
+        path = output / (label + ".skx")
+        path.write_bytes(encode(model))
+        files[label] = {"path": str(path), "sha256": file_sha256(path), "bytes": path.stat().st_size}
+        parsed = load(path, model["kind"])
+        all_traces[label] = []
+        for name, initial, moves in MOVE_CASES:
+            command = [str(native), str(path), model["kind"], "--moves"]
+            completed = subprocess.run(command, input=initial + "\t" + " ".join(moves) + "\n",
+                                       text=True, capture_output=True, timeout=20, check=False)
+            (output / f"{label}-{name}.stderr.txt").write_text(completed.stderr)
+            if completed.returncode:
+                raise ValueError(f"native Board replay failed ({label}/{name}): {completed.stderr}")
+            rows = [json.loads(line) for line in completed.stdout.splitlines()]
+            verify_move_trace(parsed, initial, moves, rows)
+            (output / f"{label}-{name}.jsonl").write_text(completed.stdout)
+            all_traces[label].extend(rows)
+            comparisons += len(rows)
+    for baseline, zero in zip(all_traces["baseline"], all_traces["zero_extension"]):
+        for key in ("acc_us", "acc_them", "l1", "l2", "raw_output", "score"):
+            if baseline["trace"][key] != zero["trace"][key]:
+                raise ValueError("zero king weights changed a legal Board transition")
+    if file_sha256(native) != binary_hash or any(file_sha256(Path(item["path"])) != item["sha256"] for item in files.values()):
+        raise ValueError("native binary or synthetic image changed during Board replay")
+    do_rows = [row for row in all_traces["king_extension"] if row["phase"] == "do"]
+    report = {"schema": "sekirei.halfka-board-move-prototype.v1", "status": "SYNTHETIC_BOARD_PARITY_ONLY",
+              "seed": seed, "cases": len(MOVE_CASES), "unique_legal_edges": len(do_rows),
+              "do_undo_edges_across_models": 2*len(do_rows)*len(models), "reference_trace_comparisons": comparisons,
+              "move_coverage": {name: sum(row[name] for row in do_rows) for name in ("king_move", "drop", "capture", "promotion")},
+              "models": files, "native_sha256": binary_hash, "source_sha256": file_sha256(Path(__file__)),
+              "zero_extension_baseline_forward_equal": True, "training": False, "games": False, "timing_measured": False,
+              "production_loader_changed": False, "default_evaluator_changed": False,
+              "limits": ["independent eager sidecar owns Board and LIFO move tokens; not a production evaluator",
+                         "real Board legal moves and do_move/undo_move checked, including captured promoted pieces",
+                         "lazy/Finny/deferred quiet, null moves and production search evaluator dispatch are not integrated",
+                         "logical payload/operation counts exclude allocator overhead; RSS/throughput/strength unmeasured"]}
+    (output / "cases.json").write_text(json.dumps(MOVE_CASES, indent=2)+"\n")
+    write_new_report(output / "report.json", report, [native, *[Path(item["path"]) for item in files.values()]])
+    return report
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=20261107)
+    parser.add_argument("--board-moves", action="store_true", help="verify actual legal Board do/undo with move-derived accumulator deltas")
     args = parser.parse_args(argv)
     try:
-        report = smoke(args.native, args.output_dir, args.seed)
+        report = (board_smoke if args.board_moves else smoke)(args.native, args.output_dir, args.seed)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         parser.exit(2, f"prototype failed: {error}\n")
     print(json.dumps(report, indent=2, sort_keys=True))

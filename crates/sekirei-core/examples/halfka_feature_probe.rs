@@ -6,7 +6,10 @@
 use sekirei_core::board::Board;
 use sekirei_core::color::Color;
 use sekirei_core::halfkp;
+use sekirei_core::movegen::generate_legal_moves;
+use sekirei_core::mv::{Move, MoveToken};
 use sekirei_core::piece::PieceKind;
+use sekirei_core::sfen::{board_to_sfen, move_from_usi, move_to_usi};
 use sekirei_core::square::Square;
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, Read};
@@ -307,14 +310,348 @@ fn features(board: &Board, perspective: Color, kings: bool) -> io::Result<Vec<us
     Ok(output)
 }
 
+/// Move-derived column operations. The bool is true for an added column.
+type ColumnDeltas = [Vec<(usize, bool)>; 2];
+
+#[derive(Clone, Copy)]
+struct MoveKinds {
+    king: bool,
+    drop: bool,
+    capture: bool,
+    promotion: bool,
+}
+
+struct MoveFrame {
+    geometry: MoveToken,
+    before_hash: u64,
+    after_hash: u64,
+    before_sfen: String,
+    text: String,
+    kinds: MoveKinds,
+    deltas: ColumnDeltas,
+    saved_king: Option<(usize, Box<[i16; HALF]>)>,
+}
+
+/// Owns both Board and rollback frames. No frame can be copied or used by a
+/// caller on another Board; only the most recent frame can be consumed.
+struct MoveState<'a> {
+    network: &'a Network,
+    board: Board,
+    values: [[i16; HALF]; 2],
+    frames: Vec<MoveFrame>,
+}
+
+impl<'a> MoveState<'a> {
+    fn new(network: &'a Network, sfen: &str) -> io::Result<Self> {
+        let board = Board::from_sfen(sfen).map_err(|_| invalid("invalid SFEN"))?;
+        let values = [
+            network.accumulate(&features(&board, Color::Black, network.kings)?),
+            network.accumulate(&features(&board, Color::White, network.kings)?),
+        ];
+        Ok(Self {
+            network,
+            board,
+            values,
+            frames: Vec::new(),
+        })
+    }
+
+    fn verify(&self) -> io::Result<()> {
+        for perspective in [Color::Black, Color::White] {
+            let full =
+                self.network
+                    .accumulate(&features(&self.board, perspective, self.network.kings)?);
+            if self.values[perspective.index()] != full {
+                return Err(invalid(
+                    "Board move-derived accumulator/full-refresh mismatch",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn deltas(&self, mv: Move) -> io::Result<ColumnDeltas> {
+        let mover = self.board.side_to_move;
+        let captured = self.board.piece_at(mv.to);
+        if captured.is_some_and(|piece| piece.kind == PieceKind::Ou) {
+            return Err(invalid("king capture is not a legal transition"));
+        }
+        let mut deltas: ColumnDeltas = std::array::from_fn(|_| Vec::new());
+        for perspective in [Color::Black, Color::White] {
+            // The moving king changes every conditioning index on its side.
+            // The old perspective is saved; after do_move it is fully rebuilt.
+            if mv.piece_kind == PieceKind::Ou && perspective == mover {
+                continue;
+            }
+            let own_king = self
+                .board
+                .king_square(perspective)
+                .ok_or_else(|| invalid("missing king"))?;
+            let columns = &mut deltas[perspective.index()];
+            if mv.piece_kind == PieceKind::Ou {
+                if self.network.kings {
+                    let from = mv.from.ok_or_else(|| invalid("king drop"))?;
+                    let base = BASE_INPUT + format_square(own_king, perspective) * 162 + 81;
+                    columns.push((base + format_square(from, perspective), false));
+                    columns.push((base + format_square(mv.to, perspective), true));
+                }
+            } else {
+                if let Some(from) = mv.from {
+                    columns.push((
+                        halfkp::board_feature(own_king, from, mv.piece_kind, mover, perspective)
+                            .ok_or_else(|| invalid("missing moved-piece feature"))?,
+                        false,
+                    ));
+                } else {
+                    let count = self.board.hand(mover).get(mv.piece_kind);
+                    columns.push((
+                        halfkp::hand_feature(own_king, mv.piece_kind, count, mover, perspective)
+                            .ok_or_else(|| invalid("drop without hand feature"))?,
+                        false,
+                    ));
+                }
+                let kind = if mv.promote {
+                    mv.piece_kind.promoted()
+                } else {
+                    mv.piece_kind
+                };
+                columns.push((
+                    halfkp::board_feature(own_king, mv.to, kind, mover, perspective)
+                        .ok_or_else(|| invalid("missing destination feature"))?,
+                    true,
+                ));
+            }
+            if let Some(piece) = captured {
+                columns.push((
+                    halfkp::board_feature(own_king, mv.to, piece.kind, piece.color, perspective)
+                        .ok_or_else(|| invalid("missing captured-piece feature"))?,
+                    false,
+                ));
+                let hand_kind = piece.kind.unpromoted();
+                let count = self.board.hand(mover).get(hand_kind) + 1;
+                columns.push((
+                    halfkp::hand_feature(own_king, hand_kind, count, mover, perspective)
+                        .ok_or_else(|| invalid("missing captured hand feature"))?,
+                    true,
+                ));
+            }
+        }
+        Ok(deltas)
+    }
+
+    fn make_move(&mut self, text: &str) -> io::Result<(MoveKinds, usize, usize)> {
+        if self.frames.len() >= 128 {
+            return Err(invalid("move sequence exceeds 128 plies"));
+        }
+        let mv = move_from_usi(text, &self.board).map_err(|_| invalid("invalid USI move"))?;
+        if move_to_usi(mv) != text {
+            return Err(invalid("expected canonical USI move spelling"));
+        }
+        if !generate_legal_moves(&mut self.board).contains(&mv) {
+            return Err(invalid("move is not legal in the current Board"));
+        }
+        let mover = self.board.side_to_move.index();
+        let kinds = MoveKinds {
+            king: mv.piece_kind == PieceKind::Ou,
+            drop: mv.is_drop(),
+            capture: self.board.piece_at(mv.to).is_some(),
+            promotion: mv.promote,
+        };
+        let deltas = self.deltas(mv)?;
+        let saved_king = kinds.king.then(|| (mover, Box::new(self.values[mover])));
+        let before_hash = self.board.hash();
+        let before_sfen = board_to_sfen(&self.board);
+        let geometry = self.board.do_move(mv);
+        let mut logical_delta = 0;
+        for (side, columns) in deltas.iter().enumerate() {
+            for &(feature, add) in columns {
+                self.network.add(&mut self.values[side], feature, !add);
+                logical_delta += HALF;
+            }
+        }
+        let logical_refresh = if kinds.king {
+            let perspective = self.board.side_to_move.flip();
+            let active = features(&self.board, perspective, self.network.kings)?;
+            self.values[mover] = self.network.accumulate(&active);
+            active.len() * HALF
+        } else {
+            0
+        };
+        self.frames.push(MoveFrame {
+            geometry,
+            before_hash,
+            after_hash: self.board.hash(),
+            before_sfen,
+            text: text.to_string(),
+            kinds,
+            deltas,
+            saved_king,
+        });
+        self.verify()?;
+        Ok((kinds, logical_delta, logical_refresh))
+    }
+
+    fn undo(&mut self) -> io::Result<(String, MoveKinds, usize)> {
+        let frame = self
+            .frames
+            .last()
+            .ok_or_else(|| invalid("no move to undo"))?;
+        if self.board.hash() != frame.after_hash {
+            return Err(invalid("rollback child identity mismatch"));
+        }
+        let frame = self.frames.pop().expect("checked stack");
+        self.board.undo_move(frame.geometry);
+        let mut logical_delta = 0;
+        for (side, columns) in frame.deltas.iter().enumerate() {
+            for &(feature, add) in columns.iter().rev() {
+                self.network.add(&mut self.values[side], feature, add);
+                logical_delta += HALF;
+            }
+        }
+        if let Some((side, saved)) = frame.saved_king {
+            self.values[side] = *saved;
+        }
+        if self.board.hash() != frame.before_hash || board_to_sfen(&self.board) != frame.before_sfen
+        {
+            return Err(invalid("Board::undo_move failed to restore SFEN/hash"));
+        }
+        self.verify()?;
+        Ok((frame.text, frame.kinds, logical_delta))
+    }
+}
+
+fn trace_json(
+    network: &Network,
+    board: &Board,
+    active: &[Vec<usize>; 2],
+    accumulators: &[[i16; HALF]; 2],
+    logical_delta_adds: usize,
+    delta_checked: bool,
+) -> String {
+    let us = board.side_to_move.index();
+    let them = 1 - us;
+    let input: Vec<i32> = accumulators[us]
+        .iter()
+        .chain(&accumulators[them])
+        .map(|&x| i32::from(x.clamp(0, 127)))
+        .collect();
+    let first = network.first.forward(&input);
+    let second = network.second.forward(&first);
+    let raw = network.output_bias
+        + network
+            .output_weights
+            .iter()
+            .zip(second)
+            .map(|(&w, x)| i32::from(w) * x)
+            .sum::<i32>();
+    let score = (raw / network.scale).clamp(-30_000, 30_000);
+    format!(
+        "{{\"features_us\":{:?},\"features_them\":{:?},\"acc_us\":{:?},\"acc_them\":{:?},\"l1\":{:?},\"l2\":{:?},\"raw_output\":{},\"score\":{},\"logical_refresh_adds\":{},\"logical_delta_adds\":{},\"delta_checked\":{},\"logical_dense_macs\":17440}}",
+        active[us],
+        active[them],
+        accumulators[us],
+        accumulators[them],
+        first,
+        second,
+        raw,
+        score,
+        (active[0].len() + active[1].len()) * HALF,
+        logical_delta_adds,
+        delta_checked
+    )
+}
+
+fn emit_move_state(
+    state: &MoveState<'_>,
+    phase: &str,
+    text: &str,
+    kinds: MoveKinds,
+    logical_delta: usize,
+    logical_refresh: usize,
+) -> io::Result<()> {
+    let active = [
+        features(&state.board, Color::Black, state.network.kings)?,
+        features(&state.board, Color::White, state.network.kings)?,
+    ];
+    let trace = trace_json(
+        state.network,
+        &state.board,
+        &active,
+        &state.values,
+        0,
+        false,
+    );
+    println!(
+        "{{\"phase\":\"{}\",\"move\":\"{}\",\"sfen\":\"{}\",\"hash\":\"{:016x}\",\"stack_depth\":{},\"king_move\":{},\"drop\":{},\"capture\":{},\"promotion\":{},\"logical_edge_delta_adds\":{},\"logical_edge_refresh_adds\":{},\"saved_king_payload_bytes\":{},\"trace\":{}}}",
+        phase,
+        text,
+        board_to_sfen(&state.board),
+        state.board.hash(),
+        state.frames.len(),
+        kinds.king,
+        kinds.drop,
+        kinds.capture,
+        kinds.promotion,
+        logical_delta,
+        logical_refresh,
+        if kinds.king { HALF * 2 } else { 0 },
+        trace
+    );
+    Ok(())
+}
+
+fn run_moves(network: &Network) -> io::Result<()> {
+    for line in io::stdin().lock().lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let (sfen, move_text) = line
+            .split_once('\t')
+            .ok_or_else(|| invalid("expected SFEN<TAB>USI moves"))?;
+        let moves: Vec<_> = move_text.split_whitespace().collect();
+        if moves.is_empty() || moves.len() > 128 {
+            return Err(invalid("expected 1..128 legal moves"));
+        }
+        let mut state = MoveState::new(network, sfen)?;
+        emit_move_state(
+            &state,
+            "initial",
+            "",
+            MoveKinds {
+                king: false,
+                drop: false,
+                capture: false,
+                promotion: false,
+            },
+            0,
+            0,
+        )?;
+        for text in moves {
+            let (kinds, delta, refresh) = state.make_move(text)?;
+            emit_move_state(&state, "do", text, kinds, delta, refresh)?;
+        }
+        while !state.frames.is_empty() {
+            let (text, kinds, delta) = state.undo()?;
+            emit_move_state(&state, "undo", &text, kinds, delta, 0)?;
+        }
+    }
+    Ok(())
+}
+
 fn run() -> io::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 2 || !["halfkp", "halfka-kings"].contains(&args[1].as_str()) {
+    if !(args.len() == 2 || (args.len() == 3 && args[2] == "--moves"))
+        || !["halfkp", "halfka-kings"].contains(&args[1].as_str())
+    {
         return Err(invalid(
-            "usage: halfka_feature_probe IMAGE halfkp|halfka-kings < sfens.txt",
+            "usage: halfka_feature_probe IMAGE halfkp|halfka-kings [--moves] < sfens.txt",
         ));
     }
     let network = Network::load(&args[0], args[1] == "halfka-kings")?;
+    if args.len() == 3 {
+        return run_moves(&network);
+    }
     let mut previous: Option<([Vec<usize>; 2], [[i16; HALF]; 2])> = None;
     for line in io::stdin().lock().lines() {
         let line = line?;
@@ -346,36 +683,16 @@ fn run() -> io::Result<()> {
                 }
             }
         }
-        let us = board.side_to_move.index();
-        let them = 1 - us;
-        let input: Vec<i32> = accumulators[us]
-            .iter()
-            .chain(&accumulators[them])
-            .map(|&x| i32::from(x.clamp(0, 127)))
-            .collect();
-        let first = network.first.forward(&input);
-        let second = network.second.forward(&first);
-        let raw = network.output_bias
-            + network
-                .output_weights
-                .iter()
-                .zip(second)
-                .map(|(&w, x)| i32::from(w) * x)
-                .sum::<i32>();
-        let score = (raw / network.scale).clamp(-30_000, 30_000);
         println!(
-            "{{\"features_us\":{:?},\"features_them\":{:?},\"acc_us\":{:?},\"acc_them\":{:?},\"l1\":{:?},\"l2\":{:?},\"raw_output\":{},\"score\":{},\"logical_refresh_adds\":{},\"logical_delta_adds\":{},\"delta_checked\":{},\"logical_dense_macs\":17440}}",
-            active[us],
-            active[them],
-            accumulators[us],
-            accumulators[them],
-            first,
-            second,
-            raw,
-            score,
-            (active[0].len() + active[1].len()) * HALF,
-            logical_delta_adds,
-            previous.is_some()
+            "{}",
+            trace_json(
+                &network,
+                &board,
+                &active,
+                &accumulators,
+                logical_delta_adds,
+                previous.is_some()
+            )
         );
         previous = Some((active, accumulators));
     }

@@ -2465,10 +2465,11 @@ impl Searcher {
             prev_score = Some(score);
         }
 
-        // Even if the hard deadline fires before depth 1 completes, return a
-        // legal move whenever the position has one. This keeps a slow or
-        // heavily contended environment from producing an invalid bestmove.
-        if best_move.is_none() {
+        // If the hard deadline fires before depth 1 completes, return a legal
+        // move whenever the position has one. A completed root adjudication
+        // may deliberately return no move (for example, fourfold repetition);
+        // its score and bound must not be replaced by a fallback evaluation.
+        if best_move.is_none() && done_depth == 0 {
             let legal = MoveBuffer::legal(board);
             best_move = root_move
                 .filter(|candidate| legal.as_slice().contains(candidate))

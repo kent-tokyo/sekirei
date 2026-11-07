@@ -34,7 +34,8 @@ pub enum DfpnOutcome {
 pub struct DfpnConfig {
     /// Maximum number of plies searched from the root.
     pub max_depth: u16,
-    /// Maximum number of visited nodes. Zero means no nodes may be visited.
+    /// Maximum number of visited nodes across the whole call, including a
+    /// threshold re-search. Zero means no nodes may be visited.
     pub node_limit: u64,
     /// Proof threshold for selective expansion; `INF` disables it.
     pub proof_threshold: u64,
@@ -103,7 +104,9 @@ impl DfpnSolver {
     /// Search with cooperative cancellation for an owning controller thread.
     ///
     /// The solver never spawns a thread and does not retain the signal after
-    /// returning. A set signal produces `Unknown` with `aborted = true`.
+    /// returning. A set signal stops further work and sets `aborted = true`.
+    /// A proof completed before cancellation may still return `Proven`; the
+    /// caller must inspect both fields and cannot infer a complete traversal.
     pub fn solve_with_abort(
         &self,
         board: &Board,
@@ -132,24 +135,30 @@ impl DfpnSolver {
         };
         let mut numbers = solve_node(board, config.max_depth, &mut state);
         if config.re_search_on_threshold && state.thresholded && !state.aborted {
-            let mut retry_config = config;
-            retry_config.proof_threshold = INF;
-            retry_config.disproof_threshold = INF;
-            retry_config.re_search_on_threshold = false;
-            let mut retry_state = SearchState {
-                attacker,
-                config: retry_config,
-                nodes: 0,
-                aborted: false,
-                cache: HashMap::new(),
-                cache_hits: 0,
-                thresholded: false,
-                abort_signal,
-            };
-            numbers = solve_node(board, retry_config.max_depth, &mut retry_state);
-            state.nodes = state.nodes.saturating_add(retry_state.nodes);
-            state.aborted = retry_state.aborted;
-            state.cache_hits = state.cache_hits.saturating_add(retry_state.cache_hits);
+            let remaining = config.node_limit.saturating_sub(state.nodes);
+            if remaining == 0 {
+                state.aborted = true;
+            } else {
+                let mut retry_config = config;
+                retry_config.node_limit = remaining;
+                retry_config.proof_threshold = INF;
+                retry_config.disproof_threshold = INF;
+                retry_config.re_search_on_threshold = false;
+                let mut retry_state = SearchState {
+                    attacker,
+                    config: retry_config,
+                    nodes: 0,
+                    aborted: false,
+                    cache: HashMap::new(),
+                    cache_hits: 0,
+                    thresholded: false,
+                    abort_signal,
+                };
+                numbers = solve_node(board, retry_config.max_depth, &mut retry_state);
+                state.nodes = state.nodes.saturating_add(retry_state.nodes);
+                state.aborted = retry_state.aborted;
+                state.cache_hits = state.cache_hits.saturating_add(retry_state.cache_hits);
+            }
         }
         let outcome = if numbers.proof == 0 {
             DfpnOutcome::Proven

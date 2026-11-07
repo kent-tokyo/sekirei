@@ -100,6 +100,68 @@ search; node and ply limits are not a wall-clock latency guarantee. Proof
 distance is the retained proof's
 worst-case length, not a shortest-mate or shortest-escape claim.
 
+## Small artifact builder
+
+The independent `build_cyclic_book` example uses Sekirei's Board and movegen.
+It changes neither the default Cargo binary nor engine options. Its input is
+one versioned JSON object containing a complete, explicitly chosen position
+set; it does not generate games or expand successors outside that set.
+
+```json
+{
+  "schema": "sekirei.cyclic-book-positions",
+  "version": 1,
+  "producer": "synthetic-gold-drop-example",
+  "source": "synthetic",
+  "source_declaration": "Composed test positions; no external game data.",
+  "verification": {"max_depth": 4, "node_limit": 1000},
+  "positions": [
+    "4k4/9/4P4/9/9/9/9/9/4K4 b G 1",
+    "4k4/4G4/4P4/9/9/9/9/9/4K4 w - 2"
+  ]
+}
+```
+
+```sh
+cargo run --offline -p sekirei --features cyclic-book \
+  --example build_cyclic_book -- build positions.json new-bundle
+cargo run --offline -p sekirei --features cyclic-book \
+  --example build_cyclic_book -- verify positions.json new-bundle
+```
+
+The output directory must not exist. The builder writes `book.json` in the
+existing loader's version 1 format, followed by `provenance.json`. It has no
+overwrite or resume mode. Invalid input creates no output directory. An I/O
+failure can leave an incomplete new directory for inspection; do not load a
+bundle without a successful `verify` result.
+
+Input order defines node indices. SFEN is canonicalized and move numbers are
+normalized to 1. Duplicate exact positions are rejected, including duplicates
+with different move numbers. Every legal action is sorted by canonical USI
+string and recorded exactly once. Its target is a known node index or explicit
+`null`, and `gave_check` is recomputed after playing it. The shared graph
+verifier checks the finished graph before publication.
+
+Input and artifact sizes are each limited to 1 MiB. The existing 256-position,
+16,384-successor and proof-bound limits also apply. Each input SFEN is limited
+to 256 bytes; `producer` and `source_declaration` are required and limited to
+128 and 512 bytes respectively. Unknown fields and unsupported versions or
+source values are rejected.
+
+The sidecar schema is `sekirei.cyclic-book-provenance`, version 1. It binds the
+exact input bytes and generated artifact bytes with SHA-256, and records the
+builder package version, builder source SHA-256, source declaration, position
+and edge counts, and verification bounds. `verify` regenerates the graph and
+compares the artifact and sidecar with those exact inputs and the current
+builder source. It performs no file writes.
+
+`source` accepts only `synthetic` or `sekirei_owned`. Both are declarations by
+the input producer. The builder always records `ownership_verified: false`;
+neither the declaration nor matching hashes prove ownership, licensing, or
+authenticity. The source hash identifies this builder file, not the entire
+engine checkout. The engine loader validates `book.json` independently and
+does not authenticate the sidecar, so run `verify` before choosing the artifact.
+
 ## Local verification
 
 ```sh
@@ -107,6 +169,7 @@ cargo test --offline -p sekirei-core --lib book_graph
 cargo run --offline -p sekirei-core --example cyclic_book_reference
 cargo test --offline -p sekirei --features cyclic-book cyclic_book
 cargo test --offline -p sekirei --features cyclic-book,opening-book --test cyclic_book_contract
+cargo test --offline -p sekirei --features cyclic-book --test cyclic_book_builder
 ```
 
 The test fixtures are synthetic. They cover legal shogi cycles, continuous

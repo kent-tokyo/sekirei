@@ -536,7 +536,7 @@ def main(argv=None) -> int:
         "measurement_source_sha256": {name: sha256(Path(__file__).parent / name) for name in SOURCES},
         "host": {"system": platform.system(), "release": platform.release(), "machine": platform.machine(), "logical_cpus": os.cpu_count(), "physical_cores_verified": None},
         "physical_scaling_claim_qualified": False,
-        "limitations": ["No independent legal-PV replay", "No exact speculative TT-use attribution", "No move-quality or playing-strength inference", "Host snapshots do not exclude transient contention", "Configured workers do not count idle or auxiliary OS threads", "Physical core count and oversubscription require separate verification"],
+        "limitations": ["Independent legal-PV replay requires the separate validator", "Speculative TT-use attribution is available only in the counter lane and does not measure counterfactual saved work", "No move-quality or playing-strength inference", "Host snapshots do not exclude transient contention", "Configured workers do not count idle or auxiliary OS threads", "Physical core count and oversubscription require separate verification"],
     }
     configuration_bytes = json.dumps({key: manifest[key] for key in ("configurations", "roots", "repeats", "budget", "evaluator", "measurement_lane")}, sort_keys=True, separators=(",", ":")).encode()
     manifest["configuration_sha256"] = hashlib.sha256(configuration_bytes).hexdigest()

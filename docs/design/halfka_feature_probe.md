@@ -89,10 +89,36 @@ The smoke has three synthetic images sharing every baseline parameter:
 3. The same extension with seeded synthetic king weights: the new feature
    paths must affect the output without changing any baseline weight.
 
-For consecutive SFENs, the example checks feature-set difference updates against
-a full refresh, then applies the inverse and verifies the prior accumulator.
-This is a generic delta/undo invariant, **not** integration with `Board::do_move`,
-Finny, lazy accumulation, search threads or production rollback tokens.
+The original SFEN mode checks feature-set differences against a full refresh,
+then applies the inverse. The optional `--moves` mode also uses **actual legal
+`Board::do_move` / `Board::undo_move` transitions**:
+
+- The example owns a Board, two prototype accumulators and a private LIFO stack.
+  A frame owns the opaque `MoveToken`; callers cannot copy or apply frames to a
+  different Board. USI spelling and membership in native legal moves are checked
+  before making each move.
+- Non-king updates derive column operations directly from the move, captured
+  piece and pre-move hand count. They do not diff two reconstructed feature sets.
+  Captured promoted pieces become their unpromoted hand kind.
+- A king move saves its old 512-byte perspective, refreshes that perspective
+  after the Board move, and changes the opponent's old/new king columns. King
+  captures also update the opponent perspective's captured-piece/hand columns.
+- Undo consumes the latest frame, reverses its column operations, and restores
+  the saved king perspective. Each step compares both accumulators with an
+  independent full refresh and checks restored SFEN/hash. Python independently
+  replays SFENs and checks every exported integer layer.
+
+The six composed fixtures cover nested king moves, drops by both colors,
+capture-promotions by both colors, king capture of a promoted pawn, and a rook
+capture followed by a bishop drop. There are 22 legal edges; running and undoing
+all edges for baseline/zero-extension/active-extension produces 132 checked
+edges and 150 state/forward comparisons. Separate boundary fixtures force i16
+wraparound. Illegal moves are rejected before a `do` event.
+
+This is an **eager sidecar around a real Board**, not production evaluator
+dispatch. The new network is never installed as the Board's global evaluator.
+Finny, deferred quiet updates, null moves and search-worker clones are still
+outside the prototype's tested scope.
 
 | Analytical quantity | Baseline | King extension |
 |---|---:|---:|
@@ -120,11 +146,77 @@ SEKIREI_HALFKA_PROBE=target/debug/examples/halfka_feature_probe \
 python3 scripts/halfka_feature_prototype.py \
   --native target/debug/examples/halfka_feature_probe \
   --output-dir /PRIVATE/NEW-ATTEMPT-DIRECTORY --seed 20261107
+python3 scripts/halfka_feature_prototype.py \
+  --native target/debug/examples/halfka_feature_probe --board-moves \
+  --output-dir /PRIVATE/ANOTHER-NEW-ATTEMPT-DIRECTORY --seed 20261108
 ```
 
 Keep images and raw SFEN/trace evidence private. The smoke requires a new output
 directory and a free-space floor; it never reads external weights or starts
 training/search/games. All existing NNUE and hold-out pauses remain in effect.
+
+## Minimum production integration
+
+The current code establishes several concrete boundaries:
+
+| Existing path | Required king-feature behavior |
+|---|---|
+| `HalfKpAcc::board_delta` in `halfkp.rs` | Its current king branch dirties only the mover perspective and returns. Add old/new opponent-king column updates for the other clean perspective. Preserve the legacy branch for old files. |
+| `refresh_full` and Finny refresh in `halfkp.rs` | Include both king features in cold refresh. Warm cache differences must process old/new kings rather than dropping them through the legacy `board_feature(...Ou) -> None`. |
+| `Board::save_halfkp_before_king_move` / matching restore | Keep saving/restoring the mover perspective. The opponent perspective must receive inverse king deltas on undo, including captures. |
+| Fused capture/promotion/hand updates | Keep the existing non-king operations and integer wrapping. King captures use the changed king path plus captured-piece/hand deltas. |
+| `board/quiet_halfkp.rs` | The eligible path excludes kings, drops, captures and promotions, so added king features are unchanged during a quiet move. Network type/identity, dirty-state restoration and materialize-once behavior still need tests for the new evaluator. |
+| `Board::do_move_for_search`, null move, clone and evaluation fallback | Preserve side-to-move ordering, eager/deferred contracts, saved-king stack ownership and evaluator identity. No silent fallback to material after a new-format load failure. |
+
+A minimal internal API can retain the existing 256-channel accumulator layout:
+
+```text
+FeatureSet = HalfKpFriend | HalfKpPlusKingsV1
+feature_set(network) -> FeatureSet
+column(network, feature_id) -> &[i16; 256]
+refresh_perspective(network, perspective, mailbox, hands)
+apply_king_transition(network, mover, from, to, accumulators)
+```
+
+The feature set must be immutable and tied to the loaded network. Dispatch once
+per accumulator operation (or through const-specialized implementations), rather
+than testing a runtime architecture flag for every scalar. The existing dense
+head can be shared because its dimensions and arithmetic do not change. A
+default-off Cargo feature would add the new loader variant and native dispatch;
+ordinary builds must retain their existing loader, NNUE defaults and hot path.
+The required changes extend beyond this standalone example into the core
+feature table/accumulator, evaluator dispatch, Board paths and Cargo feature
+propagation. No such production feature is enabled by this prototype.
+
+The production file needs a distinct dense format with a feature-map version,
+exact dimensions/length, integer encoding and FV_SCALE contract. It must reject
+legacy `nn.bin`, flat/B-small checkpoints and sparse `SKXK0001` fixtures when the
+wrong architecture is requested. Keep existing format bytes unchanged. A new
+trainer/export/resume contract is required; adding implicit zero rows to a
+trained checkpoint is an initialization decision, not a qualified candidate.
+
+Finny entries already retain a mailbox and hand counts, so the opponent-king
+position can be derived without widening the cache key to 81×81 king pairs.
+The cache must be isolated by network and feature-map identity, and the warm
+mailbox diff must apply the king columns. The first integration should use full
+refresh for the new format until cold/warm cache parity and inverse transitions
+are independently verified. Existing HalfKP cache behavior need not change.
+
+If production reuses `Board.hkp`, the two accumulator vectors remain 1,024
+payload bytes; they do not require an additional vector per perspective. The
+current king-save mechanism can retain its 512-byte payload per saved king
+perspective. The dense FT grows by 6,718,464 bytes; downstream matrix dimensions
+remain unchanged. Loader buffers, duplicated affine layouts, allocator overhead
+and cache entries must be measured separately. The prototype itself adds a
+1,024-byte sidecar plus Vec/String frame storage and allocates a 512-byte boxed
+snapshot for each outstanding king move; it is not a hot-path memory design.
+
+Before enabling native selection, add independent tests for default-off format
+rejection, cold/warm Finny equivalence, king captures, promotion/demotion and
+hand thresholds, clone/undo stacks, quiet materialized/unmaterialized undo, null
+move ordering, overflow contracts and concurrent evaluator identity. Then verify
+exported real weights and measure memory/throughput under fresh admission. None
+of those checks alone permits adoption or establishes playing strength.
 
 A later architecture trial needs owned labels with the same teacher, game-level
 split and hold-out exclusions; matching fixed-width initialization/training
