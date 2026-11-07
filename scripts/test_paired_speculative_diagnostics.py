@@ -409,6 +409,10 @@ class Contracts(unittest.TestCase):
         self.assertTrue(driver.host_snapshot_admitted(BUSY30, 50))
         self.assertFalse(driver.host_snapshot_admitted(BUSY30, 30))
         self.assertFalse(driver.host_snapshot_admitted({"available": False}, 100))
+        renderer = {**BUSY30, "busy_processes": [{"pid": 123, "cpu_percent": 134.3,
+                                                   "command": "synthetic-renderer"}]}
+        self.assertFalse(driver.host_snapshot_admitted(renderer, 100))
+        self.assertTrue(driver.host_snapshot_admitted(renderer, 200))
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             with self.assertRaises(SystemExit):

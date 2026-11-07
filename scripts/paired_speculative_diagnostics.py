@@ -562,7 +562,7 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--resource-root", type=Path, default=Path("/Volumes/ESD-EPA/Projects/sekirei_data"))
     parser.add_argument("--minimum-free-mib", type=int, default=2048)
-    parser.add_argument("--host-process-ceiling-percent", type=int, choices=(25, 50, 75, 100), default=25,
+    parser.add_argument("--host-process-ceiling-percent", type=int, choices=(25, 50, 75, 100, 200), default=25,
                         help="per-process CPU admission ceiling; values above 25 are exploratory and cannot qualify timing")
     parser.add_argument("--source-ref")
     parser.add_argument("--prepare-only", action="store_true")
