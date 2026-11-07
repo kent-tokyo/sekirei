@@ -28,6 +28,16 @@ new output directory and still requires resource admission and idle host
 samples. No automatic resume or retry is added. A missing external root,
 partial run, or failed checker cannot produce qualified timing evidence.
 
+For a diagnostic on an interactive Mac, `--host-process-ceiling-percent` can
+raise the per-process CPU admission limit from the default 25 to 50, 75 or
+100. The runner retains the original 25-percent host snapshot, records the
+selected ceiling in the configuration hash, counts non-idle samples and still
+checks disk admission and every frozen input before each search. A completed
+run with a ceiling above 25 can supply counter and legal-PV observations, but
+`timing_qualified` and `performance_comparison_eligible` remain false even in
+the timing lane. It cannot be pooled with a strict timing run or treated as a
+strength result. Use a fresh output directory for every attempt.
+
 ## What the gate checks
 
 The checker is a separately frozen **same-rules Sekirei checker** executable.

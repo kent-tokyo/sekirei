@@ -12,6 +12,9 @@ import validate_paired_pv as pv_validator
 
 IDLE = {"available": True, "busy_process_threshold_percent": 25,
         "busy_processes": [], "load_average": [0, 0, 0]}
+BUSY30 = {"available": True, "busy_process_threshold_percent": 25,
+          "busy_processes": [{"pid": 123, "cpu_percent": 30.0, "command": "synthetic-renderer"}],
+          "load_average": [1, 1, 1]}
 
 
 def legal_probe(_binary, boards):
@@ -400,6 +403,52 @@ class Contracts(unittest.TestCase):
             self.assertEqual(manifest["status"], "blocked_admission")
             self.assertEqual(manifest["completed_searches"], 0)
             self.assertFalse(manifest["last_admission"]["resources"]["paths"]["resource_root"]["admitted"])
+
+    def test_relaxed_host_ceiling_is_bounded_and_unknown_snapshots_still_fail(self):
+        self.assertFalse(driver.host_snapshot_admitted(BUSY30, 25))
+        self.assertTrue(driver.host_snapshot_admitted(BUSY30, 50))
+        self.assertFalse(driver.host_snapshot_admitted(BUSY30, 30))
+        self.assertFalse(driver.host_snapshot_admitted({"available": False}, 100))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaises(SystemExit):
+                driver.main(self.fixture(root) + ["--host-process-ceiling-percent", "101", "--prepare-only"])
+
+    def test_relaxed_counter_run_completes_but_never_qualifies_timing(self):
+        def fake_slot(binary, root, config, movetime, timeout, directory):
+            return {**driver.parse_result(lines(config["side"], config["configured_search_workers"], "counters"),
+                                          310, config, movetime), **legal_pv(root)}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.fixture(root) + ["--lane", "counters", "--host-process-ceiling-percent", "50"]
+            with patch.object(driver, "run_slot", side_effect=fake_slot), patch.object(driver, "host_activity", return_value=BUSY30), patch.object(pv_validator, "probe", side_effect=legal_probe):
+                self.assertEqual(driver.main(args), 0)
+            manifest = json.loads((root / "out/manifest.json").read_text())
+            summary = json.loads((root / "out/summary.json").read_text())
+            self.assertEqual(manifest["status"], "complete")
+            self.assertEqual(manifest["completed_searches"], 8)
+            self.assertEqual(manifest["host_admission_policy"]["per_process_ceiling_percent"], 50)
+            self.assertFalse(manifest["host_admission_policy"]["strict_timing_eligible"])
+            self.assertEqual(manifest["host_admission_observed"]["non_idle_slots"], 8)
+            self.assertEqual(manifest["host_admission_observed"]["max_observed_busy_process_cpu_percent"], 30)
+            self.assertTrue(manifest["pv_validation"]["valid"])
+            self.assertFalse(manifest["timing_qualified"])
+            self.assertFalse(summary["performance_comparison_eligible"])
+
+    def test_relaxed_timing_run_remains_unqualified_even_with_complete_abba(self):
+        def fake_slot(binary, root, config, movetime, timeout, directory):
+            return {"depth": 10, "nodes": 100, "elapsed_ms": 301, "response_overrun_ms": 1,
+                    **legal_pv(root)}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.fixture(root) + ["--lane", "timing", "--host-process-ceiling-percent", "50"]
+            with patch.object(driver, "run_slot", side_effect=fake_slot), patch.object(driver, "host_activity", return_value=BUSY30), patch.object(pv_validator, "probe", side_effect=legal_probe):
+                self.assertEqual(driver.main(args), 0)
+            manifest = json.loads((root / "out/manifest.json").read_text())
+            summary = json.loads((root / "out/summary.json").read_text())
+            self.assertEqual(manifest["status"], "complete")
+            self.assertFalse(manifest["timing_qualified"])
+            self.assertFalse(summary["performance_comparison_eligible"])
 
     def test_complete_abba_uses_unique_process_slots_and_independent_worker_reports(self):
         seen = []

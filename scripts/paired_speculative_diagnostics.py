@@ -477,6 +477,13 @@ def resource_snapshot(resource_root: Path, output: Path, minimum_free_mib: int) 
     return {"minimum_free_mib": minimum_free_mib, "admitted": all(row["admitted"] for row in samples.values()), "paths": samples}
 
 
+def host_snapshot_admitted(snapshot: dict, ceiling_percent: int) -> bool:
+    """Relax only the per-process CPU ceiling; reject unknown observations."""
+    if idle_snapshot_state(snapshot) == "unknown":
+        return False
+    return all(process["cpu_percent"] < ceiling_percent for process in snapshot["busy_processes"])
+
+
 def verify_frozen_inputs(manifest: dict, output: Path) -> None:
     if (sha256(Path(manifest["engine"]["path"])) != manifest["engine"]["sha256"]
             or sha256(output / "positions.input") != manifest["positions_sha256"]):
@@ -492,6 +499,8 @@ def verify_frozen_inputs(manifest: dict, output: Path) -> None:
 
 def configuration_digest(manifest: dict) -> str:
     keys = ("configurations", "roots", "repeats", "budget", "evaluator", "measurement_lane", "worker_order")
+    if "host_admission_policy" in manifest:
+        keys += ("host_admission_policy",)
     encoded = json.dumps({key: manifest[key] for key in keys}, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
 
@@ -553,6 +562,8 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--resource-root", type=Path, default=Path("/Volumes/ESD-EPA/Projects/sekirei_data"))
     parser.add_argument("--minimum-free-mib", type=int, default=2048)
+    parser.add_argument("--host-process-ceiling-percent", type=int, choices=(25, 50, 75, 100), default=25,
+                        help="per-process CPU admission ceiling; values above 25 are exploratory and cannot qualify timing")
     parser.add_argument("--source-ref")
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args(argv)
@@ -587,7 +598,7 @@ def main(argv=None) -> int:
         "engine": {"path": str(binary), "sha256": digest, "source_path": str(args.binary.resolve())},
         "legal_moves": legal_moves,
         "pv_validation": {"status": "not_run", "valid": False},
-        "timing_qualification_contract": "v2: complete ABBA, frozen inputs and every row identity verified, same-rules legal root-history/PV replay passed, timing lane, all sampled host admissions idle; no strength or independent-oracle claim",
+        "timing_qualification_contract": "v2: complete ABBA, frozen inputs and every row identity verified, same-rules legal root-history/PV replay passed, timing lane, strict 25-percent host admission and idle post-run snapshot; no strength or independent-oracle claim",
         "source_ref": args.source_ref, "source_ref_verified": False,
         "positions_sha256": hashlib.sha256(source).hexdigest(), "roots": roots,
         "root_freshness": "fresh process and usinewgame every slot; corpus novelty and independent-holdout status not certified",
@@ -595,6 +606,11 @@ def main(argv=None) -> int:
         "budget": {"kind": "equal_wall_time", "go_movetime_ms": args.movetime, "move_overhead_ms": 0, "node_limit": None},
         "evaluator": {"kind": "material-only", "engine_argument": None, "EvalFile_sent": False},
         "measurement_lane": args.lane, "counter_lane": args.lane == "counters", "timing_qualified": False,
+        "host_admission_policy": {"observer_floor_percent": 25,
+                                  "per_process_ceiling_percent": args.host_process_ceiling_percent,
+                                  "strict_timing_eligible": args.host_process_ceiling_percent == 25},
+        "host_admission_observed": {"sampled_slots": 0, "non_idle_slots": 0,
+                                    "max_observed_busy_process_cpu_percent": 0.0},
         "observer_contract": "counters: A uses Lazy SMP per-node/sampled TT observers; B uses speculative task-boundary observers; their time and node differences are not comparable performance evidence",
         "foreign_tt_hit_contract": "sampled foreign-origin observation only; not proven useful cutoff or research avoided",
         "speculative_tt_use_contract": "current invocation speculative score/move origins captured with the TT publication; actual main/QS/slack/Small ProbCut returns and non-root first-child events; no counterfactual savings or root-order attribution",
@@ -604,7 +620,7 @@ def main(argv=None) -> int:
         "measurement_source_sha256": {name: sha256(Path(__file__).parent / name) for name in SOURCES},
         "host": {"system": platform.system(), "release": platform.release(), "machine": platform.machine(), "logical_cpus": os.cpu_count(), "physical_cores_verified": None},
         "physical_scaling_claim_qualified": False,
-        "limitations": ["Legal root-history/PV replay uses a frozen caller-supplied Sekirei legal-move binary; it is not an independent rule oracle, build-provenance proof, repetition adjudication, or mate-score proof", "Speculative TT-use attribution is available only in the counter lane and does not measure counterfactual saved work", "No move-quality or playing-strength inference", "Host snapshots do not exclude transient contention", "Configured workers do not count idle or auxiliary OS threads", "Physical core count and oversubscription require separate verification"],
+        "limitations": ["Legal root-history/PV replay uses a frozen caller-supplied Sekirei legal-move binary; it is not an independent rule oracle, build-provenance proof, repetition adjudication, or mate-score proof", "Speculative TT-use attribution is available only in the counter lane and does not measure counterfactual saved work", "No move-quality or playing-strength inference", "Relaxed host admission records contention and cannot qualify timing", "Host snapshots do not exclude transient contention", "Configured workers do not count idle or auxiliary OS threads", "Physical core count and oversubscription require separate verification"],
     }
     manifest["configuration_sha256"] = configuration_digest(manifest)
     save_json(args.output / "manifest.json", manifest)
@@ -620,8 +636,17 @@ def main(argv=None) -> int:
             for repeat, count, position, slot, side in expected:
                 resources = resource_snapshot(args.resource_root, args.output, args.minimum_free_mib)
                 activity = host_activity(strict=True)
-                manifest["last_admission"] = {"sequence": len(rows), "resources": resources, "host_activity": activity}
-                if not resources["admitted"] or idle_snapshot_state(activity) != "idle":
+                host_accepted = host_snapshot_admitted(activity, args.host_process_ceiling_percent)
+                manifest["last_admission"] = {"sequence": len(rows), "resources": resources, "host_activity": activity,
+                                              "host_accepted": host_accepted}
+                observed = manifest["host_admission_observed"]
+                observed["sampled_slots"] += 1
+                observed["non_idle_slots"] += idle_snapshot_state(activity) == "busy"
+                observed["max_observed_busy_process_cpu_percent"] = max(
+                    [observed["max_observed_busy_process_cpu_percent"]]
+                    + [process["cpu_percent"] for process in (activity.get("busy_processes") or [])]
+                )
+                if not resources["admitted"] or not host_accepted:
                     manifest.update(status="blocked_admission" if not rows else "incomplete", timing_qualified=False)
                     save_json(args.output / "manifest.json", manifest)
                     return 2
@@ -651,7 +676,8 @@ def main(argv=None) -> int:
         manifest["status"] = "validating"
         save_json(args.output / "manifest.json", manifest)
         validate_completed_run(manifest, args.output)
-        manifest.update(status="complete", timing_qualified=args.lane == "timing" and idle_snapshot_state(after) == "idle")
+        manifest.update(status="complete", timing_qualified=(args.lane == "timing"
+                         and args.host_process_ceiling_percent == 25 and idle_snapshot_state(after) == "idle"))
         summary.update(performance_comparison_eligible=manifest["timing_qualified"],
                        pv_validation_sha256=manifest["pv_validation"]["sha256"])
         save_json(args.output / "summary.json", summary)
