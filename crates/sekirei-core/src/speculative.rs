@@ -31,6 +31,11 @@ pub struct SpeculativeDiagnosticsSnapshot {
     /// Exact TT publication/use events. Available only with an opt-in TT.
     /// Historical sampled foreign-hit counters keep their separate meaning.
     pub tt_use: crate::search::SpeculativeTtSnapshot,
+    /// First 16 candidate selections at actual spawn boundaries. Each entry
+    /// uses the TT move read by the same policy call that selected its moves.
+    pub selection_trace: [Option<SpeculativeCandidateSelection>; 16],
+    /// Number of populated trace slots. Later iterations are omitted.
+    pub selection_trace_len: u8,
     /// Configured dedicated-pool participants, including the foreground.
     pub configured_workers: usize,
     /// Maximum queued plus running background jobs.
@@ -53,6 +58,32 @@ pub struct SpeculativeDiagnosticsSnapshot {
     pub cap_rejected: u64,
     /// Largest admitted queued/running count, including promoted jobs.
     pub peak_in_flight: usize,
+    /// Sum of permit lifetimes from admission to capture release. Intervals
+    /// overlap across tasks and are not CPU time.
+    pub permit_hold_ns_sum: u64,
+    /// Largest individual permit lifetime.
+    pub permit_hold_ns_max: u64,
+    /// Sum of admission-to-start waits for tasks that entered their closure.
+    pub queue_wait_ns_sum: u64,
+    /// Largest admission-to-start wait.
+    pub queue_wait_ns_max: u64,
+    /// Sum of start-to-release intervals for started tasks, not CPU time.
+    pub started_hold_ns_sum: u64,
+    /// Largest start-to-release interval.
+    pub started_hold_ns_max: u64,
+    /// Sum of admission-to-release intervals for tasks never started.
+    pub unstarted_hold_ns_sum: u64,
+    /// Sum of child entry through the start of its alpha-beta call, including
+    /// legality checks and local state setup. Early exits count here.
+    pub child_preflight_ns_sum: u64,
+    /// Wall-clock time inside the child's repeated legal-move validation.
+    /// This can include OS descheduling and is not CPU time.
+    pub child_legal_check_ns_sum: u64,
+    /// Wall-clock time constructing the child's search state, including its
+    /// fresh history tables. This can include OS descheduling.
+    pub child_state_setup_ns_sum: u64,
+    /// Sum of time inside child alpha-beta calls. Intervals can overlap.
+    pub child_kernel_ns_sum: u64,
     /// Admission slots still held after the invocation's scope joined.
     pub outstanding_after_join: usize,
     /// Every node in cooperative child budgets, including aborted jobs.
@@ -69,6 +100,27 @@ pub struct SpeculativeDiagnosticsSnapshot {
     pub cancellation_latency_ns_max: u64,
     /// Aborted jobs for which no cancellation request timestamp was available.
     pub aborted_without_observed_cancel: u64,
+}
+
+/// One actual speculative candidate selection, captured only by diagnostics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpeculativeCandidateSelection {
+    /// Foreground iteration whose next depth was speculatively spawned.
+    pub iteration_depth: u32,
+    /// TT move read by candidate policy, whether legal or not.
+    pub tt_move: Option<Move>,
+    /// Ranked legal candidates before the invocation permit was applied.
+    pub selected: [Option<Move>; 2],
+    /// Total legal candidates. At most the first two are stored.
+    pub selected_count: usize,
+    /// Candidates admitted and dispatched after the permit was applied.
+    pub admitted: [Option<Move>; 2],
+    /// Total dispatched candidates. At most the first two are stored.
+    pub admitted_count: usize,
+    /// Invocation-wide permits occupied just before this selection.
+    pub in_flight_before: usize,
+    /// Tasks already inside their execution closure at that observation.
+    pub running_before: usize,
 }
 
 const NO_CANCEL_TIMESTAMP: u64 = u64::MAX;
@@ -91,6 +143,18 @@ pub(crate) struct SpecDiagnostics {
     unstarted: AtomicU64,
     cap_rejected: AtomicU64,
     peak_in_flight: AtomicUsize,
+    running: AtomicUsize,
+    permit_hold_ns_sum: AtomicU64,
+    permit_hold_ns_max: AtomicU64,
+    queue_wait_ns_sum: AtomicU64,
+    queue_wait_ns_max: AtomicU64,
+    started_hold_ns_sum: AtomicU64,
+    started_hold_ns_max: AtomicU64,
+    unstarted_hold_ns_sum: AtomicU64,
+    child_preflight_ns_sum: AtomicU64,
+    child_legal_check_ns_sum: AtomicU64,
+    child_state_setup_ns_sum: AtomicU64,
+    child_kernel_ns_sum: AtomicU64,
     outstanding_after_join: AtomicUsize,
     background_nodes: AtomicU64,
     scope_join_wait_ns: AtomicU64,
@@ -117,6 +181,18 @@ impl SpecDiagnostics {
             unstarted: AtomicU64::new(0),
             cap_rejected: AtomicU64::new(0),
             peak_in_flight: AtomicUsize::new(0),
+            running: AtomicUsize::new(0),
+            permit_hold_ns_sum: AtomicU64::new(0),
+            permit_hold_ns_max: AtomicU64::new(0),
+            queue_wait_ns_sum: AtomicU64::new(0),
+            queue_wait_ns_max: AtomicU64::new(0),
+            started_hold_ns_sum: AtomicU64::new(0),
+            started_hold_ns_max: AtomicU64::new(0),
+            unstarted_hold_ns_sum: AtomicU64::new(0),
+            child_preflight_ns_sum: AtomicU64::new(0),
+            child_legal_check_ns_sum: AtomicU64::new(0),
+            child_state_setup_ns_sum: AtomicU64::new(0),
+            child_kernel_ns_sum: AtomicU64::new(0),
             outstanding_after_join: AtomicUsize::new(0),
             background_nodes: AtomicU64::new(0),
             scope_join_wait_ns: AtomicU64::new(0),
@@ -149,8 +225,28 @@ impl SpecDiagnostics {
         }
     }
 
-    fn now_ns(&self) -> u64 {
+    pub(crate) fn now_ns(&self) -> u64 {
         duration_ns(self.origin.elapsed())
+    }
+
+    pub(crate) fn add_child_preflight_ns(&self, duration: u64) {
+        self.child_preflight_ns_sum
+            .fetch_add(duration, Ordering::Relaxed);
+    }
+
+    pub(crate) fn add_child_legal_check_ns(&self, duration: u64) {
+        self.child_legal_check_ns_sum
+            .fetch_add(duration, Ordering::Relaxed);
+    }
+
+    pub(crate) fn add_child_state_setup_ns(&self, duration: u64) {
+        self.child_state_setup_ns_sum
+            .fetch_add(duration, Ordering::Relaxed);
+    }
+
+    pub(crate) fn add_child_kernel_ns(&self, duration: u64) {
+        self.child_kernel_ns_sum
+            .fetch_add(duration, Ordering::Relaxed);
     }
 
     /// Record immediately before an explicit cancellation request. Callers
@@ -187,6 +283,8 @@ impl SpecDiagnostics {
                 .tt_use
                 .as_ref()
                 .map_or_else(Default::default, |session| session.snapshot()),
+            selection_trace: [None; 16],
+            selection_trace_len: 0,
             configured_workers: workers,
             background_cap: cap,
             candidates: self.candidates.load(Ordering::Relaxed),
@@ -198,6 +296,17 @@ impl SpecDiagnostics {
             unstarted: self.unstarted.load(Ordering::Relaxed),
             cap_rejected: self.cap_rejected.load(Ordering::Relaxed),
             peak_in_flight: self.peak_in_flight.load(Ordering::Relaxed),
+            permit_hold_ns_sum: self.permit_hold_ns_sum.load(Ordering::Relaxed),
+            permit_hold_ns_max: self.permit_hold_ns_max.load(Ordering::Relaxed),
+            queue_wait_ns_sum: self.queue_wait_ns_sum.load(Ordering::Relaxed),
+            queue_wait_ns_max: self.queue_wait_ns_max.load(Ordering::Relaxed),
+            started_hold_ns_sum: self.started_hold_ns_sum.load(Ordering::Relaxed),
+            started_hold_ns_max: self.started_hold_ns_max.load(Ordering::Relaxed),
+            unstarted_hold_ns_sum: self.unstarted_hold_ns_sum.load(Ordering::Relaxed),
+            child_preflight_ns_sum: self.child_preflight_ns_sum.load(Ordering::Relaxed),
+            child_legal_check_ns_sum: self.child_legal_check_ns_sum.load(Ordering::Relaxed),
+            child_state_setup_ns_sum: self.child_state_setup_ns_sum.load(Ordering::Relaxed),
+            child_kernel_ns_sum: self.child_kernel_ns_sum.load(Ordering::Relaxed),
             outstanding_after_join: self.outstanding_after_join.load(Ordering::Relaxed),
             background_nodes: self.background_nodes.load(Ordering::Relaxed),
             scope_join_wait_ns: self.scope_join_wait_ns.load(Ordering::Relaxed),
@@ -215,6 +324,7 @@ impl SpecDiagnostics {
 struct JobObservation {
     diagnostics: Arc<SpecDiagnostics>,
     admitted_ns: u64,
+    started_ns: AtomicU64,
     started: AtomicBool,
     completed: AtomicBool,
     cancel_ns: AtomicU64,
@@ -232,8 +342,36 @@ impl JobObservation {
 
     fn released(&self) {
         let diagnostics = &self.diagnostics;
-        if !self.started.load(Ordering::Relaxed) {
+        let finished = diagnostics.now_ns();
+        let hold = finished.saturating_sub(self.admitted_ns);
+        diagnostics
+            .permit_hold_ns_sum
+            .fetch_add(hold, Ordering::Relaxed);
+        diagnostics
+            .permit_hold_ns_max
+            .fetch_max(hold, Ordering::Relaxed);
+        let started_ns = self.started_ns.load(Ordering::Acquire);
+        if started_ns == NO_CANCEL_TIMESTAMP {
             diagnostics.unstarted.fetch_add(1, Ordering::Relaxed);
+            diagnostics
+                .unstarted_hold_ns_sum
+                .fetch_add(hold, Ordering::Relaxed);
+        } else {
+            let wait = started_ns.saturating_sub(self.admitted_ns);
+            let running = finished.saturating_sub(started_ns);
+            diagnostics
+                .queue_wait_ns_sum
+                .fetch_add(wait, Ordering::Relaxed);
+            diagnostics
+                .queue_wait_ns_max
+                .fetch_max(wait, Ordering::Relaxed);
+            diagnostics
+                .started_hold_ns_sum
+                .fetch_add(running, Ordering::Relaxed);
+            diagnostics
+                .started_hold_ns_max
+                .fetch_max(running, Ordering::Relaxed);
+            diagnostics.running.fetch_sub(1, Ordering::Relaxed);
         }
         if std::thread::panicking() {
             diagnostics.unwound.fetch_add(1, Ordering::Relaxed);
@@ -241,7 +379,6 @@ impl JobObservation {
             diagnostics.completed.fetch_add(1, Ordering::Relaxed);
         } else {
             diagnostics.aborted.fetch_add(1, Ordering::Relaxed);
-            let finished = diagnostics.now_ns();
             let request = [
                 self.cancel_ns.load(Ordering::Acquire),
                 diagnostics.invocation_cancel_ns.load(Ordering::Acquire),
@@ -287,6 +424,10 @@ pub struct SpecState {
     pub(crate) in_flight: AtomicUsize,
     /// Absent in the normal API; no task clocks or telemetry counters then run.
     pub(crate) diagnostics: Option<Arc<SpecDiagnostics>>,
+    /// Present only for the explicit shared-heuristics experiment.
+    pub(crate) shared_heuristics: Option<crate::search::SpeculativeSharedHeuristics>,
+    /// Optional diagnostic-only table for child search; policy still reads `tt`.
+    pub(crate) child_tt: Option<Arc<Tt>>,
 }
 
 /// A bounded admission slot owned by the job, never by its polling handle.
@@ -318,6 +459,7 @@ impl SpecLease {
                         Arc::new(JobObservation {
                             diagnostics: diagnostics.clone(),
                             admitted_ns: diagnostics.now_ns(),
+                            started_ns: AtomicU64::new(NO_CANCEL_TIMESTAMP),
                             started: AtomicBool::new(false),
                             completed: AtomicBool::new(false),
                             cancel_ns: AtomicU64::new(NO_CANCEL_TIMESTAMP),
@@ -414,14 +556,24 @@ struct SpecJob {
 impl SpecJob {
     fn run(mut self) {
         if let Some(observation) = &self._lease.observation {
+            let started_ns = observation.diagnostics.now_ns();
+            observation.started_ns.store(started_ns, Ordering::Release);
+            observation
+                .diagnostics
+                .running
+                .fetch_add(1, Ordering::Relaxed);
             observation.started.store(true, Ordering::Relaxed);
             observation
                 .diagnostics
                 .started
                 .fetch_add(1, Ordering::Relaxed);
         }
-        let score = crate::search::speculative_child_search_observed(
-            self.state.tt.clone(),
+        let score = crate::search::speculative_child_search_with_heuristics_observed(
+            self.state
+                .child_tt
+                .as_ref()
+                .unwrap_or(&self.state.tt)
+                .clone(),
             self.state.budget.clone(),
             self.task_abort.clone(),
             &mut self.board,
@@ -429,6 +581,7 @@ impl SpecJob {
             self.depth,
             &self.history,
             self.state.diagnostics.as_deref(),
+            self.state.shared_heuristics.as_ref(),
         );
         let score = if self.task_abort.load(Ordering::Relaxed) || self.state.budget.should_abort() {
             None
@@ -452,6 +605,7 @@ impl SpecJob {
 /// scope and budget still govern that task's completion and lifetime.
 pub struct SpecGroup {
     tasks: Vec<SpecTask>,
+    selection: Option<SpeculativeCandidateSelection>,
 }
 
 impl SpecGroup {
@@ -489,8 +643,24 @@ impl SpecGroup {
         history: &PositionHistory,
         mut dispatch: impl FnMut(SpecJob),
     ) -> Self {
-        let candidates = policy::top_n_legal(board, &state.tt, top_n);
+        let (tt_move, candidates) = policy::top_n_legal_with_tt_move(board, &state.tt, top_n);
         let candidate_count = candidates.len();
+        let selection = state
+            .diagnostics
+            .as_ref()
+            .map(|_| SpeculativeCandidateSelection {
+                iteration_depth: depth.saturating_sub(1),
+                tt_move,
+                selected: [candidates.first().copied(), candidates.get(1).copied()],
+                selected_count: candidates.len(),
+                admitted: [None; 2],
+                admitted_count: 0,
+                in_flight_before: state.in_flight.load(Ordering::Relaxed),
+                running_before: state
+                    .diagnostics
+                    .as_ref()
+                    .map_or(0, |diagnostics| diagnostics.running.load(Ordering::Relaxed)),
+            });
         if let Some(diagnostics) = &state.diagnostics {
             diagnostics
                 .candidates
@@ -528,7 +698,19 @@ impl SpecGroup {
                 observation,
             });
         }
-        Self { tasks }
+        let selection = selection.map(|mut selection| {
+            selection.admitted = [
+                tasks.first().map(|task| task.mv),
+                tasks.get(1).map(|task| task.mv),
+            ];
+            selection.admitted_count = tasks.len();
+            selection
+        });
+        Self { tasks, selection }
+    }
+
+    pub(crate) fn selection(&self) -> Option<SpeculativeCandidateSelection> {
+        self.selection
     }
 
     /// Exempt `winner` from this group's cancellation on drop.
@@ -587,6 +769,8 @@ mod tests {
             ),
             in_flight: AtomicUsize::new(0),
             diagnostics: None,
+            shared_heuristics: None,
+            child_tt: None,
         })
     }
 
@@ -632,6 +816,15 @@ mod tests {
         assert_eq!(observed.admitted, 2);
         assert_eq!(observed.cap_rejected, 4);
         assert_eq!(observed.peak_in_flight, 2);
+        assert_eq!(
+            observed.permit_hold_ns_sum,
+            observed.queue_wait_ns_sum
+                + observed.started_hold_ns_sum
+                + observed.unstarted_hold_ns_sum
+        );
+        assert!(observed.permit_hold_ns_max <= observed.permit_hold_ns_sum);
+        assert!(observed.queue_wait_ns_max <= observed.queue_wait_ns_sum);
+        assert!(observed.started_hold_ns_max <= observed.started_hold_ns_sum);
         assert_eq!(observed.started, 1);
         assert_eq!(observed.completed, 1);
         assert_eq!(observed.aborted, 1);
@@ -725,6 +918,7 @@ mod tests {
                     result: result.clone(),
                     observation: None,
                 }],
+                selection: None,
             };
             assert_eq!(result.load(), TaskResult::Running);
             assert_eq!(group.poll(mv), None);
@@ -869,6 +1063,8 @@ mod tests {
             pool: state.pool.clone(),
             in_flight: AtomicUsize::new(0),
             diagnostics: None,
+            shared_heuristics: None,
+            child_tt: None,
         });
         let completed = scoped_group(&board, &next, 1, 2);
         assert_eq!(completed.tasks.len(), 2);
@@ -934,6 +1130,59 @@ mod tests {
         });
         assert_eq!(admitted, 1);
         assert_eq!(held, 1);
+        assert_eq!(state.in_flight.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn diagnostic_selection_records_the_tt_move_used_at_spawn() {
+        use crate::movegen::generate_legal_moves;
+        use crate::tt::{Bound, TtEntry};
+
+        let mut board = Board::startpos();
+        let (state, _) = observed_state(Some(1));
+        let empty_top = policy::top_n_legal(&board, &state.tt, 2);
+        let hint = generate_legal_moves(&mut board)
+            .into_iter()
+            .find(|mv| !empty_top.contains(mv))
+            .unwrap();
+        state.tt.store(
+            board.hash(),
+            TtEntry {
+                score: 0,
+                depth: 1,
+                bound: Bound::Exact,
+                mv: Some(hint),
+            },
+        );
+        let group = scoped_group(&board, &state, 2, 2);
+        let selection = group.selection().unwrap();
+        assert_eq!(selection.iteration_depth, 1);
+        assert_eq!(selection.tt_move, Some(hint));
+        assert_eq!(selection.selected[0], Some(hint));
+        assert_eq!(selection.selected_count, 2);
+        assert!(selection.admitted_count <= selection.selected_count);
+        assert_eq!(selection.admitted[0], Some(hint));
+    }
+
+    #[test]
+    fn isolated_child_tt_keeps_background_writes_out_of_policy_table() {
+        use crate::tt::TtWriteStats;
+
+        let board = Board::startpos();
+        let parent_stats = Arc::new(TtWriteStats::default());
+        let child_stats = Arc::new(TtWriteStats::default());
+        let mut state = spec_state(None);
+        let inner = Arc::get_mut(&mut state).unwrap();
+        inner.tt = Tt::new_with_stats(1, Some(parent_stats.clone()));
+        inner.child_tt = Some(Tt::new_with_stats(1, Some(child_stats.clone())));
+        let group = scoped_group(&board, &state, 4, 1);
+        assert_eq!(group.tasks.len(), 1);
+        assert!(matches!(
+            group.tasks[0].result.load(),
+            TaskResult::Completed(_)
+        ));
+        assert_eq!(parent_stats.snapshot().attempted, 0);
+        assert!(child_stats.snapshot().attempted > 0);
         assert_eq!(state.in_flight.load(Ordering::Relaxed), 0);
     }
 

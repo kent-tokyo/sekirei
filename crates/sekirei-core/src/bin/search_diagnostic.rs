@@ -1,5 +1,6 @@
 //! Direct, single-position Searcher diagnostic for fixed-budget comparisons.
 //! This intentionally bypasses the asynchronous USI output path.
+//! An explicit `--nodes` remains a hard cap with `--max-depth` or `--time-ms`.
 
 use std::env;
 use std::path::Path;
@@ -15,9 +16,19 @@ use sekirei_core::search::{PruningConfig, SearchConfig, SearchDiagnostics, Searc
 use sekirei_core::sfen::{PositionHistory, move_from_usi, move_to_usi};
 use sekirei_core::tt::Tt;
 
+fn configured_node_limit(
+    nodes: u64,
+    nodes_explicit: bool,
+    depth_mode: bool,
+    time_limit: Option<Duration>,
+) -> Option<u64> {
+    (nodes_explicit || (!depth_mode && time_limit.is_none())).then_some(nodes)
+}
+
 fn main() {
     let mut args = env::args().skip(1);
     let mut nodes = 20_000_u64;
+    let mut nodes_explicit = false;
     let mut time_limit = None;
     let mut max_depth = 50_u32;
     let mut depth_mode = false;
@@ -33,6 +44,10 @@ fn main() {
     let mut root_candidates_limit = None;
     let mut iteration_trace = false;
     let mut profile_cost = false;
+    let mut pruning_counts = false;
+    let mut trace_after_root_move = None;
+    let mut trace_move = None;
+    let mut exempt_traced_quiet_move = false;
     let mut disable_root_mate_safety = false;
     let mut disable_nmp = false;
     let mut disable_lmr = false;
@@ -47,6 +62,7 @@ fn main() {
                         eprintln!("--nodes requires a positive integer");
                         std::process::exit(2);
                     });
+                nodes_explicit = true;
             }
             "--time-ms" => {
                 let millis = args
@@ -124,6 +140,20 @@ fn main() {
             }
             "--iteration-trace" => iteration_trace = true,
             "--profile-cost" => profile_cost = true,
+            "--pruning-counts" => pruning_counts = true,
+            "--trace-after-root-move" => {
+                trace_after_root_move = Some(args.next().unwrap_or_else(|| {
+                    eprintln!("--trace-after-root-move requires a USI move");
+                    std::process::exit(2);
+                }));
+            }
+            "--trace-move" => {
+                trace_move = Some(args.next().unwrap_or_else(|| {
+                    eprintln!("--trace-move requires a USI move");
+                    std::process::exit(2);
+                }));
+            }
+            "--exempt-traced-quiet-move" => exempt_traced_quiet_move = true,
             "--disable-root-mate-safety" => disable_root_mate_safety = true,
             "--disable-nmp" => disable_nmp = true,
             "--disable-lmr" => disable_lmr = true,
@@ -153,7 +183,7 @@ fn main() {
     }
     let Some(sfen) = sfen else {
         eprintln!(
-            "usage: sekirei-search-diagnostic [--nodes N | --time-ms N] --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--iteration-trace] [--profile-cost] [--disable-root-mate-safety] [--warmup-nodes N] [--weights FILE --fv-scale 1..=128 --nnue-output absolute|residual-material --nnue-residual-scale-permille 0..=2000] [--teacher-search] [--disable-nmp] [--disable-lmr]"
+            "usage: sekirei-search-diagnostic [--nodes N | --time-ms N] --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--iteration-trace] [--profile-cost|--pruning-counts] [--trace-after-root-move USI --trace-move USI [--exempt-traced-quiet-move]] [--disable-root-mate-safety] [--warmup-nodes N] [--weights FILE --fv-scale 1..=128 --nnue-output absolute|residual-material --nnue-residual-scale-permille 0..=2000] [--teacher-search] [--disable-nmp] [--disable-lmr]"
         );
         std::process::exit(2);
     };
@@ -211,12 +241,79 @@ fn main() {
             std::process::exit(1);
         })
     });
+    let trace_target = match (trace_after_root_move, trace_move) {
+        (None, None) => None,
+        (Some(root_text), Some(move_text)) => {
+            let mut child = board.clone();
+            let trace_root = move_from_usi(&root_text, &child).unwrap_or_else(|error| {
+                eprintln!("invalid --trace-after-root-move {root_text}: {error}");
+                std::process::exit(2);
+            });
+            if !generate_legal_moves(&mut child).contains(&trace_root) {
+                eprintln!("--trace-after-root-move must be legal at the search root");
+                std::process::exit(2);
+            }
+            if root_move.is_some_and(|requested| requested != trace_root) {
+                eprintln!("--root-move must match --trace-after-root-move");
+                std::process::exit(2);
+            }
+            child.do_move(trace_root);
+            let response = move_from_usi(&move_text, &child).unwrap_or_else(|error| {
+                eprintln!("invalid --trace-move {move_text}: {error}");
+                std::process::exit(2);
+            });
+            if !generate_legal_moves(&mut child).contains(&response) {
+                eprintln!("--trace-move must be legal after --trace-after-root-move");
+                std::process::exit(2);
+            }
+            Some((child.hash(), response))
+        }
+        _ => {
+            eprintln!("--trace-after-root-move and --trace-move must be supplied together");
+            std::process::exit(2);
+        }
+    };
+    let trace_identity = trace_target.as_ref().map(|(hash, mv)| {
+        format!(
+            "\ttrace_target_hash={hash:016x}\ttrace_target_move={}",
+            move_to_usi(*mv)
+        )
+    });
     let pruning = PruningConfig {
         null_move: !disable_nmp,
         late_move_reduction: !disable_lmr,
         ..PruningConfig::default()
     };
-    let diagnostics = (iteration_trace || profile_cost).then(|| Arc::new(SearchDiagnostics::new()));
+    if exempt_traced_quiet_move && trace_target.is_none() {
+        eprintln!("--exempt-traced-quiet-move requires --trace-after-root-move and --trace-move");
+        std::process::exit(2);
+    }
+    if pruning_counts && (profile_cost || warmup_nodes.is_some() || root_candidates_limit.is_some())
+    {
+        eprintln!(
+            "--pruning-counts cannot be combined with --profile-cost, --warmup-nodes, or --root-candidates"
+        );
+        std::process::exit(2);
+    }
+    if trace_target.is_some()
+        && (profile_cost || warmup_nodes.is_some() || root_candidates_limit.is_some())
+    {
+        eprintln!(
+            "move trace cannot be combined with --profile-cost, --warmup-nodes, or --root-candidates"
+        );
+        std::process::exit(2);
+    }
+    let diagnostics = if let Some((hash, mv)) = trace_target {
+        Some(Arc::new(if exempt_traced_quiet_move {
+            SearchDiagnostics::with_v2_quiet_trace_exemption(hash, mv)
+        } else {
+            SearchDiagnostics::with_v2_move_trace(hash, mv)
+        }))
+    } else if pruning_counts {
+        Some(Arc::new(SearchDiagnostics::counters_only()))
+    } else {
+        (iteration_trace || profile_cost).then(|| Arc::new(SearchDiagnostics::new()))
+    };
     let searcher = if let Some(diagnostics) = diagnostics.as_ref() {
         Searcher::with_pruning_and_diagnostics(Tt::new(64), pruning, diagnostics.clone())
     } else {
@@ -225,7 +322,7 @@ fn main() {
     let config = SearchConfig {
         max_depth,
         time_limit,
-        node_limit: (!depth_mode && time_limit.is_none()).then_some(nodes),
+        node_limit: configured_node_limit(nodes, nodes_explicit, depth_mode, time_limit),
         soft_limit: None,
         multi_pv: 1,
     };
@@ -247,7 +344,7 @@ fn main() {
     });
     let warmup = warmup_nodes.map(|warmup_nodes| {
         let warmup_config = SearchConfig {
-            node_limit: (!depth_mode).then_some(warmup_nodes),
+            node_limit: Some(warmup_nodes),
             ..config
         };
         let info = match root_move {
@@ -296,12 +393,25 @@ fn main() {
             Vec::new(),
         ),
     };
+    let search_board_restored = board.hash() == history_final_hash;
     let profile = diagnostics.as_ref().map(|observer| observer.snapshot());
+    let v2_move_decisions = diagnostics
+        .as_ref()
+        .map(|observer| observer.v2_move_decision_counts());
+    let v2_move_trace = diagnostics
+        .as_ref()
+        .and_then(|observer| observer.v2_move_trace_counts());
     let qsearch = profile.map_or([0; 11], |snapshot| snapshot.qsearch);
     let bestmove = info
         .best_move
         .map(move_to_usi)
         .unwrap_or_else(|| "resign".to_string());
+    let pv_root = info
+        .pv
+        .first()
+        .map(|mv| move_to_usi(*mv))
+        .unwrap_or_else(|| "none".to_string());
+    let bestmove_matches_pv_root = info.depth > 0 && bestmove == pv_root;
     let pv = info
         .pv
         .iter()
@@ -383,7 +493,7 @@ fn main() {
         .collect::<Vec<_>>()
         .join(",");
     println!(
-        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\telapsed_ns={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tfv_scale={}\tprofile_cost={}\tstatic_evaluations={}\teval_cache_probes={}\teval_cache_hits={}\ttt_probes={}\ttt_hits={}\ttt_stores={}\torder_tt={}\torder_killer={}\torder_countermove={}\torder_history={}\troot_mate_in_one_nodes={}\troot_mate_blunder_nodes={}\troot_mate_in_one_cache_hits={}\troot_mate_blunder_cache_hits={}\talpha_beta_calls={}\tquiescence_calls={}\tqsearch_top_level_calls={}\tqsearch_in_check={}\tqsearch_tt_cutoffs={}\tqsearch_stand_pat_cutoffs={}\tqsearch_terminal_nodes={}\tqsearch_searched_moves={}\tqsearch_beta_cutoffs={}\tqsearch_depth_cap_exits={}\tqsearch_mate_in_one_exits={}\tqsearch_delta_pruning_exits={}\tstatic_evaluation_ns={}\ttt_probe_ns={}\ttt_store_ns={}\tmovegen_order_ns={}\tmovegen_generate_ns={}\tmove_order_ns={}\tmove_order_score_ns={}\tmove_order_sort_ns={}\tquiescence_inclusive_ns={}\troot_mate_safety_ns={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}\troot_initial_order={}\titeration_trace={}{}",
+        "bestmove={bestmove}\tpv_root={pv_root}\tcompleted_bestmove={pv_root}\tbestmove_matches_pv_root={bestmove_matches_pv_root}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\telapsed_ns={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tfv_scale={}\tprofile_cost={}\tstatic_evaluations={}\teval_cache_probes={}\teval_cache_hits={}\ttt_probes={}\ttt_hits={}\ttt_stores={}\torder_tt={}\torder_killer={}\torder_countermove={}\torder_history={}\troot_mate_in_one_nodes={}\troot_mate_blunder_nodes={}\troot_mate_in_one_cache_hits={}\troot_mate_blunder_cache_hits={}\talpha_beta_calls={}\tquiescence_calls={}\tqsearch_top_level_calls={}\tqsearch_in_check={}\tqsearch_tt_cutoffs={}\tqsearch_stand_pat_cutoffs={}\tqsearch_terminal_nodes={}\tqsearch_searched_moves={}\tqsearch_beta_cutoffs={}\tqsearch_depth_cap_exits={}\tqsearch_mate_in_one_exits={}\tqsearch_delta_pruning_exits={}\tstatic_evaluation_ns={}\ttt_probe_ns={}\ttt_store_ns={}\tmovegen_order_ns={}\tmovegen_generate_ns={}\tmove_order_ns={}\tmove_order_score_ns={}\tmove_order_sort_ns={}\tquiescence_inclusive_ns={}\troot_mate_safety_ns={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}\troot_initial_order={}\titeration_trace={}\tv2_quiet_trace_exemption={exempt_traced_quiet_move}{}{}{}{}",
         info.depth,
         info.score,
         info.nodes,
@@ -464,5 +574,43 @@ fn main() {
                 warmup_pv,
             )
         }),
+        v2_move_decisions.map_or_else(String::new, |counts| format!(
+            "\tv2_lmp_skips={}\tv2_quiet_history_skips={}\tv2_quiet_futility_skips={}\tv2_quiet_see_skips={}\tv2_tactical_futility_skips={}\tv2_tactical_see_skips={}\tv2_reduced_children={}",
+            counts[0], counts[1], counts[2], counts[3], counts[4], counts[5], counts[6]
+        )),
+        v2_move_trace.map_or_else(String::new, |counts| format!(
+            "\ttrace_pre_tt_nodes={}\ttrace_move_loops={}\ttrace_generated={}\ttrace_considered={}\ttrace_lmp={}\ttrace_quiet_history={}\ttrace_quiet_futility={}\ttrace_quiet_see={}\ttrace_tactical_futility={}\ttrace_tactical_see={}\ttrace_searched={}\ttrace_reduced={}\ttrace_excluded={}\ttrace_quiet_stage_skipped={}\ttrace_filtered_nonpromotion={}",
+            counts[0], counts[1], counts[2], counts[3], counts[4], counts[5], counts[6],
+            counts[7], counts[8], counts[9], counts[10], counts[11], counts[12], counts[13],
+            counts[14]
+        )),
+        format!(
+            "{}\tsearch_board_restored={search_board_restored}\tconfigured_node_limit={}",
+            trace_identity.unwrap_or_default(),
+            config.node_limit.map_or_else(|| "none".to_string(), |limit| limit.to_string())
+        ),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_nodes_remain_a_cap_when_depth_or_time_is_set() {
+        assert_eq!(configured_node_limit(100, true, true, None), Some(100));
+        assert_eq!(
+            configured_node_limit(100, true, false, Some(Duration::from_millis(20))),
+            Some(100)
+        );
+        assert_eq!(configured_node_limit(20_000, false, true, None), None);
+        assert_eq!(
+            configured_node_limit(20_000, false, false, Some(Duration::from_millis(20))),
+            None
+        );
+        assert_eq!(
+            configured_node_limit(20_000, false, false, None),
+            Some(20_000)
+        );
+    }
 }

@@ -191,6 +191,45 @@ def parse_lazy_smp(lines: list[str]) -> dict[str, int] | None:
             worker_stats = parse_lazy_workers(summary)
             if worker_stats:
                 result["worker_stats"] = worker_stats
+            coherence_keys = ("selected_bestmove", "selected_pv_root",
+                              "selected_move_matches_pv_root")
+            if any(key in parts for key in coherence_keys):
+                if not all(key in parts for key in coherence_keys):
+                    raise ValueError("partial selected-move coherence record")
+                selected_bestmove, selected_pv_root, flag = (
+                    parts[parts.index(key) + 1] for key in coherence_keys)
+                if flag not in ("true", "false", "none"):
+                    raise ValueError("invalid selected-move coherence flag")
+                matches = selected_bestmove != "none" and selected_bestmove == selected_pv_root
+                if flag == "true" and not matches or flag == "false" and matches:
+                    raise ValueError("selected-move coherence flag contradicts moves")
+                if worker_stats:
+                    depth = worker_stats[selected]["depth"]
+                    if (depth == 0) != (flag == "none"):
+                        raise ValueError("selected-move coherence flag contradicts depth")
+                result.update({"selected_bestmove": selected_bestmove,
+                               "selected_pv_root": selected_pv_root,
+                               "selected_move_matches_pv_root": None if flag == "none" else flag == "true"})
+            worker_move_keys = ("worker_bestmoves", "worker_pv_roots")
+            if any(key in parts for key in worker_move_keys):
+                if not all(key in parts for key in worker_move_keys) or not worker_stats:
+                    raise ValueError("partial worker move/PV record")
+                worker_bestmoves, worker_pv_roots = (
+                    parts[parts.index(key) + 1].split(",") for key in worker_move_keys)
+                if len(worker_bestmoves) != len(worker_stats) or len(worker_pv_roots) != len(worker_stats):
+                    raise ValueError("worker move/PV count differs from worker count")
+                if (worker_bestmoves[selected] != result.get("selected_bestmove")
+                        or worker_pv_roots[selected] != result.get("selected_pv_root")):
+                    raise ValueError("selected worker move/PV record disagrees with summary")
+                worker_matches = [
+                    None if worker["depth"] == 0 else move != "none" and move == root
+                    for worker, move, root in zip(worker_stats, worker_bestmoves, worker_pv_roots)
+                ]
+                if worker_matches[selected] != result.get("selected_move_matches_pv_root"):
+                    raise ValueError("selected worker coherence disagrees with summary")
+                result.update({"worker_bestmoves": worker_bestmoves,
+                               "worker_pv_roots": worker_pv_roots,
+                               "worker_move_matches_pv_root": worker_matches})
             return result
         except (ValueError, IndexError):
             return None

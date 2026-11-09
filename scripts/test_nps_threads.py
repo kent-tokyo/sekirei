@@ -559,6 +559,36 @@ class ThreadOptionsTest(unittest.TestCase):
     def test_malformed_lazy_smp_diagnostics_are_ignored(self):
         self.assertIsNone(parse_lazy_smp(["info string lazy_smp selected nope"]))
 
+    def test_selected_worker_pv_coherence_is_parsed_and_checked(self):
+        line = (
+            "info string lazy_smp selected w1 node_share_permille 500 move_agreement 1/2 "
+            "discarded_root_nodes 10 divergent_discarded_nodes 10 stop_lag_ms 0 "
+            "selected_bestmove 1c1d selected_pv_root 8a9c "
+            "selected_move_matches_pv_root false "
+            "w0:d8:n10:s2:t1:x1:abudget:p0:h0:r0,"
+            "w1*:d9:n10:s5:t1:x1:abudget:p0:h0:r0"
+        )
+        result = parse_lazy_smp([line])
+        self.assertEqual(result["selected_bestmove"], "1c1d")
+        self.assertEqual(result["selected_pv_root"], "8a9c")
+        self.assertIs(result["selected_move_matches_pv_root"], False)
+        self.assertIsNone(parse_lazy_smp([line.replace("pv_root false", "pv_root true")]))
+        self.assertIsNone(parse_lazy_smp([line.replace("pv_root false", "pv_root none")]))
+
+    def test_each_worker_move_is_checked_against_its_completed_pv(self):
+        line = (
+            "info string lazy_smp selected w1 node_share_permille 500 move_agreement 1/2 "
+            "discarded_root_nodes 10 divergent_discarded_nodes 10 stop_lag_ms 0 "
+            "selected_bestmove 1c1d selected_pv_root 1c1d "
+            "selected_move_matches_pv_root true "
+            "worker_bestmoves 2g2f,1c1d worker_pv_roots 8a9c,1c1d "
+            "w0:d8:n10:s2:t1:x1:abudget:p0:h0:r0,"
+            "w1*:d9:n10:s5:t1:x1:abudget:p0:h0:r0"
+        )
+        result = parse_lazy_smp([line])
+        self.assertEqual(result["worker_move_matches_pv_root"], [False, True])
+        self.assertIsNone(parse_lazy_smp([line.replace("8a9c,1c1d", "8a9c,2g2f")]))
+
     def test_lazy_smp_tt_diagnostics_are_parsed(self):
         diagnostics = parse_lazy_smp_tt(
             [

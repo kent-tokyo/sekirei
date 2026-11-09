@@ -126,6 +126,15 @@ enum SearchMode {
     SharedMcts,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ScorePvBinding {
+    /// The score belongs to the returned root move, as in speculative search.
+    ReturnedMove,
+    /// The score belongs to the last completed iteration's PV, which may
+    /// differ from a move found in an interrupted later iteration.
+    CompletedIteration,
+}
+
 struct SearchResult {
     best_move: Option<sekirei_core::mv::Move>,
     score: i32,
@@ -138,7 +147,9 @@ struct SearchResult {
     /// ranking; this is deliberately kept separate so a continuation is
     /// never attributed to another root candidate.
     pv: Vec<sekirei_core::mv::Move>,
+    score_pv_binding: ScorePvBinding,
     worker_stats: Vec<LazySmpWorkerInfo>,
+    lazy_worker_pv_roots: Vec<Option<sekirei_core::mv::Move>>,
     lazy_worker_tt_reuse: Vec<LazySmpWorkerTtReuse>,
     lazy_tt_writes: Option<TtWriteSnapshot>,
     lazy_work_overlap: Option<LazySmpWorkOverlap>,
@@ -177,7 +188,9 @@ impl SearchResult {
             hashfull,
             pv_list: Vec::new(),
             pv,
+            score_pv_binding: ScorePvBinding::ReturnedMove,
             worker_stats: Vec::new(),
+            lazy_worker_pv_roots: Vec::new(),
             lazy_worker_tt_reuse: Vec::new(),
             lazy_tt_writes: None,
             lazy_work_overlap: None,
@@ -421,8 +434,8 @@ impl SearchBackend {
                 let aspiration_before = (ASPIRATION_DIAGNOSTICS.load(Ordering::Relaxed)
                     || LAZY_DIAGNOSTICS.load(Ordering::Relaxed))
                 .then(|| s.aspiration_stats());
-                let (info, lazy_root_hints, lazy_worker_tt_reuse) = s
-                    .try_search_with_history_and_root_hint_effectiveness(
+                let (info, lazy_root_hints, lazy_worker_tt_reuse, lazy_worker_pv_roots) = s
+                    .try_search_with_history_and_root_hint_effectiveness_and_pv_roots(
                         board,
                         config,
                         position_history,
@@ -442,7 +455,9 @@ impl SearchBackend {
                     result.pv,
                 );
                 SearchResult {
+                    score_pv_binding: ScorePvBinding::CompletedIteration,
                     worker_stats: info.worker_results,
+                    lazy_worker_pv_roots,
                     lazy_worker_tt_reuse,
                     lazy_tt_writes: info.tt_writes,
                     lazy_work_overlap: info.work_overlap,
@@ -522,7 +537,7 @@ impl SearchBackend {
 }
 
 fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
-    SearchResult::new(
+    let mut result = SearchResult::new(
         info.best_move,
         info.score,
         info.depth,
@@ -530,7 +545,9 @@ fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
         info.elapsed,
         info.hashfull,
         info.pv,
-    )
+    );
+    result.score_pv_binding = ScorePvBinding::CompletedIteration;
+    result
 }
 
 fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
@@ -683,6 +700,21 @@ fn render_pv(
     }
 }
 
+/// SearchInfo scores belong to the last completed iteration's PV; speculative
+/// scores belong to the returned move. Keep each backend's score attached to
+/// its own root when those moves differ.
+fn render_scored_pv(
+    primary_pv: &[sekirei_core::mv::Move],
+    returned_move: sekirei_core::mv::Move,
+    binding: ScorePvBinding,
+) -> String {
+    let scored_root = match binding {
+        ScorePvBinding::ReturnedMove => returned_move,
+        ScorePvBinding::CompletedIteration => primary_pv.first().copied().unwrap_or(returned_move),
+    };
+    render_pv(primary_pv, scored_root, true)
+}
+
 /// Look up a TT ponder reply without ever applying an unvalidated move to the
 /// caller's board.  `bestmove` is checked before this helper is called; the
 /// TT reply itself is still only a cache hint and must be legal in the child
@@ -782,6 +814,40 @@ fn emit_lazy_smp_diagnostics(info: &SearchResult) {
         .position(|worker| worker.selected)
         .expect("Lazy SMP diagnostics must identify the selected worker");
     let selected = info.worker_stats[selected_index];
+    let selected_bestmove = selected
+        .best_move
+        .map(move_to_usi)
+        .unwrap_or_else(|| "none".to_string());
+    let selected_pv_root = info
+        .pv
+        .first()
+        .copied()
+        .map(move_to_usi)
+        .unwrap_or_else(|| "none".to_string());
+    let selected_move_matches_pv_root = if selected.depth == 0 {
+        "none"
+    } else if selected_bestmove == selected_pv_root && selected_bestmove != "none" {
+        "true"
+    } else {
+        "false"
+    };
+    let worker_bestmoves = info
+        .worker_stats
+        .iter()
+        .map(|worker| {
+            worker
+                .best_move
+                .map(move_to_usi)
+                .unwrap_or_else(|| "none".to_string())
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let worker_pv_roots = info
+        .lazy_worker_pv_roots
+        .iter()
+        .map(|root| root.map(move_to_usi).unwrap_or_else(|| "none".to_string()))
+        .collect::<Vec<_>>()
+        .join(",");
     let selected_reuse = info
         .lazy_worker_tt_reuse
         .get(selected_index)
@@ -847,7 +913,7 @@ fn emit_lazy_smp_diagnostics(info: &SearchResult) {
         .collect::<Vec<_>>()
         .join(",");
     println!(
-        "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} discarded_root_nodes {discarded_root_nodes} divergent_discarded_nodes {divergent_discarded_nodes} stop_lag_ms {stop_lag_ms} selected_tt_local_hits {} selected_tt_foreign_hits {} selected_tt_unknown_hits {} {summary}",
+        "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} discarded_root_nodes {discarded_root_nodes} divergent_discarded_nodes {divergent_discarded_nodes} stop_lag_ms {stop_lag_ms} selected_bestmove {selected_bestmove} selected_pv_root {selected_pv_root} selected_move_matches_pv_root {selected_move_matches_pv_root} worker_bestmoves {worker_bestmoves} worker_pv_roots {worker_pv_roots} selected_tt_local_hits {} selected_tt_foreign_hits {} selected_tt_unknown_hits {} {summary}",
         info.worker_stats.len(),
         selected_reuse.local_hits,
         selected_reuse.foreign_hits,
@@ -1224,7 +1290,7 @@ fn emit_search_result(
             nps,
             elapsed_ms,
             info.hashfull,
-            render_pv(&info.pv, m, true)
+            render_scored_pv(&info.pv, m, info.score_pv_binding)
         );
     }
 
@@ -2552,6 +2618,59 @@ mod tests {
         assert_eq!(score_to_usi(-892), "cp -892");
         assert_eq!(score_to_usi(MATE_SCORE - 1), "mate 1");
         assert_eq!(score_to_usi(-(MATE_SCORE - 3)), "mate -3");
+    }
+
+    #[test]
+    fn scored_pv_stays_with_completed_move_when_returned_move_changes() {
+        use sekirei_core::{mv::Move, piece::PieceKind, square::Square};
+
+        let completed = Move::drop(Square::from_index(1), PieceKind::Kin);
+        let reply = Move::drop(Square::from_index(2), PieceKind::Kin);
+        let interrupted = Move::drop(Square::from_index(4), PieceKind::Kin);
+        let pv = [completed, reply];
+        assert_eq!(
+            render_scored_pv(&pv, interrupted, ScorePvBinding::CompletedIteration),
+            format!("{} {}", move_to_usi(completed), move_to_usi(reply))
+        );
+        assert_eq!(
+            render_scored_pv(&[], interrupted, ScorePvBinding::CompletedIteration),
+            move_to_usi(interrupted)
+        );
+        assert_eq!(
+            render_scored_pv(&pv, interrupted, ScorePvBinding::ReturnedMove),
+            move_to_usi(interrupted)
+        );
+        let sequential = normalize_sequential_result(SearchInfo {
+            best_move: Some(interrupted),
+            score: 120,
+            depth: 9,
+            nodes: 10,
+            elapsed: Duration::ZERO,
+            hashfull: 0,
+            bound: sekirei_core::search::SearchBound::Unknown,
+            completed_bound: sekirei_core::search::SearchBound::Exact,
+            aborted: true,
+            abort_reason: "budget",
+            pv: pv.to_vec(),
+        });
+        assert_eq!(
+            sequential.score_pv_binding,
+            ScorePvBinding::CompletedIteration
+        );
+        let speculative = normalize_spec_result(SpecSearchInfo {
+            best_move: Some(interrupted),
+            score: 120,
+            depth: 9,
+            nodes: 10,
+            elapsed: Duration::ZERO,
+            hashfull: 0,
+            spec_hits: 0,
+            spec_total: 0,
+            pv_list: Vec::new(),
+            pv: pv.to_vec(),
+            bestmove_changes: 0,
+        });
+        assert_eq!(speculative.score_pv_binding, ScorePvBinding::ReturnedMove);
     }
 
     #[test]

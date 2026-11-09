@@ -56,6 +56,21 @@ const NO_PT: u32 = u32::MAX;
 /// Frames below ply 0 that continuation histories may look at.
 const OFF: usize = 8;
 const MAX_PLY: usize = 240;
+const TRACE_PRE_TT: usize = 0;
+const TRACE_MOVE_LOOP: usize = 1;
+const TRACE_GENERATED: usize = 2;
+const TRACE_CONSIDERED: usize = 3;
+const TRACE_LMP: usize = 4;
+const TRACE_QUIET_HISTORY: usize = 5;
+const TRACE_QUIET_FUTILITY: usize = 6;
+const TRACE_QUIET_SEE: usize = 7;
+const TRACE_TACTICAL_FUTILITY: usize = 8;
+const TRACE_TACTICAL_SEE: usize = 9;
+const TRACE_SEARCHED: usize = 10;
+const TRACE_REDUCED: usize = 11;
+const TRACE_EXCLUDED: usize = 12;
+const TRACE_QUIET_STAGE_SKIPPED: usize = 13;
+const TRACE_FILTERED_NONPROMOTION: usize = 14;
 
 const SQ: usize = 81;
 /// Piece-to keys: color × kind after the move (promoted kinds included) × to.
@@ -1657,6 +1672,12 @@ fn node(
     d.ss[i].move_count = 0;
     let prior = d.ss[i - 1];
     let hash = board.hash();
+    let trace = state.counters().and_then(|c| c.v2_move_trace_for(hash));
+    let quiet_trace_exemption =
+        trace.is_some() && state.counters().is_some_and(|c| c.v2_quiet_trace_exemption);
+    if let Some(trace) = trace {
+        trace.record(TRACE_PRE_TT);
+    }
     if p::V2_NMP_PRIOR() != 0 {
         update_prior_nmp(&mut d.ss[i], hash);
     }
@@ -2003,11 +2024,24 @@ fn node(
         };
     }
     if p::SKIP_NONPROMO() != 0 {
+        if let Some(trace) = trace
+            && buf
+                .as_slice()
+                .iter()
+                .any(|&m| trace.matches(m) && useless_non_promotion(m, stm))
+        {
+            trace.record(TRACE_FILTERED_NONPROMOTION);
+        }
         buf.as_mut_list()
             .retain(|m| !useless_non_promotion(*m, stm));
     }
     let moves = buf.as_slice();
     let mut any_generated_move = !moves.is_empty() || quiet_tt.is_some();
+    if let Some(trace) = trace
+        && (moves.iter().any(|&m| trace.matches(m)) || quiet_tt.is_some_and(|m| trace.matches(m)))
+    {
+        trace.record(TRACE_GENERATED);
+    }
     let tt_move = quiet_tt.or_else(|| tt_move.filter(|t| moves.contains(t)));
 
     // ProbCut.
@@ -2172,6 +2206,9 @@ fn node(
         bad_list.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
     }
     diag(state, entry_depth, 7);
+    if let Some(trace) = trace {
+        trace.record(TRACE_MOVE_LOOP);
+    }
     if let Some(c) = state.counters() {
         c.loop_nodes[usize::from(tt_move.is_some())].fetch_add(1, Ordering::Relaxed);
         c.loop_by_window[usize::from(pv)].fetch_add(1, Ordering::Relaxed);
@@ -2210,7 +2247,19 @@ fn node(
             );
         }
         if idx < quiet_end {
-            if skip_quiets {
+            if skip_quiets
+                && !(quiet_trace_exemption
+                    && trace.is_some_and(|t| {
+                        list[idx..quiet_end].iter().any(|entry| t.matches(entry.1))
+                    }))
+            {
+                if let Some(trace) = trace
+                    && list[idx..quiet_end]
+                        .iter()
+                        .any(|entry| trace.matches(entry.1))
+                {
+                    trace.record(TRACE_LMP);
+                }
                 // Every remaining quiet move would be counted and skipped.
                 let n = if excluded.is_some() {
                     list[idx..quiet_end]
@@ -2222,6 +2271,9 @@ fn node(
                 };
                 move_count += n as u32;
                 d.ss[i].move_count = move_count;
+                if let Some(c) = state.counters() {
+                    c.v2_move_decisions[0].fetch_add(n as u64, Ordering::Relaxed);
+                }
                 idx = quiet_end;
                 continue;
             }
@@ -2248,13 +2300,27 @@ fn node(
                     if let Some(c) = state.counters() {
                         c.move_stages[0].fetch_add(1, Ordering::Relaxed);
                     }
-                    if !skip_quiets {
+                    if !skip_quiets || quiet_trace_exemption {
                         if staged_generation {
                             let mut quiet_buf = MoveBuffer::v2_quiets_outside_check(board);
                             if p::SKIP_NONPROMO() != 0 {
+                                if let Some(trace) = trace
+                                    && quiet_buf
+                                        .as_slice()
+                                        .iter()
+                                        .any(|&m| trace.matches(m) && useless_non_promotion(m, stm))
+                                {
+                                    trace.record(TRACE_FILTERED_NONPROMOTION);
+                                }
                                 quiet_buf
                                     .as_mut_list()
                                     .retain(|m| !useless_non_promotion(*m, stm));
+                            }
+                            if let Some(trace) = trace
+                                && !quiet_tt.is_some_and(|m| trace.matches(m))
+                                && quiet_buf.as_slice().iter().any(|&m| trace.matches(m))
+                            {
+                                trace.record(TRACE_GENERATED);
                             }
                             any_generated_move |= !quiet_buf.is_empty();
                             if quiet_tt.is_some() {
@@ -2274,6 +2340,8 @@ fn node(
                         // Their scores, check tags and SEE cannot be consumed
                         // when the first non-excluded quiet already reaches LMP.
                         if p::V2_QUIET_LMP_SKIP() != 0
+                            && !(quiet_trace_exemption
+                                && trace.is_some_and(|t| quiet_list.iter().any(|&m| t.matches(m))))
                             && let Some(n) = dead_quiet_count(
                                 quiet_list,
                                 excluded,
@@ -2284,6 +2352,12 @@ fn node(
                             )
                         {
                             if n != 0 {
+                                if let Some(trace) = trace
+                                    && quiet_list.iter().any(|&m| trace.matches(m))
+                                {
+                                    trace.record(TRACE_LMP);
+                                    trace.record(TRACE_QUIET_STAGE_SKIPPED);
+                                }
                                 move_count += n;
                                 d.ss[i].move_count = move_count;
                                 skip_quiets = true;
@@ -2344,8 +2418,16 @@ fn node(
                         }
                         quiet_start = start;
                         quiet_end = list.len();
-                    } else if let Some(c) = state.counters() {
-                        c.move_stages[1].fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        if let Some(trace) = trace
+                            && !quiet_tt.is_some_and(|m| trace.matches(m))
+                            && !is_tactical(board, trace.mv)
+                        {
+                            trace.record(TRACE_QUIET_STAGE_SKIPPED);
+                        }
+                        if let Some(c) = state.counters() {
+                            c.move_stages[1].fetch_add(1, Ordering::Relaxed);
+                        }
                     }
                     continue;
                 }
@@ -2380,7 +2462,18 @@ fn node(
         };
         idx += 1;
         if Some(m) == excluded {
+            if let Some(trace) = trace
+                && trace.matches(m)
+            {
+                trace.record(TRACE_EXCLUDED);
+            }
             continue;
+        }
+        let exempt_quiet_trace = quiet_trace_exemption && trace.is_some_and(|t| t.matches(m));
+        if let Some(trace) = trace
+            && trace.matches(m)
+        {
+            trace.record(TRACE_CONSIDERED);
         }
         move_count += 1;
         d.ss[i].move_count = move_count;
@@ -2391,7 +2484,15 @@ fn node(
             if lmp_allowed && move_count >= lmp_limit(depth, improving) {
                 skip_quiets = true;
             }
-            if !tactical && skip_quiets {
+            if !tactical && skip_quiets && !exempt_quiet_trace {
+                if let Some(trace) = trace
+                    && trace.matches(m)
+                {
+                    trace.record(TRACE_LMP);
+                }
+                if let Some(c) = state.counters() {
+                    c.v2_move_decisions[0].fetch_add(1, Ordering::Relaxed);
+                }
                 continue;
             }
         }
@@ -2403,7 +2504,11 @@ fn node(
             f => f == 2,
         };
         let mut new_depth = depth - 1;
-        let mut r = base_reduction(&d.red, improving, depth, move_count);
+        let mut r = if state.pruning.late_move_reduction {
+            base_reduction(&d.red, improving, depth, move_count)
+        } else {
+            0
+        };
 
         // Pruning at shallow depth.
         if best_value > -MATE_BOUND {
@@ -2466,6 +2571,14 @@ fn node(
                         + victim_value(board, m)
                         + p::V2_CFUT_HIST() * capt_hist / 1024;
                     if fut <= alpha {
+                        if let Some(trace) = trace
+                            && trace.matches(m)
+                        {
+                            trace.record(TRACE_TACTICAL_FUTILITY);
+                        }
+                        if let Some(c) = state.counters() {
+                            c.v2_move_decisions[4].fetch_add(1, Ordering::Relaxed);
+                        }
                         continue;
                     }
                 }
@@ -2474,6 +2587,14 @@ fn node(
                     && (p::V2_SHAPE() & 2 == 0 || alpha >= 0)
                     && see_below(board, -p::V2_SEE_T() * depth - see_hist)
                 {
+                    if let Some(trace) = trace
+                        && trace.matches(m)
+                    {
+                        trace.record(TRACE_TACTICAL_SEE);
+                    }
+                    if let Some(c) = state.counters() {
+                        c.v2_move_decisions[5].fetch_add(1, Ordering::Relaxed);
+                    }
                     continue;
                 }
             } else if !(pv && p::V2_PVQ() != 0) {
@@ -2482,12 +2603,20 @@ fn node(
                 let mut h = d.cont_at(i, 1, pt)
                     + d.cont_at(i, 2, pt)
                     + i32::from(d.pawn[pawn_bucket * PT_NB + pt as usize]);
-                if h < -p::V2_HIST_PRUNE() * depth {
+                if !exempt_quiet_trace && h < -p::V2_HIST_PRUNE() * depth {
+                    if let Some(trace) = trace
+                        && trace.matches(m)
+                    {
+                        trace.record(TRACE_QUIET_HISTORY);
+                    }
+                    if let Some(c) = state.counters() {
+                        c.v2_move_decisions[1].fetch_add(1, Ordering::Relaxed);
+                    }
                     continue;
                 }
                 h += 2 * i32::from(d.main[ft]);
                 lmr_depth += h / p::V2_HIST_DIV().max(1);
-                if !in_check && static_eval != NO_EVAL && lmr_depth < 9 {
+                if !exempt_quiet_trace && !in_check && static_eval != NO_EVAL && lmr_depth < 9 {
                     let fut = static_eval
                         + if best_value < static_eval - p::V2_FUT_GAP() {
                             p::V2_FUT_BASE() + p::V2_FUT_NOBEST()
@@ -2496,6 +2625,14 @@ fn node(
                         }
                         + p::V2_FUT_PER() * lmr_depth;
                     if fut <= alpha {
+                        if let Some(trace) = trace
+                            && trace.matches(m)
+                        {
+                            trace.record(TRACE_QUIET_FUTILITY);
+                        }
+                        if let Some(c) = state.counters() {
+                            c.v2_move_decisions[2].fetch_add(1, Ordering::Relaxed);
+                        }
                         if best_value <= fut && !is_decisive(best_value) && !is_decisive(fut) {
                             best_value = fut;
                         }
@@ -2503,7 +2640,15 @@ fn node(
                     }
                 }
                 let ld = lmr_depth.max(0);
-                if see_below(board, -p::V2_SEE_Q() * ld * ld) {
+                if !exempt_quiet_trace && see_below(board, -p::V2_SEE_Q() * ld * ld) {
+                    if let Some(trace) = trace
+                        && trace.matches(m)
+                    {
+                        trace.record(TRACE_QUIET_SEE);
+                    }
+                    if let Some(c) = state.counters() {
+                        c.v2_move_decisions[3].fetch_add(1, Ordering::Relaxed);
+                    }
                     continue;
                 }
             }
@@ -2581,6 +2726,11 @@ fn node(
         );
 
         // Play the move.
+        if let Some(trace) = trace
+            && trace.matches(m)
+        {
+            trace.record(TRACE_SEARCHED);
+        }
         if let Some(c) = state.counters() {
             c.searched_by_window[usize::from(pv)].fetch_add(1, Ordering::Relaxed);
             c.at_depth(entry_depth.max(0) as u32, 8);
@@ -2685,11 +2835,21 @@ fn node(
             if tactical && p::V2_CAPT_LMR() == 0 {
                 dd = dd.max(new_depth);
             }
+            if !state.pruning.late_move_reduction {
+                dd = new_depth.max(1);
+            }
             d.ss[i].reduction = new_depth - dd;
             if dd < new_depth
                 && let Some(c) = state.counters()
             {
                 c.research[0].fetch_add(1, Ordering::Relaxed);
+                c.v2_move_decisions[6].fetch_add(1, Ordering::Relaxed);
+            }
+            if dd < new_depth
+                && let Some(trace) = trace
+                && trace.matches(m)
+            {
+                trace.record(TRACE_REDUCED);
             }
             value = -search_with_pending(
                 d,

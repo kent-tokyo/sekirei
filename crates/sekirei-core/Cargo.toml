@@ -56,5 +56,21 @@ path = "src/bin/legal_moves.rs"
 name = "sekirei-rule-probe"
 path = "src/bin/rule_probe.rs"
 
+[[bin]]
+name = "sekirei-strategy-threat-probe"
+path = "src/bin/strategy_threat_probe.rs"
+
+[[bin]]
+name = "sekirei-strategy-reply-mobility"
+path = "src/bin/strategy_reply_mobility.rs"
+
+[[bin]]
+name = "sekirei-spec-policy-probe"
+path = "src/bin/spec_policy_probe.rs"
+
+[[bin]]
+name = "sekirei-spec-selection-probe"
+path = "src/bin/spec_selection_probe.rs"
+
 [lints.rust]
 missing_docs = "warn"

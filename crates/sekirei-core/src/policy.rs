@@ -61,9 +61,19 @@ pub fn top_n(board: &Board, tt: &Tt, n: usize) -> Vec<Move> {
 
 /// Rank only legal root candidates, so an illegal high-priority TT move
 /// cannot consume a speculative task slot or seed an invalid search tree.
-pub(crate) fn top_n_legal(board: &Board, tt: &Tt, n: usize) -> Vec<Move> {
+pub fn top_n_legal(board: &Board, tt: &Tt, n: usize) -> Vec<Move> {
+    top_n_legal_with_tt_move(board, tt, n).1
+}
+
+/// Return the exact TT move used by this selection and its legal candidates.
+/// Diagnostic callers can attribute the ranking without a second racing TT probe.
+pub(crate) fn top_n_legal_with_tt_move(
+    board: &Board,
+    tt: &Tt,
+    n: usize,
+) -> (Option<Move>, Vec<Move>) {
     if n == 0 {
-        return Vec::new();
+        return (None, Vec::new());
     }
     let tt_mv = tt.probe(board.hash()).and_then(|e| e.mv);
     let mut probe = board.clone();
@@ -71,7 +81,7 @@ pub(crate) fn top_n_legal(board: &Board, tt: &Tt, n: usize) -> Vec<Move> {
     generate_legal_moves_into_fixed(&mut probe, &mut moves);
     let result = select_top_n(board, tt_mv, moves.as_mut_slice(), n);
     recycle_fixed_move_buffer(moves);
-    result
+    (tt_mv, result)
 }
 
 fn select_top_n(board: &Board, tt_mv: Option<Move>, moves: &mut [Move], n: usize) -> Vec<Move> {

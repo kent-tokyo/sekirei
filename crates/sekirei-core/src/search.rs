@@ -40,7 +40,7 @@ use crate::nnue::weights_active;
 use crate::piece::PieceKind;
 use crate::sfen::{PositionHistory, PositionHistoryEntry, RepetitionOutcome};
 pub use crate::speculative::SpeculativeDiagnosticsSnapshot;
-use crate::speculative::{SpecDiagnostics, SpecGroup, SpecState};
+use crate::speculative::{SpecDiagnostics, SpecGroup, SpecState, SpeculativeCandidateSelection};
 #[cfg(test)]
 use crate::square::Square;
 use crate::tt::{Bound, Tt, TtEntry};
@@ -128,7 +128,7 @@ pub use root_split::{
     CooperativeRootPrestartStats, CooperativeRootStats, CooperativeRootWaitStats,
 };
 use singular::{SingularContext, SingularOutcome};
-pub(crate) use speculative_child::speculative_child_search_observed;
+pub(crate) use speculative_child::speculative_child_search_with_heuristics_observed;
 use static_pruning::{prepare_node_evaluation, razoring_score, reverse_futility_score};
 use tt_probe::TtProbe;
 pub use v2::NmpSnapshot;
@@ -169,7 +169,12 @@ impl Default for SearchConfig {
 pub struct SearchInfo {
     /// Best move found, if any.
     pub best_move: Option<Move>,
-    /// Score of `best_move` in centipawns (or a mate score).
+    /// Score of the last completed iteration in centipawns (or a mate score).
+    ///
+    /// An interrupted deeper iteration may supply a different `best_move`.
+    /// In that case this score and `pv` belong to the completed iteration,
+    /// not the returned move. Consumers comparing moves and scores must check
+    /// that `best_move == pv.first().copied()` when `depth > 0`.
     pub score: i32,
     /// Deepest iterative-deepening depth completed.
     pub depth: u32,
@@ -377,6 +382,14 @@ pub struct SearchDiagnostics {
     /// skipped it after late-move pruning, quiet moves scored, and nodes
     /// entering the losing-tactical stage.
     move_stages: [AtomicU64; 4],
+    /// SEARCH_V2 skipped moves by reason (LMP, quiet history/futility/SEE,
+    /// tactical futility/SEE), plus actual reduced child searches.
+    v2_move_decisions: [AtomicU64; 7],
+    /// One diagnostic-only position and move. Fixed-size counters avoid an
+    /// event log, allocation, or a lock in the search loop.
+    v2_move_trace: Option<V2MoveTrace>,
+    /// Diagnostic-only exemption for the traced quiet move at its traced hash.
+    v2_quiet_trace_exemption: bool,
     v2_nmp: v2::NmpDiagnostics,
     aspiration: aspiration::AspirationDiagnostics,
     /// Quiescence calls, nodes in check, TT cutoffs, stand-pat cutoffs,
@@ -391,6 +404,24 @@ pub struct SearchDiagnostics {
     /// changing the production TT layout.
     tt_reuse: Option<TtReuseObserver>,
     tt_attribution: Option<tt_attribution::Endpoint>,
+}
+
+pub(crate) struct V2MoveTrace {
+    hash: u64,
+    mv: Move,
+    counts: [AtomicU64; 15],
+}
+
+impl V2MoveTrace {
+    #[inline]
+    pub(crate) fn matches(&self, mv: Move) -> bool {
+        self.mv == mv
+    }
+
+    #[inline]
+    pub(crate) fn record(&self, event: usize) {
+        self.counts[event].fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 const WORK_SAMPLE_LOG2: u32 = 8;
@@ -937,6 +968,9 @@ impl SearchDiagnostics {
             by_depth: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             fail_low_nodes: AtomicU64::new(0),
             move_stages: std::array::from_fn(|_| AtomicU64::new(0)),
+            v2_move_decisions: std::array::from_fn(|_| AtomicU64::new(0)),
+            v2_move_trace: None,
+            v2_quiet_trace_exemption: false,
             v2_nmp: v2::NmpDiagnostics::default(),
             aspiration: aspiration::AspirationDiagnostics::default(),
             qsearch: std::array::from_fn(|_| AtomicU64::new(0)),
@@ -1168,6 +1202,48 @@ impl SearchDiagnostics {
             quiescence_inclusive_ns: self.quiescence_inclusive_ns.load(Ordering::Relaxed),
             root_mate_safety_ns: self.root_mate_safety_ns.load(Ordering::Relaxed),
         }
+    }
+    /// Aggregate SEARCH_V2 move decisions. These counts do not identify a
+    /// particular root line and are populated only by an opted-in observer.
+    pub fn v2_move_decision_counts(&self) -> [u64; 7] {
+        std::array::from_fn(|index| self.v2_move_decisions[index].load(Ordering::Relaxed))
+    }
+    /// Trace one legal move at one interior position using a bounded set of
+    /// counters. Repeated visits across iterations and transpositions accrue.
+    pub fn with_v2_move_trace(hash: u64, mv: Move) -> Self {
+        Self {
+            v2_move_trace: Some(V2MoveTrace {
+                hash,
+                mv,
+                counts: std::array::from_fn(|_| AtomicU64::new(0)),
+            }),
+            ..Self::counters_only()
+        }
+    }
+
+    /// Trace one move and protect it from V2's quiet LMP, history, futility,
+    /// and SEE pruning only at the requested position. Diagnostic use only.
+    pub fn with_v2_quiet_trace_exemption(hash: u64, mv: Move) -> Self {
+        Self {
+            v2_quiet_trace_exemption: true,
+            ..Self::with_v2_move_trace(hash, mv)
+        }
+    }
+
+    /// Order: pre-TT nodes, move loops, generated, considered, LMP, quiet
+    /// history/futility/SEE, tactical futility/SEE, searched, reduced,
+    /// excluded, skipped quiet stage, and filtered non-promotion.
+    pub fn v2_move_trace_counts(&self) -> Option<[u64; 15]> {
+        self.v2_move_trace
+            .as_ref()
+            .map(|trace| std::array::from_fn(|index| trace.counts[index].load(Ordering::Relaxed)))
+    }
+
+    #[inline]
+    pub(crate) fn v2_move_trace_for(&self, hash: u64) -> Option<&V2MoveTrace> {
+        self.v2_move_trace
+            .as_ref()
+            .filter(|trace| trace.hash == hash)
     }
     /// Return sampled TT ownership counters for Lazy SMP diagnostics.
     ///
@@ -3074,7 +3150,11 @@ fn root_search_inner_tracked(
         // Late quiet root moves get a reduced null-window probe first
         // (ROOT_LMR 1: every late move).
         let quiet = p::ROOT_LMR() != 0 || (board.piece_at(m.to).is_none() && !m.promote);
-        let reduce = root_lmr_reduction(depth, i, quiet, full_root_lmr);
+        let reduce = if state.pruning.late_move_reduction {
+            root_lmr_reduction(depth, i, quiet, full_root_lmr)
+        } else {
+            0
+        };
         set_current_move(0, Some(m));
         let tok = board.do_move(m);
         let child_in_check = is_in_check(board, board.side_to_move);
@@ -4007,9 +4087,10 @@ fn learn_at_node_exit(
 // ============================================================
 
 /// Resolve a position to quiescence before calling evaluate. Searches captures
-/// always, all legal replies while in check, and (only at qply 0) a few safe
-/// quiet checks. Bounded by QSEARCH_MAX_PLY so forcing-check lines can't recurse
-/// without end.
+/// outside check and all legal replies while in check. Optional QS_PROMO adds
+/// quiet non-capture promotions at the first qsearch ply (or at every ply with
+/// its recursive bit). Bounded by QSEARCH_MAX_PLY so forcing-check lines cannot
+/// recurse without end.
 #[allow(clippy::too_many_arguments)]
 fn quiescence(
     state: &Arc<SearchState>,
@@ -4109,8 +4190,8 @@ fn quiescence_with_pending(
     }
 
     // A depth-zero TT entry represents only the top-level qsearch problem.
-    // Recursive qsearch values depend on qply (quiet checks are expanded only
-    // at qply 0), so they must not be reused as if they were interchangeable.
+    // Recursive qsearch values depend on qply (optional quiet promotions are
+    // normally expanded only at qply 0), so they are not interchangeable.
     // Main-search entries have depth >= 1 and are intentionally ignored here:
     // a shared speculative TT entry can have a different search window and
     // score semantics from this qsearch node.
@@ -4316,7 +4397,19 @@ fn quiescence_with_pending(
         move_buffer
     };
 
-    if move_buffer.is_empty() {
+    // Keep the optional promotion lane reachable even when there are no
+    // captures. The default QS_PROMO=0 does not generate or search these moves.
+    let qs_promo = p::QS_PROMO();
+    let quiet_promos = if qs_promo & 3 != 0 && !in_check && (qply == 0 || qs_promo & 8 != 0) {
+        Some(MoveBuffer::quiet_promotions(
+            board,
+            qs_promo & 1 != 0,
+            qs_promo & 2 != 0,
+        ))
+    } else {
+        None
+    };
+    if move_buffer.is_empty() && quiet_promos.as_ref().is_none_or(MoveBuffer::is_empty) {
         if let Some(diagnostics) = state.counters() {
             diagnostics.qsearch[4].fetch_add(1, Ordering::Relaxed);
         }
@@ -4451,9 +4544,7 @@ fn quiescence_with_pending(
 
     // QS_PROMO: promotions that capture nothing (bit 1 pawns, 2 bishops and
     // rooks; bit 8 at every quiescence ply, otherwise at the first only).
-    let qs_promo = p::QS_PROMO();
-    if qs_promo & 3 != 0 && !in_check && (qply == 0 || qs_promo & 8 != 0) {
-        let promos = MoveBuffer::quiet_promotions(board, qs_promo & 1 != 0, qs_promo & 2 != 0);
+    if let Some(promos) = quiet_promos {
         for &m in promos.as_slice() {
             if qs_on {
                 set_current_move(ply, Some(m));
@@ -4531,6 +4622,21 @@ fn quiescence_with_pending(
 // Phase 3: Speculative / Preemptive Searcher
 // ============================================================
 
+/// Optional background reuse of safe atomic heuristics. The source is either
+/// the foreground's tables or a separate background-only set.
+#[derive(Clone)]
+pub(crate) struct SpeculativeSharedHeuristics {
+    history: Arc<HistoryTable>,
+    countermoves: Arc<CountermoveTable>,
+}
+
+#[derive(Clone, Copy)]
+enum SpeculativeHeuristicsMode {
+    Fresh,
+    ForegroundShared,
+    BackgroundShared,
+}
+
 /// Search statistics returned by `SpeculativeSearcher`
 pub struct SpecSearchInfo {
     /// Best move found, if any.
@@ -4576,6 +4682,9 @@ pub struct SpeculativeSearcher {
     // global pool so they can never starve alpha_beta's own YBW dispatch
     // (`work.into_par_iter()...collect()`) of a worker. See SpecState::pool.
     spec_pool: Arc<rayon::ThreadPool>,
+    heuristics_mode: SpeculativeHeuristicsMode,
+    background_heuristics: Option<SpeculativeSharedHeuristics>,
+    isolate_speculative_tt: bool,
 }
 
 impl SpeculativeSearcher {
@@ -4599,7 +4708,41 @@ impl SpeculativeSearcher {
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
             spec_pool: Arc::new(spec_pool),
+            heuristics_mode: SpeculativeHeuristicsMode::Fresh,
+            background_heuristics: None,
+            isolate_speculative_tt: false,
         }
+    }
+
+    /// Opt-in experiment: background jobs reuse the foreground's atomic
+    /// history and countermove tables instead of allocating fresh tables.
+    /// This may change move ordering; it is not the default search mode.
+    pub fn with_shared_speculative_heuristics(tt: Arc<Tt>, top_n: usize) -> Self {
+        let mut searcher = Self::new(tt, top_n);
+        searcher.heuristics_mode = SpeculativeHeuristicsMode::ForegroundShared;
+        searcher
+    }
+
+    /// Opt-in control: background tasks share a separate set of atomic
+    /// ordering tables. Foreground history stays independent, while one
+    /// background table set is retained by this searcher across invocations.
+    pub fn with_background_shared_speculative_heuristics(tt: Arc<Tt>, top_n: usize) -> Self {
+        let mut searcher = Self::new(tt, top_n);
+        searcher.background_heuristics = Some(SpeculativeSharedHeuristics {
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
+        });
+        searcher.heuristics_mode = SpeculativeHeuristicsMode::BackgroundShared;
+        searcher
+    }
+
+    /// Diagnostic control: background jobs share their own heuristic tables
+    /// and write to a separate TT. Candidate selection still reads the
+    /// foreground TT. This cannot test beneficial speculative TT reuse.
+    pub fn with_background_shared_heuristics_and_isolated_tt(tt: Arc<Tt>, top_n: usize) -> Self {
+        let mut searcher = Self::with_background_shared_speculative_heuristics(tt, top_n);
+        searcher.isolate_speculative_tt = true;
+        searcher
     }
 
     /// Returns a clone of the abort flag; set to `true` to stop an in-progress search.
@@ -4626,6 +4769,10 @@ impl SpeculativeSearcher {
         }
         self.history.clear();
         self.countermoves.clear();
+        if let Some(background) = &self.background_heuristics {
+            background.history.clear();
+            background.countermoves.clear();
+        }
     }
 
     /// Age transposition-table entries written by earlier searches.
@@ -4658,6 +4805,7 @@ impl SpeculativeSearcher {
     ) -> SpecSearchInfo {
         self.spec_pool
             .install(|| self.search_with_history_on_worker(board, config, history, None))
+            .0
     }
 
     /// Run with task-boundary telemetry and a fresh initial-position history.
@@ -4684,16 +4832,20 @@ impl SpeculativeSearcher {
         history: &PositionHistory,
     ) -> (SpecSearchInfo, SpeculativeDiagnosticsSnapshot) {
         let diagnostics = Arc::new(SpecDiagnostics::with_tt(&self.tt));
-        let info = self.spec_pool.install(|| {
+        let (info, selections) = self.spec_pool.install(|| {
             self.search_with_history_on_worker(board, config, history, Some(diagnostics.clone()))
         });
         let workers = self.spec_pool.current_num_threads();
-        let snapshot = diagnostics.snapshot(
+        let mut snapshot = diagnostics.snapshot(
             workers,
             self.top_n.min(workers.saturating_sub(1)),
             info.elapsed,
             config.time_limit,
         );
+        snapshot.selection_trace_len = selections.len() as u8;
+        for (slot, selection) in snapshot.selection_trace.iter_mut().zip(selections) {
+            *slot = Some(selection);
+        }
         (info, snapshot)
     }
 
@@ -4705,7 +4857,7 @@ impl SpeculativeSearcher {
         config: SearchConfig,
         history: &PositionHistory,
         diagnostics: Option<Arc<SpecDiagnostics>>,
-    ) -> SpecSearchInfo {
+    ) -> (SpecSearchInfo, Vec<SpeculativeCandidateSelection>) {
         reset_root_order_state();
         debug_assert_eq!(
             history.entries().last().map(|entry| entry.hash),
@@ -4714,6 +4866,10 @@ impl SpeculativeSearcher {
         if p::HIST_KEEP() == 0 {
             self.history.clear();
             self.countermoves.clear();
+            if let Some(background) = &self.background_heuristics {
+                background.history.clear();
+                background.countermoves.clear();
+            }
         }
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
@@ -4742,6 +4898,15 @@ impl SpeculativeSearcher {
             pool: self.spec_pool.clone(),
             in_flight: std::sync::atomic::AtomicUsize::new(0),
             diagnostics: diagnostics.clone(),
+            shared_heuristics: match self.heuristics_mode {
+                SpeculativeHeuristicsMode::Fresh => None,
+                SpeculativeHeuristicsMode::ForegroundShared => Some(SpeculativeSharedHeuristics {
+                    history: self.history.clone(),
+                    countermoves: self.countermoves.clone(),
+                }),
+                SpeculativeHeuristicsMode::BackgroundShared => self.background_heuristics.clone(),
+            },
+            child_tt: self.isolate_speculative_tt.then(|| Tt::new(1)),
         });
 
         // Watchdog: guarantee the search stops at the hard deadline regardless of
@@ -4774,6 +4939,7 @@ impl SpeculativeSearcher {
             best_pv,
             bestmove_changes,
             join_started,
+            selection_trace,
         ) = rayon::scope(|scope| {
             struct AbortOnExit<'a> {
                 budget: &'a Budget,
@@ -4809,6 +4975,7 @@ impl SpeculativeSearcher {
             let mut pv_list: Vec<(Move, i32)> = Vec::new();
             let mut best_pv = Vec::new();
             let mut bestmove_changes = 0u32;
+            let mut selection_trace = Vec::new();
             let use_spec = config.multi_pv == 1;
 
             for depth in 1..=config.max_depth {
@@ -4826,6 +4993,12 @@ impl SpeculativeSearcher {
                 } else {
                     None
                 };
+                if diagnostics.is_some()
+                    && selection_trace.len() < 16
+                    && let Some(selection) = spec_group.as_ref().and_then(SpecGroup::selection)
+                {
+                    selection_trace.push(selection);
+                }
 
                 // MultiPV: run N root searches per depth, excluding previously found moves
                 let mut depth_pv: Vec<(Move, i32)> = Vec::new();
@@ -4933,6 +5106,7 @@ impl SpeculativeSearcher {
                 best_pv,
                 bestmove_changes,
                 join_started,
+                selection_trace,
             )
         });
 
@@ -4952,7 +5126,7 @@ impl SpeculativeSearcher {
         } else {
             best_pv
         };
-        SpecSearchInfo {
+        let info = SpecSearchInfo {
             best_move,
             score: best_score,
             depth: done_depth,
@@ -4964,7 +5138,8 @@ impl SpeculativeSearcher {
             pv_list,
             pv,
             bestmove_changes,
-        }
+        };
+        (info, selection_trace)
     }
 }
 
@@ -6859,6 +7034,209 @@ mod see_tests {
     }
 
     #[test]
+    fn v2_lmr_ablation_disables_reduced_children_without_mutating_board() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let sfen = "4kg3/9/9/9/9/9/9/1R7/4K4 b P 1";
+                let config = SearchConfig {
+                    max_depth: 50,
+                    node_limit: Some(20_000),
+                    ..SearchConfig::default()
+                };
+                let run = |late_move_reduction| {
+                    let mut board = Board::from_sfen(sfen).unwrap();
+                    let initial_hash = board.hash();
+                    let counters = Arc::new(SearchDiagnostics::counters_only());
+                    let searcher = Searcher::with_pruning_and_diagnostics(
+                        Tt::new(4),
+                        PruningConfig {
+                            late_move_reduction,
+                            ..PruningConfig::default()
+                        },
+                        counters.clone(),
+                    );
+                    let result = searcher.search(&mut board, config);
+                    assert_eq!(board.hash(), initial_hash);
+                    assert!(result.best_move.is_some());
+                    assert!(result.depth > 0);
+                    (result, counters.v2_move_decision_counts())
+                };
+                let (enabled, enabled_counts) = run(true);
+                let (disabled, disabled_counts) = run(false);
+                assert!(enabled_counts[6] > 0);
+                assert_eq!(disabled_counts[6], 0);
+                let mut unobserved_board = Board::from_sfen(sfen).unwrap();
+                let unobserved = Searcher::with_pruning(Tt::new(4), PruningConfig::default())
+                    .search(&mut unobserved_board, config);
+                assert_eq!(
+                    unobserved_board.hash(),
+                    Board::from_sfen(sfen).unwrap().hash()
+                );
+                assert_eq!(enabled.best_move, unobserved.best_move);
+                assert_eq!(enabled.score, unobserved.score);
+                assert_eq!(enabled.depth, unobserved.depth);
+                assert_eq!(enabled.nodes, unobserved.nodes);
+                assert_eq!(enabled.pv, unobserved.pv);
+                assert!(
+                    generate_legal_moves(&mut Board::from_sfen(sfen).unwrap())
+                        .contains(&enabled.best_move.unwrap())
+                );
+                assert!(
+                    generate_legal_moves(&mut Board::from_sfen(sfen).unwrap())
+                        .contains(&disabled.best_move.unwrap())
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn v2_targeted_trace_records_a_real_reply_without_changing_search() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let sfen = "4kg3/9/9/9/9/9/9/1R7/4K4 b P 1";
+                let mut initial = Board::from_sfen(sfen).unwrap();
+                let root = crate::sfen::move_from_usi("P*4c", &initial).unwrap();
+                initial.do_move(root);
+                let response = crate::sfen::move_from_usi("4a5b", &initial).unwrap();
+                let trace = Arc::new(SearchDiagnostics::with_v2_move_trace(
+                    initial.hash(),
+                    response,
+                ));
+                let config = SearchConfig {
+                    max_depth: 50,
+                    node_limit: Some(20_000),
+                    ..SearchConfig::default()
+                };
+                let mut plain_board = Board::from_sfen(sfen).unwrap();
+                let plain = Searcher::with_pruning(Tt::new(4), PruningConfig::default())
+                    .search_root_move(&mut plain_board, config, root);
+                let mut traced_board = Board::from_sfen(sfen).unwrap();
+                let traced = Searcher::with_pruning_and_diagnostics(
+                    Tt::new(4),
+                    PruningConfig::default(),
+                    trace.clone(),
+                )
+                .search_root_move(&mut traced_board, config, root);
+                assert_eq!(plain_board.hash(), traced_board.hash());
+                assert_eq!(plain.best_move, traced.best_move);
+                assert_eq!(plain.score, traced.score);
+                assert_eq!(plain.depth, traced.depth);
+                assert_eq!(plain.nodes, traced.nodes);
+                assert_eq!(plain.pv, traced.pv);
+                let counts = trace.v2_move_trace_counts().unwrap();
+                assert!(counts[0] > 0);
+                assert!(counts[2] > 0);
+                assert!(counts[3] > 0);
+                assert!(counts[10] > 0);
+                assert_eq!(counts[10], counts[3]);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn v2_quiet_trace_exemption_searches_target_without_quiet_pruning() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let sfen = "4kg3/9/9/9/9/9/9/9/K8 b RP 1";
+                let mut after_root = Board::from_sfen(sfen).unwrap();
+                let root = crate::sfen::move_from_usi("P*4c", &after_root).unwrap();
+                after_root.do_move(root);
+                let reply = crate::sfen::move_from_usi("5a5b", &after_root).unwrap();
+                let diagnostics = Arc::new(SearchDiagnostics::with_v2_quiet_trace_exemption(
+                    after_root.hash(),
+                    reply,
+                ));
+                let mut board = Board::from_sfen(sfen).unwrap();
+                let original_hash = board.hash();
+                let info = Searcher::with_pruning_and_diagnostics(
+                    Tt::new(4),
+                    PruningConfig::default(),
+                    diagnostics.clone(),
+                )
+                .search_root_move(
+                    &mut board,
+                    SearchConfig {
+                        max_depth: 50,
+                        node_limit: Some(20_000),
+                        ..SearchConfig::default()
+                    },
+                    root,
+                );
+                assert_eq!(board.hash(), original_hash);
+                assert_eq!(info.best_move, Some(root));
+                let counts = diagnostics.v2_move_trace_counts().unwrap();
+                assert!(counts[2] > 0, "target was never generated");
+                assert!(counts[10] > 0, "target was never searched");
+                assert_eq!(&counts[4..8], &[0, 0, 0, 0], "quiet pruning reached target");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn v2_quiet_trace_exemption_preserves_search_when_target_was_not_pruned() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let sfen = "4kg3/9/9/9/9/9/9/1R7/4K4 b P 1";
+                let mut after_root = Board::from_sfen(sfen).unwrap();
+                let root = crate::sfen::move_from_usi("P*4c", &after_root).unwrap();
+                after_root.do_move(root);
+                let reply = crate::sfen::move_from_usi("4a5b", &after_root).unwrap();
+                let hash = after_root.hash();
+                let config = SearchConfig {
+                    max_depth: 50,
+                    node_limit: Some(20_000),
+                    ..SearchConfig::default()
+                };
+                let baseline_diagnostics =
+                    Arc::new(SearchDiagnostics::with_v2_move_trace(hash, reply));
+                let mut baseline_board = Board::from_sfen(sfen).unwrap();
+                let baseline = Searcher::with_pruning_and_diagnostics(
+                    Tt::new(4),
+                    PruningConfig::default(),
+                    baseline_diagnostics.clone(),
+                )
+                .search_root_move(&mut baseline_board, config, root);
+                let baseline_trace = baseline_diagnostics.v2_move_trace_counts().unwrap();
+                assert_eq!(&baseline_trace[4..8], &[0, 0, 0, 0]);
+                assert!(baseline_trace[10] > 0);
+
+                let exempt_diagnostics = Arc::new(
+                    SearchDiagnostics::with_v2_quiet_trace_exemption(hash, reply),
+                );
+                let mut exempt_board = Board::from_sfen(sfen).unwrap();
+                let exempt = Searcher::with_pruning_and_diagnostics(
+                    Tt::new(4),
+                    PruningConfig::default(),
+                    exempt_diagnostics.clone(),
+                )
+                .search_root_move(&mut exempt_board, config, root);
+                assert_eq!(baseline_board.hash(), exempt_board.hash());
+                assert_eq!(baseline.best_move, exempt.best_move);
+                assert_eq!(baseline.score, exempt.score);
+                assert_eq!(baseline.depth, exempt.depth);
+                assert_eq!(baseline.nodes, exempt.nodes);
+                assert_eq!(baseline.pv, exempt.pv);
+                assert_eq!(
+                    baseline_trace,
+                    exempt_diagnostics.v2_move_trace_counts().unwrap()
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
     fn diagnostics_tables_preserve_every_recorded_dimension() {
         let diagnostics = SearchDiagnostics::default();
 
@@ -7392,6 +7770,87 @@ mod see_tests {
             speculative.pv.first().copied(),
             (speculative.depth > 0).then_some(speculative_move),
             "the PV must be empty only for a depth-zero fallback"
+        );
+    }
+
+    #[test]
+    fn shared_speculative_heuristics_preserve_legal_move_and_release_permits() {
+        let mut board = Board::startpos();
+        let before = board.hash();
+        let searcher = SpeculativeSearcher::with_shared_speculative_heuristics(Tt::new(1), 2);
+        let (info, diagnostics) = searcher.search_with_diagnostics(
+            &mut board,
+            SearchConfig {
+                max_depth: 6,
+                time_limit: None,
+                node_limit: Some(512),
+                soft_limit: None,
+                multi_pv: 1,
+            },
+        );
+        assert_eq!(board.hash(), before);
+        assert!(generate_legal_moves(&mut board).contains(&info.best_move.unwrap()));
+        assert_eq!(diagnostics.outstanding_after_join, 0);
+        assert_eq!(
+            diagnostics.admitted,
+            diagnostics.completed + diagnostics.aborted
+        );
+    }
+
+    #[test]
+    fn background_shared_heuristics_keep_foreground_tables_separate() {
+        let mut board = Board::startpos();
+        let before = board.hash();
+        let searcher =
+            SpeculativeSearcher::with_background_shared_speculative_heuristics(Tt::new(1), 2);
+        let background = searcher.background_heuristics.as_ref().unwrap();
+        assert!(!Arc::ptr_eq(&background.history, &searcher.history));
+        assert!(!Arc::ptr_eq(
+            &background.countermoves,
+            &searcher.countermoves
+        ));
+        let (info, diagnostics) = searcher.search_with_diagnostics(
+            &mut board,
+            SearchConfig {
+                max_depth: 6,
+                time_limit: None,
+                node_limit: Some(512),
+                soft_limit: None,
+                multi_pv: 1,
+            },
+        );
+        assert_eq!(board.hash(), before);
+        assert!(generate_legal_moves(&mut board).contains(&info.best_move.unwrap()));
+        assert_eq!(diagnostics.outstanding_after_join, 0);
+        assert_eq!(
+            diagnostics.admitted,
+            diagnostics.completed + diagnostics.aborted
+        );
+    }
+
+    #[test]
+    fn isolated_background_tt_preserves_legal_result_and_releases_permits() {
+        let mut board = Board::startpos();
+        let before = board.hash();
+        let searcher =
+            SpeculativeSearcher::with_background_shared_heuristics_and_isolated_tt(Tt::new(1), 2);
+        assert!(searcher.isolate_speculative_tt);
+        let (info, diagnostics) = searcher.search_with_diagnostics(
+            &mut board,
+            SearchConfig {
+                max_depth: 6,
+                time_limit: None,
+                node_limit: Some(512),
+                soft_limit: None,
+                multi_pv: 1,
+            },
+        );
+        assert_eq!(board.hash(), before);
+        assert!(generate_legal_moves(&mut board).contains(&info.best_move.unwrap()));
+        assert_eq!(diagnostics.outstanding_after_join, 0);
+        assert_eq!(
+            diagnostics.admitted,
+            diagnostics.completed + diagnostics.aborted
         );
     }
 
@@ -8288,14 +8747,15 @@ mod regression_tests {
 
     #[test]
     fn qsearch_quiet_check_fixture_preserves_board_state() {
-        let mut board = Board::from_sfen("4k4/9/9/9/4R4/9/9/9/4K4 b - 1").unwrap();
+        let mut board = Board::from_sfen("5k3/9/9/9/4R4/9/9/9/4K4 b - 1").unwrap();
         let hash = board.hash();
         let quiet_check = Move::normal(
             Square::from_shogi(5, 5),
-            Square::from_shogi(5, 2),
+            Square::from_shogi(4, 5),
             PieceKind::Hisha,
             false,
         );
+        assert!(generate_legal_captures(&mut board).is_empty());
         assert!(
             generate_legal_moves(&mut board).contains(&quiet_check),
             "the rook quiet check must be legal"
@@ -8305,7 +8765,9 @@ mod regression_tests {
         board.undo_move(token);
         assert_eq!(board.hash(), hash, "quiet-check probe must undo exactly");
 
-        let state = fresh_state(Tt::new(1));
+        let diagnostics = Arc::new(SearchDiagnostics::counters_only());
+        let mut state = fresh_state(Tt::new(1));
+        Arc::get_mut(&mut state).unwrap().diagnostics = Some(diagnostics.clone());
         let history = PositionHistory::initial(hash);
         let _ = quiescence(
             &state,
@@ -8322,6 +8784,164 @@ mod regression_tests {
             hash,
             "qsearch quiet-check fixture must not mutate"
         );
+        assert_eq!(
+            diagnostics.qsearch_counts()[5],
+            0,
+            "default qsearch must not search a quiet check outside check"
+        );
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "isolated because QS_PROMO is a process-wide tuning parameter"]
+    fn tuned_qsearch_expands_quiet_promotion_without_captures() {
+        on_search_stack(|| {
+            struct RestoreDefault;
+            impl Drop for RestoreDefault {
+                fn drop(&mut self) {
+                    assert!(p::set("QS_PROMO", 0));
+                }
+            }
+            let _restore = RestoreDefault;
+            let cases = [
+                ("k8/9/4P4/9/9/9/9/9/8K b - 1", 5, 3, 5, 2, PieceKind::Fu, 1),
+                ("8k/9/9/9/9/9/4p4/9/K8 w - 1", 5, 7, 5, 8, PieceKind::Fu, 1),
+                (
+                    "k8/9/4B4/9/9/9/9/9/8K b - 1",
+                    5,
+                    3,
+                    4,
+                    2,
+                    PieceKind::Kaku,
+                    2,
+                ),
+            ];
+            for (sfen, from_file, from_rank, to_file, to_rank, kind, flag) in cases {
+                let mut board = Board::from_sfen(sfen).unwrap();
+                let original_hash = board.hash();
+                let history = PositionHistory::initial(original_hash);
+                let promotion = Move::normal(
+                    Square::from_shogi(from_file, from_rank),
+                    Square::from_shogi(to_file, to_rank),
+                    kind,
+                    true,
+                );
+                assert!(
+                    generate_legal_moves(&mut board).contains(&promotion),
+                    "{sfen}"
+                );
+                assert!(generate_legal_captures(&mut board).is_empty(), "{sfen}");
+
+                assert!(p::set("QS_PROMO", 0));
+                let baseline = quiescence(
+                    &fresh_state(Tt::new(1)),
+                    &mut board,
+                    NEG_INF,
+                    POS_INF,
+                    0,
+                    0,
+                    None,
+                    &SearchHistory::root(&history),
+                );
+                assert!(p::set("QS_PROMO", flag));
+                let promoted = quiescence(
+                    &fresh_state(Tt::new(1)),
+                    &mut board,
+                    NEG_INF,
+                    POS_INF,
+                    0,
+                    0,
+                    None,
+                    &SearchHistory::root(&history),
+                );
+                assert!(
+                    promoted > baseline,
+                    "quiet promotion must be searched: {sfen}"
+                );
+                assert_eq!(board.hash(), original_hash);
+                assert_eq!(
+                    board.side_to_move,
+                    if sfen.contains(" b ") {
+                        Color::Black
+                    } else {
+                        Color::White
+                    }
+                );
+            }
+        });
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "isolated because QS_PROMO is a process-wide tuning parameter"]
+    fn tuned_qsearch_promotion_respects_check_capture_and_recursive_scope() {
+        on_search_stack(|| {
+            struct RestoreDefault;
+            impl Drop for RestoreDefault {
+                fn drop(&mut self) {
+                    assert!(p::set("QS_PROMO", 0));
+                }
+            }
+            let _restore = RestoreDefault;
+            let score = |sfen: &str, flag: i32, qply: u32| {
+                assert!(p::set("QS_PROMO", flag));
+                let mut board = Board::from_sfen(sfen).unwrap();
+                let hash = board.hash();
+                let history = PositionHistory::initial(hash);
+                let value = quiescence(
+                    &fresh_state(Tt::new(1)),
+                    &mut board,
+                    NEG_INF,
+                    POS_INF,
+                    qply,
+                    qply,
+                    None,
+                    &SearchHistory::root(&history),
+                );
+                assert_eq!(board.hash(), hash);
+                value
+            };
+
+            // While in check, all legal evasions are generated by the normal
+            // qsearch path. The optional quiet-promotion lane must not change
+            // it, whether a capture evasion is also available or not.
+            for (sfen, capture_evasions) in [
+                ("k8/9/4K3r/6P2/9/9/9/9/9 b - 1", 0),
+                ("k8/9/4K3r/6P2/9/5B3/9/9/9 b - 1", 2),
+            ] {
+                let mut board = Board::from_sfen(sfen).unwrap();
+                assert!(is_in_check(&board, board.side_to_move));
+                let legal = generate_legal_moves(&mut board);
+                assert!(
+                    legal
+                        .iter()
+                        .any(|m| m.promote && board.piece_at(m.to).is_none())
+                );
+                assert_eq!(
+                    legal
+                        .iter()
+                        .filter(|m| board.piece_at(m.to).is_some())
+                        .count(),
+                    capture_evasions
+                );
+                let baseline = score(sfen, 0, 0);
+                for flag in [1, 2, 3, 9, 11] {
+                    assert_eq!(score(sfen, flag, 0), baseline, "{sfen}, flag={flag}");
+                }
+            }
+
+            // Captures no longer hide the top-level quiet-promotion lane.
+            let with_capture = "k8/9/4P4/9/9/6B2/9/8p/K8 b - 1";
+            let mut board = Board::from_sfen(with_capture).unwrap();
+            assert!(!is_in_check(&board, board.side_to_move));
+            assert!(!generate_legal_captures(&mut board).is_empty());
+            assert!(score(with_capture, 1, 0) > score(with_capture, 0, 0));
+
+            // Bit 8 alone extends the promotion lane beyond qply zero.
+            let no_capture = "k8/9/4P4/9/9/9/9/9/8K b - 1";
+            assert_eq!(score(no_capture, 1, 1), score(no_capture, 0, 1));
+            assert!(score(no_capture, 9, 1) > score(no_capture, 1, 1));
+        });
     }
 
     #[test]

@@ -42,6 +42,7 @@ pub(crate) fn speculative_child_search(
 /// The optional observer reads the local node total only when this job exits.
 /// It adds no per-node atomics or clock reads to the recursive search.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(crate) fn speculative_child_search_observed(
     tt: Arc<Tt>,
     parent_budget: Arc<Budget>,
@@ -52,6 +53,34 @@ pub(crate) fn speculative_child_search_observed(
     history: &PositionHistory,
     diagnostics: Option<&crate::speculative::SpecDiagnostics>,
 ) -> Option<i32> {
+    speculative_child_search_with_heuristics_observed(
+        tt,
+        parent_budget,
+        task_abort,
+        board,
+        mv,
+        depth,
+        history,
+        diagnostics,
+        None,
+    )
+}
+
+/// The opt-in shared-heuristics path keeps the same rules and budget while
+/// reusing the foreground's atomic ordering tables.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn speculative_child_search_with_heuristics_observed(
+    tt: Arc<Tt>,
+    parent_budget: Arc<Budget>,
+    task_abort: Arc<AtomicBool>,
+    board: &mut Board,
+    mv: Move,
+    depth: u32,
+    history: &PositionHistory,
+    diagnostics: Option<&crate::speculative::SpecDiagnostics>,
+    shared: Option<&super::SpeculativeSharedHeuristics>,
+) -> Option<i32> {
+    let phase_started = diagnostics.map(|observer| observer.now_ns());
     let budget = Arc::new(Budget::cooperative_child(parent_budget, task_abort));
     struct ObserveNodes<'a> {
         diagnostics: &'a crate::speculative::SpecDiagnostics,
@@ -74,16 +103,36 @@ pub(crate) fn speculative_child_search_observed(
         || depth == 0
         || history.entries().last().map(|entry| entry.hash) != Some(board.hash())
         || history.outcome_at_current_position().is_some()
-        || !MoveBuffer::legal(board).as_slice().contains(&mv)
     {
+        if let (Some(observer), Some(started)) = (diagnostics, phase_started) {
+            observer.add_child_preflight_ns(observer.now_ns().saturating_sub(started));
+        }
         return None;
     }
+    let legal_started = diagnostics.map(|observer| observer.now_ns());
+    let legal = MoveBuffer::legal(board).as_slice().contains(&mv);
+    if let (Some(observer), Some(started)) = (diagnostics, legal_started) {
+        observer.add_child_legal_check_ns(observer.now_ns().saturating_sub(started));
+    }
+    if !legal {
+        if let (Some(observer), Some(started)) = (diagnostics, phase_started) {
+            observer.add_child_preflight_ns(observer.now_ns().saturating_sub(started));
+        }
+        return None;
+    }
+    let state_started = diagnostics.map(|observer| observer.now_ns());
     let state = Arc::new(SearchState {
         tt,
         budget,
         killers: KillerTable::new(),
-        history: Arc::new(HistoryTable::new()),
-        countermoves: Arc::new(CountermoveTable::new()),
+        history: shared.map_or_else(
+            || Arc::new(HistoryTable::new()),
+            |tables| tables.history.clone(),
+        ),
+        countermoves: shared.map_or_else(
+            || Arc::new(CountermoveTable::new()),
+            |tables| tables.countermoves.clone(),
+        ),
         diagnostics: diagnostics.and_then(|observer| observer.kernel_diagnostics(true)),
         // Caching changes cost, not the evaluator. Do not allocate a separate
         // large cache for each short-lived speculative task.
@@ -94,6 +143,9 @@ pub(crate) fn speculative_child_search_observed(
         },
         retirement: None,
     });
+    if let (Some(observer), Some(started)) = (diagnostics, state_started) {
+        observer.add_child_state_setup_ns(observer.now_ns().saturating_sub(started));
+    }
 
     // Rayon may run this job on a worker which has a suspended foreground
     // search. Preserve its complete TLS path, and start this candidate with
@@ -111,6 +163,12 @@ pub(crate) fn speculative_child_search_observed(
 
     let root_history = SearchHistory::root(history);
     let (token, child_in_check, child_history) = play(board, mv, &root_history);
+    let kernel_started = diagnostics.map(|observer| observer.now_ns());
+    if let (Some(observer), Some(started), Some(kernel)) =
+        (diagnostics, phase_started, kernel_started)
+    {
+        observer.add_child_preflight_ns(kernel.saturating_sub(started));
+    }
     let score = -alpha_beta(
         &state,
         board,
@@ -124,6 +182,9 @@ pub(crate) fn speculative_child_search_observed(
         Some(child_in_check),
         &child_history,
     );
+    if let (Some(observer), Some(kernel)) = (diagnostics, kernel_started) {
+        observer.add_child_kernel_ns(observer.now_ns().saturating_sub(kernel));
+    }
     board.undo_move_for_search(token);
     (!state.budget.should_abort()).then_some(score)
 }

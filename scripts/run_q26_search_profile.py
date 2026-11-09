@@ -119,9 +119,8 @@ def build_command(
     if time_ms is not None:
         command.extend(("--time-ms", str(time_ms), "--max-depth", str(max_depth)))
     else:
-        # search_diagnostic treats an explicit --max-depth as fixed-depth mode
-        # and deliberately disables its node limit. Leave the engine's depth-50
-        # safety cap implicit so --nodes remains the controlling budget.
+        # Leave max depth implicit for the node-only profile. The diagnostic
+        # now also honors explicit --nodes when a depth limit is requested.
         command.extend(("--nodes", str(nodes)))
     command.extend(("--expected-sfen", position["sfen"]))
     if profile:

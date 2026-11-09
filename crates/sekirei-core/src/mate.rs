@@ -721,6 +721,39 @@ mod tests {
     }
 
     #[test]
+    fn composed_strategy_contrasts_have_complete_bounded_mate_results() {
+        for (focus, contrast, max_ply) in [
+            (
+                "4k4/9/4r4/9/1b7/9/9/1R2G4/4K4 b - 1",
+                "4k4/9/5r3/9/1b7/9/9/1R2G4/4K4 b - 1",
+                5,
+            ),
+            (
+                "4k4/9/4r4/9/9/9/9/4G4/4K4 b - 1",
+                "4k4/9/3r5/9/9/9/9/4G4/4K4 b - 1",
+                3,
+            ),
+        ] {
+            for (sfen, expected) in [
+                (focus, MateAnalysisOutcome::Mate),
+                (contrast, MateAnalysisOutcome::NoMate),
+            ] {
+                let mut board = Board::from_sfen(sfen).unwrap();
+                let mv = move_from_usi("5h5g", &board).unwrap();
+                assert!(generate_legal_moves(&mut board).contains(&mv));
+                board.do_move(mv);
+                let proof = analyze_mate(&board, max_ply, 10_000);
+                assert_eq!(proof.invalid_reason, None);
+                assert!(!proof.aborted);
+                assert_eq!(proof.outcome, expected);
+                if expected == MateAnalysisOutcome::Mate {
+                    assert_eq!(proof.shortest_proof_ply(), Some(max_ply));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn finds_head_gold_drop_mate() {
         // Gold drop on the king's head, supported by a pawn.
         assert_mates("4k4/9/4P4/9/9/9/9/9/4K4 b G 1");

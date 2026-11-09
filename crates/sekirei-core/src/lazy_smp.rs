@@ -704,6 +704,27 @@ impl LazySmpSearcher {
         Option<LazySmpRootHintEffectiveness>,
         Vec<LazySmpWorkerTtReuse>,
     )> {
+        let (info, effectiveness, tt_reuse, _) = self
+            .try_search_with_history_and_root_hint_effectiveness_and_pv_roots(
+                board, config, history,
+            )?;
+        Some((info, effectiveness, tt_reuse))
+    }
+
+    /// Return each worker's completed PV root beside the stable result API.
+    /// The vector is in worker order and is captured before the selector
+    /// consumes the search results. An empty PV is represented by `None`.
+    pub fn try_search_with_history_and_root_hint_effectiveness_and_pv_roots(
+        &self,
+        board: &Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> Option<(
+        LazySmpInfo,
+        Option<LazySmpRootHintEffectiveness>,
+        Vec<LazySmpWorkerTtReuse>,
+        Vec<Option<crate::mv::Move>>,
+    )> {
         let _invocation = SearchInvocationGuard::try_acquire(&self.search_active)?;
         Some(self.search_with_history_inner(board, config, history))
     }
@@ -717,6 +738,7 @@ impl LazySmpSearcher {
         LazySmpInfo,
         Option<LazySmpRootHintEffectiveness>,
         Vec<LazySmpWorkerTtReuse>,
+        Vec<Option<crate::mv::Move>>,
     ) {
         debug_assert_eq!(
             history.entries().last().map(|entry| entry.hash),
@@ -859,6 +881,10 @@ impl LazySmpSearcher {
                 })
             })
             .collect();
+        let worker_pv_roots = results
+            .iter()
+            .map(|(info, _)| info.pv.first().copied())
+            .collect();
         let mut search_results: Vec<SearchInfo> =
             results.into_iter().map(|(info, _)| info).collect();
         let selected_worker = select_worker_index(&search_results, self.flags);
@@ -904,7 +930,7 @@ impl LazySmpSearcher {
                         generation_gap_max: value.generation_gap_max,
                     }
                 });
-        (info, root_hint_stats, worker_tt_reuse)
+        (info, root_hint_stats, worker_tt_reuse, worker_pv_roots)
     }
 }
 
@@ -950,8 +976,8 @@ fn tt_write_delta(after: TtWriteSnapshot, before: TtWriteSnapshot) -> TtWriteSna
 /// under the behaviour switches `flags`: worker 0's ([`LAZY_MAIN_RESULT`]),
 /// a proven winning mate, the vote ([`LAZY_VOTE`]), depth-preserving consensus
 /// ([`LAZY_DEPTH_CONSENSUS`]), the deepest with ties to the lowest-numbered
-/// worker ([`LAZY_TIE_FIRST`]), or the default deepest result with score and
-/// move tie-breaks.
+/// worker ([`LAZY_TIE_FIRST`]), or the default deepest result, preferring a
+/// move whose completed PV matches before score and move tie-breaks.
 pub fn select_worker_result(results: Vec<SearchInfo>, flags: u32) -> SearchInfo {
     let mut results = results;
     let selected = select_worker_index(&results, flags);
@@ -987,20 +1013,34 @@ fn select_worker_index(results: &[SearchInfo], flags: u32) -> usize {
         results.iter().enumerate().fold(0, |best, (index, result)| {
             let best_key = (
                 results[best].depth,
+                coherent_reported_move(&results[best]).is_some(),
                 results[best].score,
                 move_key(results[best].best_move),
             );
-            let key = (result.depth, result.score, move_key(result.best_move));
+            let key = (
+                result.depth,
+                coherent_reported_move(result).is_some(),
+                result.score,
+                move_key(result.best_move),
+            );
             if key > best_key { index } else { best }
         })
     }
 }
 
+/// A completed score belongs to the returned move only when it starts that
+/// completed iteration's PV. Depth-zero fallbacks have no completed score.
+fn coherent_reported_move(result: &SearchInfo) -> Option<crate::mv::Move> {
+    let mv = result.best_move?;
+    (result.depth > 0 && result.pv.first().copied() == Some(mv)).then_some(mv)
+}
+
 /// Keep the deepest completed iteration and use shallower workers only as
 /// supporting votes for the moves reported by deepest workers.
 ///
-/// A move not produced at the maximum depth can never win. Among eligible
-/// moves, the number of workers reporting that move is the primary key; the
+/// A move not produced at the maximum depth can never win. An interrupted
+/// move detached from its completed score/PV does not count as support. Among
+/// eligible moves, the number of coherent workers reporting it is primary; the
 /// selected result still comes from a maximum-depth worker, with score and
 /// move order as deterministic tie-breaks. Thus this selector cannot reduce
 /// the completed depth merely to follow a majority of shallower helpers.
@@ -1019,13 +1059,13 @@ fn select_by_depth_consensus_index(results: &[SearchInfo]) -> usize {
 
     let mut candidates: Vec<(crate::mv::Move, usize)> = Vec::new();
     for result in results.iter().filter(|result| result.depth == max_depth) {
-        let Some(mv) = result.best_move else {
+        let Some(mv) = coherent_reported_move(result) else {
             continue;
         };
         if candidates.iter().all(|(candidate, _)| *candidate != mv) {
             let support = results
                 .iter()
-                .filter(|worker| worker.best_move == Some(mv))
+                .filter(|worker| coherent_reported_move(worker) == Some(mv))
                 .count();
             candidates.push((mv, support));
         }
@@ -1036,13 +1076,18 @@ fn select_by_depth_consensus_index(results: &[SearchInfo]) -> usize {
         .enumerate()
         .filter(|(_, result)| result.depth == max_depth)
         .max_by_key(|(_, result)| {
-            let support = result.best_move.map_or(0, |mv| {
+            let support = coherent_reported_move(result).map_or(0, |mv| {
                 candidates
                     .iter()
                     .find_map(|(candidate, support)| (*candidate == mv).then_some(*support))
                     .unwrap_or(0)
             });
-            (support, result.score, move_key(result.best_move))
+            (
+                support,
+                coherent_reported_move(result).is_some(),
+                result.score,
+                move_key(result.best_move),
+            )
         })
         .map(|(index, _)| index)
         .expect("maximum Lazy SMP depth comes from one worker")
@@ -1050,7 +1095,8 @@ fn select_by_depth_consensus_index(results: &[SearchInfo]) -> usize {
 
 /// Return the worker that proved the shortest winning mate.
 ///
-/// A completed exact mate is stronger evidence than a deeper heuristic score,
+/// A completed exact mate tied to the returned move is stronger evidence than
+/// a deeper heuristic score,
 /// so ordinary Lazy SMP selectors must not discard it merely because another
 /// worker completed one more iteration. [`LAZY_MAIN_RESULT`] remains an
 /// explicit diagnostic exception: that mode promises to return worker 0.
@@ -1061,7 +1107,7 @@ fn proven_winning_mate_index(results: &[SearchInfo]) -> Option<usize> {
         .enumerate()
         .filter(|(_, result)| {
             result.depth > 0
-                && result.best_move.is_some()
+                && coherent_reported_move(result).is_some()
                 && result.completed_bound == crate::search::SearchBound::Exact
                 && result.score >= mate_bound
         })
@@ -1073,8 +1119,9 @@ fn proven_winning_mate_index(results: &[SearchInfo]) -> Option<usize> {
 /// lowest-scoring worker still counts.
 const VOTE_BASE: i64 = 24;
 
-/// Pick the result whose move collects the most votes: each worker with a
-/// move votes for it with `(score - lowest score + VOTE_BASE) * depth`.
+/// Pick the result whose move collects the most votes: each worker whose
+/// completed PV starts with its returned move votes for it with
+/// `(score - lowest score + VOTE_BASE) * depth`.
 /// Among the workers behind the winning move, the deepest (then highest
 /// scoring) one supplies the result. A worker that found a mate for the side
 /// to move overrides the vote (the shortest such mate wins), since a proven
@@ -1086,7 +1133,10 @@ pub fn select_by_vote(mut results: Vec<SearchInfo>) -> SearchInfo {
 }
 
 fn select_by_vote_index(results: &[SearchInfo]) -> usize {
-    let with_move: Vec<&SearchInfo> = results.iter().filter(|r| r.best_move.is_some()).collect();
+    let with_move: Vec<&SearchInfo> = results
+        .iter()
+        .filter(|result| coherent_reported_move(result).is_some())
+        .collect();
     let chosen = if with_move.is_empty() {
         None
     } else {
@@ -1097,7 +1147,7 @@ fn select_by_vote_index(results: &[SearchInfo]) -> usize {
             .unwrap_or(0);
         let mut votes: Vec<(crate::mv::Move, i64)> = Vec::new();
         for r in &with_move {
-            let mv = r.best_move.expect("filtered");
+            let mv = coherent_reported_move(r).expect("filtered");
             let w = (i64::from(r.score) - lowest + VOTE_BASE) * i64::from(r.depth.max(1));
             match votes.iter_mut().find(|(m, _)| *m == mv) {
                 Some(entry) => entry.1 += w,
@@ -1156,8 +1206,9 @@ mod tests {
     }
 
     fn info(to: u8, score: i32, depth: u32) -> SearchInfo {
+        let best_move = Move::drop(Square::from_index(to), PieceKind::Kin);
         SearchInfo {
-            best_move: Some(Move::drop(Square::from_index(to), PieceKind::Kin)),
+            best_move: Some(best_move),
             score,
             depth,
             nodes: 0,
@@ -1167,7 +1218,7 @@ mod tests {
             completed_bound: SearchBound::Exact,
             aborted: false,
             abort_reason: "none",
-            pv: Vec::new(),
+            pv: vec![best_move],
         }
     }
 
@@ -1860,6 +1911,29 @@ mod tests {
         unproven.completed_bound = SearchBound::Unknown;
 
         let picked = select_worker_result(vec![info(1, 120, 12), unproven], 0);
+        assert_eq!(picked.best_move.map(|mv| mv.to.index()), Some(1));
+    }
+
+    #[test]
+    fn interrupted_move_cannot_inherit_completed_pv_mate_score_or_vote() {
+        let mut interrupted = info(2, crate::search::MATE_SCORE - 7, 9);
+        interrupted.best_move = Some(Move::drop(Square::from_index(4), PieceKind::Kin));
+        interrupted.aborted = true;
+        interrupted.bound = SearchBound::Unknown;
+        assert_eq!(coherent_reported_move(&interrupted), None);
+        let results = || {
+            let mut partial = info(2, crate::search::MATE_SCORE - 7, 9);
+            partial.best_move = Some(Move::drop(Square::from_index(4), PieceKind::Kin));
+            partial.aborted = true;
+            partial.bound = SearchBound::Unknown;
+            vec![partial, info(1, 100, 12)]
+        };
+        for flags in [0, LAZY_VOTE, LAZY_DEPTH_CONSENSUS, LAZY_TIE_FIRST] {
+            let picked = select_worker_result(results(), flags);
+            assert_eq!(picked.best_move.map(|mv| mv.to.index()), Some(1));
+        }
+
+        let picked = select_worker_result(vec![interrupted, info(1, 100, 9)], 0);
         assert_eq!(picked.best_move.map(|mv| mv.to.index()), Some(1));
     }
 
