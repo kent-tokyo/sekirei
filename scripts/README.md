@@ -176,6 +176,7 @@ each candidate run. Finalize only complete artifacts; keep `PASS`, `FAIL`,
 | `run_observed_process.py` | Launch one child and record fsynced start/exit events, output, status, and resource samples. No automatic retry. |
 | `nnue_gate_host.py` | Admit the next colour-reversed strength pair after the preregistered shared-host resource checks. |
 | `matched_nnue_gate_capacity.py` | Opt-in capacity and ten-minute stability decisions for the proposed matched HalfKP gate; read-only observations and pure between-pair decisions only. |
+| `run_matched_halfkp_gate.py` | One-shot, sequential matched HalfKP candidate gate with frozen inputs, complete colour-reversed pairs, independent observer, capacity admission and no automatic retry. |
 | `gate_orchestrator.py`, `*_strength_gate_*` | Freeze declarations and terminal gate evidence. |
 | `record_resume_run.py`, `attach_resume_manifest.py` | Preserve checkpoint and resume lineage. |
 | `split_gensfen_by_game.py` | Split current six-column gensfen by whole game; reject legacy five-column rows. |
