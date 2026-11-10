@@ -22,6 +22,7 @@ import time
 
 from scripts import matched_nnue_gate_capacity as capacity
 from scripts import nnue_gate_host as host
+from scripts.check_nnue_gate_preflight import preflight
 from scripts.run_observed_process import append, save
 
 
@@ -50,7 +51,9 @@ def check_pins(plan: dict) -> None:
 
 
 def validate_plan(plan: dict) -> list[str]:
-    require(plan.get("schema") == "sekirei.matched-halfkp-formal-gate.v1", "plan schema")
+    schema = plan.get("schema")
+    require(schema in {"sekirei.matched-halfkp-formal-gate.v1",
+                       "sekirei.matched-halfkp-formal-gate.v2"}, "plan schema")
     require(plan.get("status") == "PREREGISTERED_NO_GAMES", "plan status")
     require(plan.get("candidate") == "hypothesis" and plan.get("baseline") == "control",
             "candidate direction")
@@ -77,15 +80,19 @@ def validate_plan(plan: dict) -> list[str]:
             and plan.get("archive_path") == "/Volumes/ESD-EPA/Projects/sekirei_data",
             "archive path contract")
     pins = plan.get("pins")
-    require(isinstance(pins, dict) and set(pins) == {
+    required_pins = {
         "engine", "match", "control", "hypothesis", "roots", "root_manifest",
-        "proposal", "seed_reservation", "runner", "observer"}, "pins")
+        "proposal", "seed_reservation", "runner", "observer"}
+    if schema.endswith(".v2"):
+        required_pins.update({"ledger", "closure"})
+    require(isinstance(pins, dict) and set(pins) == required_pins, "pins")
     check_pins(plan)
     manifest = json.loads(Path(pins["root_manifest"]["path"]).read_text())
     require(manifest.get("status") == "complete"
             and manifest.get("requested_count") == 1000
             and len(manifest.get("positions", [])) == 1000
-            and len(manifest.get("exclusions", [])) == 50
+            and len(manifest.get("exclusions", [])) ==
+            (50 if schema.endswith(".v1") else plan.get("required_exclusion_count"))
             and manifest.get("openings_sha256") == pins["roots"]["sha256"],
             "unqualified formal roots")
     reservation = json.loads(Path(pins["seed_reservation"]["path"]).read_text())
@@ -96,6 +103,14 @@ def validate_plan(plan: dict) -> list[str]:
             "formal corpus size or format")
     require(len({row["identity_sha256"] for row in manifest["positions"]}) == 1000,
             "duplicate formal root identity")
+    if schema.endswith(".v2"):
+        closure = json.loads(Path(pins["closure"]["path"]).read_text())
+        ledger = json.loads(Path(pins["ledger"]["path"]).read_text())
+        require(plan.get("required_exclusion_count") == closure.get("manifest_count"),
+                "closure count changed")
+        require(ledger.get("latest_known_closure", {}).get("sha256") ==
+                pins["closure"]["sha256"], "ledger closure is stale")
+        preflight(plan, ledger, closure)
     return roots
 
 
