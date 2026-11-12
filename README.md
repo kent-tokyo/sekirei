@@ -124,6 +124,7 @@ manifests so inputs, settings, and outputs can be audited.
 ## Documentation
 
 - [Documentation index](DOCUMENTATION.md)
+- [Current r6 improvement trial history](docs/experiments/nnue_r6_progress_2026-11-13/README.md)
 - [Changelog](CHANGELOG.md) and [archived history](CHANGELOG_ARCHIVE.md)
 
 Implementation, tests, measurements, and released artifacts are separate
