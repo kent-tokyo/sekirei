@@ -45,3 +45,9 @@ S01の不適格なPGO時間測定は再判定しない。S02で適用経路を�
 **入力・条件:** S01と同じ清潔な隔離source `220a3eee35de0e79301b8a59d6d1149fccaf6629`を`--features tune`で1ジョブのreleaseビルドにする。局面は追跡済み`compiler_pgo_4t_v0.4.1/holdout32.sfen`（SHA-256 `a7edd63629414ce85f994167262994d8b3b4acf8bfbe400c938049b51eeb454a`）の先頭8件。材料評価、1T、`Hash=64`、`SearchMode=Auto`、`SpecTopN=0`、bookなし、`MoveOverhead=50`、`go btime 10000 wtime 10000 binc 100 winc 100`を固定する。同一バイナリでA=`T_TM_MODE=0`、B=`1`のみ変更。1局面A/B/B/Aの32探索、各回新規process・`usinewgame`・`isready`後に局面指定する。r6やSuisho5の評価は候補選択に使わない。
 
 **資源・判定:** 実行前に他engine/compiler jobとメモリ・空きを確認。ビルドは1ジョブ、壁時計5分、生成物1GiB、開始時空き6GiB以上。診断は逐次1T、全体60秒、1呼出し最大2秒、出力32MiB。全32検索の合法な返却、正常終了、go送信からbestmoveまで1,000ms以下を先に確認。A/Bで停止時間か完了深さの差が1局面以上あれば`MECHANISM_ACTIVE`として別の品質評価を検討し、差がなければ`NO_EFFECT_IN_SAMPLE`で止める。手の変化や深さだけで棋力向上・採用とはしない。ホスト負荷の連続監視がなければ時間値は探索的な作用確認に限る。旧410局へ合算しない。結果を見て局面や閾値を変更しない。
+
+### S03実行結果
+
+清潔なsource `220a3ee`のtune版binary SHA-256 `0c8a1fcfbc82676d00efe767851352c0350722f07daffd025b32d90115a668ec`を1ジョブ・約59秒でビルド。合法手照合toolは同じsourceでSHA-256 `00e9daf5c67ab10860b6e9756e6f3c8b208a629d4e01912fd4149d4cde44ac74`。ビルド出力約39MiB。計算前の空きは約23GiB、他のengine/compiler jobなし。材料評価の8局面×A/B/B/Aは32/32検索を11.63秒で完了した。全返却手は同じsourceの合法手集合に含まれ、PV先頭と一致。全processが正常exit0・reaped。最長返却は435msで登録1,000ms上限内。raw SHA-256 `1a3aaa0919c3129058f628b917471cc6b6448ef7f4e7954b0e62adc47ee63b7a`、実行script SHA-256 `0a60c8b445dda04ac91c815aa10fe5f2893c02343a4ff6ae0cc2bffe36d44a9d`。raw・両toolはGitHub対象外のローカル台帳commit `c15d3ef`へ保存した。
+
+**判定 `MECHANISM_ACTIVE_S03`。** `TM_MODE=1`は8局面中2局面で完了深さが1手・2手浅くなり、32回平均の使用時間はmode0が358.2ms、mode1が318.7msだった。8局面の返却手は両mode・各2回で同一。深さ・時間の差は時間節約機構が作用した観測であり、時計を次の手へ持ち越す実対局での棋力向上を示さない。ホスト連続監視がないため、時間の量も探索的。現時点でmode1を既定にせず、旧410局の未確定判定も維持する。
