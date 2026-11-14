@@ -305,3 +305,11 @@ S20の4敗局とは別の公開Floodgate元CSAから、[PT19～PT20](../public_t
 **判定・停止:** 証明初手`2b2a+`なら`R6_KNOWN_CASE_RECOVERED_S24`、別手なら`R6_KNOWN_CASE_NOT_RECOVERED_S24`。いずれも1件の既知局面だけで候補値1の棋力、独立転移、既定採用を判断しない。PT21の別棋譜で候補が転移しなかった判定を維持し、この局面の上限・候補値を結果後に変えない。
 
 **S24結果:** r6明示ロードの同一binaryで`T_V2_CHECK_R=1`へ切り替えると、既定64が`3e2d`を返した2023年の元局面で、証明初手`2b2a+`を99,727節点・完了深さ12・mate 13 scoreで返した。尺度・absolute・重みロードACK、正常終了を確認。私有`tasks/strength-progress-20261114/private/s24/result.json` SHA `3eb329da6a3ca424e655b5d4562ec90967d9ecc0fbc19ca8948e84aec2eb968b`。判定`R6_KNOWN_CASE_RECOVERED_S24`。既知1例に対する機構上の回復であり、PT21の別3例で候補1が既定と同じ2/3だった事実を変えない。候補の既定採用・対局棋力は未確認。次は別出典で元二玉局面の詰みを独立に証明できる入力が得られたとき、その固定集合に対するr6通常探索の見逃しと候補転移を別IDで調べる。
+
+## S25: 別出典のr6見逃しへ王手LMR候補1は転移するか（実行前登録）
+
+**入力・問い:** [PT23～PT25](../public_tsume_2026-11-14/PLAN.md)が結果を見る前の行順で選んだ別の公開Floodgate元CSA2件のうち、元二玉局面の13手詰みを証明した2012年の1件。PT25のr6既定64は証明初手`4a3b`を選ばず、100万節点で`2e2d`を返した。S24の候補値1が、2023年とは別出典のr6見逃しにも転移するかを問う。PT25 receipt SHA-256 `2854f49ac2ee5e2502b2178e87ba9583dc49ba59de6e1328dabd26b33a2a2b44`と元局面corpus SHA-256 `a44e6eeba687f328f08cbd1e95d79b65e293014ef96f5e7ac0bed8b603ef7b66`を固定する。
+
+**実行・判定:** PT25と同じsource `1e963743`、tune USI binary SHA `3819b63e0bd119f903aa6354bab8a9d05293ba6ee0a4a28ee3aa3fc37bdb4a79`、r6 SHA `634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469`。`T_V2_CHECK_R`だけ64から1へ変更し、r6ロード・尺度24・absolute ACK、1T、Hash64、Speculative、SpecTopN0、book無効、`T_SEARCH_V2=1`、`go nodes 1000000 movetime 1000`を維持。1冷起動・外側4秒、全体6秒、出力1MiB以内。`4a3b`なら`R6_SECOND_CASE_RECOVERED_S25`、別手なら`R6_SECOND_CASE_NOT_RECOVERED_S25`。異常は技術停止。いずれも2件の選択的な戦術局面であり、独立棋力、候補採用、正式H1の条件は変更しない。結果後の再試行・上限変更はしない。
+
+**S25結果:** 候補値1は2012年の元局面でも`2e2d`を返し、証明初手`4a3b`を選ばなかった（951,467節点・完了深さ15）。r6ロード・尺度・absolute ACKと正常終了を確認。私有`tasks/strength-progress-20261114/private/s25/result.json` SHA `cbbf34022ddd1c693ae392bcacd40c9a9ddf2722f39827f0c95ccb16d4411cde`。判定`R6_SECOND_CASE_NOT_RECOVERED_S25`。2023年1例の回復は別出典へ転移しなかった。PT26は同じ2局面の全件を扱う別登録の診断であり、この既知1例の結果と統計的に合算しない。候補値1の既定採用は停止し、2012年局面の詰み初手が通常探索で届かない機構を特定できるかを次に順位付けする。
