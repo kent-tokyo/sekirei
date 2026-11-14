@@ -2243,6 +2243,53 @@ mod tests {
     }
 
     #[test]
+    fn complete_search_propagates_exhausted_child_budgets_and_restores_board() {
+        let mut root = Board::from_sfen(SHORTEST_THREE_SFEN).unwrap();
+        let original = crate::sfen::board_to_sfen(&root);
+        let root_hash = root.hash();
+        let attacker = root.side_to_move;
+        let state = |hash, node_limit| CompleteMateSearch {
+            attacker,
+            nodes: 0,
+            node_limit,
+            deadline: None,
+            aborted: false,
+            deadline_expired: false,
+            path: vec![hash],
+        };
+        for limit in [0, 1] {
+            let mut search = state(root_hash, limit);
+            assert_eq!(search.attacker(&mut root, 3), Proof::Unknown);
+            assert!(search.aborted);
+            assert_eq!(root.hash(), root_hash);
+            assert_eq!(crate::sfen::board_to_sfen(&root), original);
+        }
+
+        let mut search = state(root_hash, 10);
+        let checking_move = search
+            .checking_moves(&mut root)
+            .into_iter()
+            .find(|&mv| {
+                let token = root.do_move_for_search(mv);
+                let has_reply = !generate_legal_moves(&mut root).is_empty();
+                root.undo_move_for_search(token);
+                has_reply
+            })
+            .expect("mate-in-three fixture must have a nonterminal check");
+        let token = root.do_move_for_search(checking_move);
+        let child_hash = root.hash();
+        for limit in [0, 1] {
+            let mut search = state(child_hash, limit);
+            assert_eq!(search.defender(&mut root, 2), Proof::Unknown);
+            assert!(search.aborted);
+            assert_eq!(root.hash(), child_hash);
+        }
+        root.undo_move_for_search(token);
+        assert_eq!(root.hash(), root_hash);
+        assert_eq!(crate::sfen::board_to_sfen(&root), original);
+    }
+
+    #[test]
     fn optional_attacker_king_policy_solves_the_original_seven_ply_diagram() {
         let board = Board::from_sfen(SINGLE_KING_SEVEN_SFEN).unwrap();
         let strict = analyze_mate(&board, 13, 2_000_000);

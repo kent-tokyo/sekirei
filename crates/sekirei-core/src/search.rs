@@ -5556,6 +5556,21 @@ mod see_tests {
     }
 
     #[test]
+    fn qsearch_component_costs_keep_mate_and_edge_counters_in_order() {
+        let diagnostics = SearchDiagnostics::new();
+        assert_eq!(diagnostics.qsearch_component_costs(), (0, 0, 0, 0));
+        diagnostics
+            .qsearch_mate_probe_calls
+            .store(11, Ordering::Relaxed);
+        diagnostics
+            .qsearch_mate_probe_ns
+            .store(22, Ordering::Relaxed);
+        diagnostics.qsearch_edge_calls.store(33, Ordering::Relaxed);
+        diagnostics.qsearch_edge_ns.store(44, Ordering::Relaxed);
+        assert_eq!(diagnostics.qsearch_component_costs(), (11, 22, 33, 44));
+    }
+
+    #[test]
     fn parallel_worker_diagnostics_separate_local_foreign_and_unknown_tt_hits() {
         let sampled_hash = (0..u64::MAX)
             .find(|&hash| mix_work_hash(hash) & ((1 << WORK_SAMPLE_LOG2) - 1) == 0)
