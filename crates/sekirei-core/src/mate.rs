@@ -1389,6 +1389,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "run explicitly in CI without coverage instrumentation"]
     fn existence_proof_handles_fourth_public_diagram_within_fixed_budget() {
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
