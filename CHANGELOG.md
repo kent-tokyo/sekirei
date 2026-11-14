@@ -23,6 +23,7 @@ settings are unchanged. This release makes no playing-strength claim.
 - Respect remaining depth when reusing mate proof results, with regression
   coverage for depth-bound cases.
 - Apply requested pruning ablations to the V2 search diagnostic path.
+- Keep bounded evaluation sampling compatible with current Rust toolchains.
 
 ## [0.5.2] – 2026-10-25
 

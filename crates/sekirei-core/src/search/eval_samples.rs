@@ -119,6 +119,17 @@ pub(super) struct RootChildSamples {
     slots: Box<[OnceLock<RootChildEvalSample>]>,
 }
 
+fn reserve_slot(next: &AtomicUsize, capacity: usize) -> Option<usize> {
+    let mut index = next.load(Ordering::Relaxed);
+    while index < capacity {
+        match next.compare_exchange_weak(index, index + 1, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return Some(index),
+            Err(observed) => index = observed,
+        }
+    }
+    None
+}
+
 impl RootChildSamples {
     pub(super) fn new() -> Self {
         Self {
@@ -130,12 +141,7 @@ impl RootChildSamples {
     }
 
     pub(super) fn record(&self, board: &Board, sample: RootChildEvalSample) {
-        let Ok(index) = self
-            .next
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                (n < self.slots.len()).then_some(n + 1)
-            })
-        else {
+        let Some(index) = reserve_slot(&self.next, self.slots.len()) else {
             return;
         };
         let mut sample = sample;
@@ -182,12 +188,7 @@ impl Samples {
         {
             return;
         }
-        let Ok(index) = self
-            .next
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                (n < self.slots.len()).then_some(n + 1)
-            })
-        else {
+        let Some(index) = reserve_slot(&self.next, self.slots.len()) else {
             return;
         };
         let mut line = Vec::new();
