@@ -271,6 +271,89 @@ mod tests {
     use crate::sfen::{PositionHistory, move_from_usi};
 
     #[test]
+    fn root_child_samples_are_opt_in_bounded_and_match_search_evaluations() {
+        use super::super::{SearchConfig, Searcher};
+        use crate::eval::evaluate;
+        use crate::tt::Tt;
+        use std::collections::HashSet;
+        use std::sync::Arc;
+
+        let root = Board::startpos();
+        let original_sfen = board_to_sfen(&root);
+        let original_hash = root.hash();
+        let config = SearchConfig {
+            max_depth: 3,
+            node_limit: Some(10_000),
+            ..SearchConfig::default()
+        };
+        let mut plain_board = root.clone();
+        let plain = Searcher::new(Tt::new(1)).search(&mut plain_board, config);
+        let observer = Arc::new(SearchDiagnostics::counters_only().with_root_child_eval_samples());
+        assert!(
+            SearchDiagnostics::new()
+                .root_child_eval_samples()
+                .is_empty()
+        );
+        assert!(observer.root_child_eval_samples().is_empty());
+        let mut traced_board = root.clone();
+        let traced = Searcher::with_diagnostics(Tt::new(1), observer.clone())
+            .search(&mut traced_board, config);
+        assert_eq!(
+            (
+                plain.score,
+                plain.depth,
+                plain.nodes,
+                plain.best_move,
+                &plain.pv
+            ),
+            (
+                traced.score,
+                traced.depth,
+                traced.nodes,
+                traced.best_move,
+                &traced.pv
+            )
+        );
+        assert_eq!(board_to_sfen(&plain_board), original_sfen);
+        assert_eq!(board_to_sfen(&traced_board), original_sfen);
+        assert_eq!(traced_board.hash(), original_hash);
+
+        let mut legal_children = HashSet::new();
+        let mut child = root.clone();
+        for mv in generate_legal_moves(&mut child) {
+            let token = child.do_move(mv);
+            legal_children.insert(board_to_sfen(&child));
+            child.undo_move(token);
+        }
+        assert_eq!(board_to_sfen(&child), original_sfen);
+        let samples = observer.root_child_eval_samples();
+        assert!(!samples.is_empty());
+        assert!(samples.len() <= MAX_ROOT_CHILD_EVAL_SAMPLES);
+        for sample in &samples {
+            assert!(legal_children.contains(&sample.sfen));
+            assert_eq!(
+                sample.raw_cp,
+                evaluate(&Board::from_sfen(&sample.sfen).unwrap())
+            );
+            assert_eq!(sample.tt_replaced, sample.used_cp != sample.corrected_cp);
+            assert!(sample.alpha < sample.beta);
+        }
+
+        let recorder = RootChildSamples::new();
+        let first = samples[0].clone();
+        for raw in 0..(MAX_ROOT_CHILD_EVAL_SAMPLES + 2) {
+            let mut sample = first.clone();
+            sample.raw_cp = raw as i32;
+            recorder.record(&root, sample);
+        }
+        let retained = recorder.samples();
+        assert_eq!(retained.len(), MAX_ROOT_CHILD_EVAL_SAMPLES);
+        assert_eq!(retained[0].raw_cp, 0);
+        assert_eq!(retained.last().unwrap().raw_cp, 127);
+        assert!(retained.iter().all(|sample| sample.sfen == original_sfen));
+    }
+
+    #[test]
     fn samples_preserve_search_and_reproduce_raw_evaluations() {
         use super::super::{SearchConfig, Searcher};
         use crate::eval::evaluate;

@@ -52,6 +52,21 @@ cargo llvm-cov -p sekirei-core \
   --ignored \
   --exact
 
+# Quiet promotions are a legal non-capture qsearch path behind a process-wide
+# tuning flag. Keep this board-restoration contract in its own test process.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-qsearch-promotion-summary.json" \
+  -- search::regression_tests::tuned_qsearch_reaches_quiet_promotion_without_captures \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # The tunable public-path matrix covers complete alternative policy stacks,
 # not just their board-restoration unit contract. It runs in its own process
 # because tune parameters are process-wide atomics.
