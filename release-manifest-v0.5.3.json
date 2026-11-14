@@ -42,13 +42,15 @@
     "asset": "sekirei-wasm-0.5.3.tgz",
     "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.5.3/sekirei-wasm-0.5.3.tgz",
     "status": "verified",
-    "npm_registry_status": "unverified",
+    "npm_registry_status": "published",
     "sha256": "dbe993e228061c3b5e027f1faf3892a9a194376cab8facd5829ca3389cabbd7b",
     "size": 570952,
     "npm_publish_attempt": {
-      "workflow_run": "43605974766",
-      "result": "unverified"
-    }
+      "workflow_run": "43606484104",
+      "result": "verified"
+    },
+    "npm_registry_version": "0.5.3",
+    "npm_registry_integrity": "sha512-roZByRouAXDr8zJ72M+QPnVN6eb/LXV5jEs5ZKKUh2iSqEEQEdor6y0x1e/WdAo3ii2MoCD/VxYBfhoYbwN6iw=="
   },
   "internal_measurement": {
     "spec_top_n": 0,
@@ -64,10 +66,8 @@
     "configuration": "No external opponent, evaluator, weights, labels, or derived positions were used to qualify this release."
   },
   "known_limitations": [
-    "npm registry publication and package-file parity are not yet verified.",
     "Source commit and binary checksum identify this local preparation build, not distributed byte identity or playing strength.",
     "Optional nn_r6 weights remain a separate v0.5.0 artifact; this release does not select or change a checkpoint.",
-    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
-    "npm publication was attempted in workflow run 43605974766; registry publication remains unverified."
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0."
   ]
 }
