@@ -1,7 +1,7 @@
 {
   "schema": "sekirei.release-manifest.v1",
   "release": "v0.5.3",
-  "commit": "34edd706036dec1c64aa61016a8a81b17e0683bc",
+  "commit": "4004a6d5dfddb9c2fa807e479fd82903ddb037e0",
   "branch_at_release": "main",
   "candidate_state": "planned from the verified release-preparation commit",
   "packages": {
@@ -51,7 +51,7 @@
     "status": "release_preparation",
     "strength_claim": false,
     "evaluator": "material-only native USI smoke",
-    "results": "The release-mode USI binary built from the source commit answered usiok and readyok. Workspace tests (1141 passed before the added root-child test), the new root-child and quiet-promotion tests, Clippy, rustfmt, and release metadata checks passed. This is not a playing-strength measurement."
+    "results": "The release-mode USI binary built from the source commit answered usiok and readyok. Workspace tests passed before the added root-child, sampler, and WASM edge tests; the added tests, Clippy, rustfmt, and release metadata checks passed separately. This is not a playing-strength measurement."
   },
   "external_opponents": {
     "status": "excluded_from_release_evidence",
