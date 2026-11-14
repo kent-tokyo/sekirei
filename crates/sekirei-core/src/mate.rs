@@ -291,7 +291,9 @@ struct CompleteMateSearch {
     attacker: Color,
     nodes: u64,
     node_limit: u64,
+    deadline: Option<Instant>,
     aborted: bool,
+    deadline_expired: bool,
     path: Vec<u64>,
 }
 
@@ -299,6 +301,14 @@ impl CompleteMateSearch {
     fn visit(&mut self) -> bool {
         if self.nodes >= self.node_limit {
             self.aborted = true;
+            return false;
+        }
+        if self
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            self.aborted = true;
+            self.deadline_expired = true;
             return false;
         }
         self.nodes += 1;
@@ -464,19 +474,36 @@ pub fn analyze_mate_with_policy(
     node_limit: u64,
     position_policy: MatePositionPolicy,
 ) -> MateAnalysis {
+    analyze_mate_with_policy_until(board, max_ply, node_limit, position_policy, None).0
+}
+
+/// Complete mate analysis with a shared deadline for bounded diagnostics.
+///
+/// The deadline is checked at each visited position. Move generation within
+/// one position is non-preemptive, so elapsed time may slightly exceed it.
+pub(crate) fn analyze_mate_with_policy_until(
+    board: &Board,
+    max_ply: u32,
+    node_limit: u64,
+    position_policy: MatePositionPolicy,
+    deadline: Option<Instant>,
+) -> (MateAnalysis, bool) {
     let attacker = board.side_to_move;
     let invalid_reason = validate_problem_position(board, position_policy);
     if invalid_reason.is_some() {
-        return MateAnalysis {
-            attacker,
-            invalid_reason,
-            outcome: MateAnalysisOutcome::Unknown,
-            shortest_mate_ply: None,
-            solutions: Vec::new(),
-            nodes: 0,
-            aborted: false,
-            abort_reason: None,
-        };
+        return (
+            MateAnalysis {
+                attacker,
+                invalid_reason,
+                outcome: MateAnalysisOutcome::Unknown,
+                shortest_mate_ply: None,
+                solutions: Vec::new(),
+                nodes: 0,
+                aborted: false,
+                abort_reason: None,
+            },
+            false,
+        );
     }
 
     let mut position = board.clone();
@@ -484,7 +511,9 @@ pub fn analyze_mate_with_policy(
         attacker,
         nodes: 0,
         node_limit,
+        deadline,
         aborted: false,
+        deadline_expired: false,
         path: vec![board.hash()],
     };
 
@@ -492,43 +521,53 @@ pub fn analyze_mate_with_policy(
         match search.root_solutions(&mut position, plies) {
             Ok(mut solutions) if !solutions.is_empty() => {
                 solutions.sort_unstable_by_key(|mv| mv.raw());
-                return MateAnalysis {
-                    attacker,
-                    invalid_reason: None,
-                    outcome: MateAnalysisOutcome::Mate,
-                    shortest_mate_ply: Some(plies),
-                    solutions,
-                    nodes: search.nodes,
-                    aborted: false,
-                    abort_reason: None,
-                };
+                return (
+                    MateAnalysis {
+                        attacker,
+                        invalid_reason: None,
+                        outcome: MateAnalysisOutcome::Mate,
+                        shortest_mate_ply: Some(plies),
+                        solutions,
+                        nodes: search.nodes,
+                        aborted: false,
+                        abort_reason: None,
+                    },
+                    false,
+                );
             }
             Ok(_) => {}
             Err(()) => {
-                return MateAnalysis {
-                    attacker,
-                    invalid_reason: None,
-                    outcome: MateAnalysisOutcome::Unknown,
-                    shortest_mate_ply: None,
-                    solutions: Vec::new(),
-                    nodes: search.nodes,
-                    aborted: true,
-                    abort_reason: Some(MateAnalysisAbortReason::NodeLimit),
-                };
+                return (
+                    MateAnalysis {
+                        attacker,
+                        invalid_reason: None,
+                        outcome: MateAnalysisOutcome::Unknown,
+                        shortest_mate_ply: None,
+                        solutions: Vec::new(),
+                        nodes: search.nodes,
+                        aborted: true,
+                        abort_reason: (!search.deadline_expired)
+                            .then_some(MateAnalysisAbortReason::NodeLimit),
+                    },
+                    search.deadline_expired,
+                );
             }
         }
     }
 
-    MateAnalysis {
-        attacker,
-        invalid_reason: None,
-        outcome: MateAnalysisOutcome::NoMate,
-        shortest_mate_ply: None,
-        solutions: Vec::new(),
-        nodes: search.nodes,
-        aborted: false,
-        abort_reason: None,
-    }
+    (
+        MateAnalysis {
+            attacker,
+            invalid_reason: None,
+            outcome: MateAnalysisOutcome::NoMate,
+            shortest_mate_ply: None,
+            solutions: Vec::new(),
+            nodes: search.nodes,
+            aborted: false,
+            abort_reason: None,
+        },
+        false,
+    )
 }
 
 struct Solver {
