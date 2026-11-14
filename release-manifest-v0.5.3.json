@@ -1,7 +1,7 @@
 {
   "schema": "sekirei.release-manifest.v1",
   "release": "v0.5.3",
-  "commit": "2a60da1059a812e5a90a438c56578bd6f2753c7c",
+  "commit": "e644108aa84c9fda02936e76f31e6492cbe73cfa",
   "branch_at_release": "main",
   "candidate_state": "planned from the verified release-preparation commit",
   "packages": {
@@ -20,7 +20,7 @@
   "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
   "binary": {
     "path": "target/release/sekirei",
-    "sha256": "cf9b24a487e87e0ab1fb54edf97d914853131541c19efa5649a492b522d6fae5"
+    "sha256": "5559011835e204942e9584821b75f190bbf7d43fb29084b5f4ec7782025792e2"
   },
   "publish": {
     "workflow_run": null,
@@ -51,7 +51,7 @@
     "status": "release_preparation",
     "strength_claim": false,
     "evaluator": "material-only native USI smoke",
-    "results": "The release-mode USI binary built from the preparation commit answered usiok and readyok. Workspace tests (1141 passed), Clippy, rustfmt, and release metadata checks passed locally. This is not a playing-strength measurement."
+    "results": "The release-mode USI binary built from the source commit answered usiok and readyok. Workspace tests (1141 passed), Clippy, rustfmt, and release metadata checks passed after the atomic compatibility fix. This is not a playing-strength measurement."
   },
   "external_opponents": {
     "status": "excluded_from_release_evidence",
