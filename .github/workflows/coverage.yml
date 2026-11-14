@@ -34,6 +34,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
+          # Keep the 98% line gate comparable with its verified baseline.
+          toolchain: 1.99.1
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2

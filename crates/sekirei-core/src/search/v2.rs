@@ -4592,6 +4592,7 @@ mod tests {
 
     #[test]
     fn v2_null_move_switch_controls_real_probe_with_lmr_on_and_off() {
+        assert_eq!(p::SEARCH_V2(), 1);
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {
@@ -4617,6 +4618,7 @@ mod tests {
 
     #[test]
     fn v2_lmr_switch_controls_real_search_with_null_move_on_and_off() {
+        assert_eq!(p::SEARCH_V2(), 1);
         std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024)
             .spawn(|| {

@@ -162,6 +162,8 @@ impl Samples {
         }
     }
 
+    // Keep the sampled evaluation stages explicit at the two call sites.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn record(
         &self,
         board: &Board,

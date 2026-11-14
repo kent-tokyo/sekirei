@@ -127,6 +127,8 @@ pub struct Config {
     pub password: String,
     pub game_id: String,
     pub hash_mb: usize,
+    /// Clock policy for Fischer games; the default preserves existing play.
+    pub fischer_time_policy: FischerTimePolicy,
     pub resign_score: i32, // centipawns (negative threshold)
     pub keep_alive: bool,  // reconnect after each game
     /// Optional process-wide ceiling for completed game attempts.
@@ -165,6 +167,22 @@ pub enum EvaluationMode {
     Nnue,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FischerTimePolicy {
+    #[default]
+    Legacy,
+    BankReserve,
+}
+
+impl FischerTimePolicy {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Legacy => "legacy",
+            Self::BankReserve => "bank-reserve",
+        }
+    }
+}
+
 impl EvaluationMode {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -183,6 +201,7 @@ impl Default for Config {
             password: "anonymous".into(),
             game_id: "floodgate-300-10F".into(),
             hash_mb: 256,
+            fischer_time_policy: FischerTimePolicy::Legacy,
             resign_score: -2000,
             keep_alive: false,
             max_games: None,
@@ -1530,11 +1549,14 @@ impl CsaClient {
         is_fischer: bool,
     ) -> io::Result<ThinkResult> {
         let search_side = board.side_to_move;
-        let time_limit = Some(Duration::from_millis(csa_think_budget_ms(
-            time_left_ms,
-            byoyomi_ms,
-            is_fischer,
-        )));
+        let time_limit = Some(Duration::from_millis(
+            match (is_fischer, self.config.fischer_time_policy) {
+                (true, FischerTimePolicy::BankReserve) => {
+                    csa_fischer_bank_reserve_budget_ms(time_left_ms, byoyomi_ms)
+                }
+                _ => csa_think_budget_ms(time_left_ms, byoyomi_ms, is_fischer),
+            },
+        ));
         let budget_ms = time_limit.map_or(0, |limit| limit.as_millis());
 
         let info = self.searcher.search_with_history(
@@ -2138,6 +2160,23 @@ fn csa_think_budget_ms(main_ms: u64, period_ms: u64, is_fischer: bool) -> u64 {
     }
 }
 
+/// Opt-in Fischer development policy. Spread only the bank above one minute
+/// over twenty future moves. Search spends at most the increment less a
+/// transport reserve, plus that bank surplus. A full-budget game approaches
+/// the bank reserve even when transport consumes its allowance every turn.
+fn csa_fischer_bank_reserve_budget_ms(main_ms: u64, increment_ms: u64) -> u64 {
+    if increment_ms == 0 {
+        return csa_think_budget_ms(main_ms, increment_ms, true);
+    }
+    let surplus_ms = main_ms.saturating_sub(60_000);
+    let available_ms = main_ms.saturating_add(increment_ms);
+    let transport_reserve_ms = (increment_ms / 5).max(200).min(available_ms);
+    let requested_ms = increment_ms
+        .saturating_sub(transport_reserve_ms)
+        .saturating_add(surplus_ms / 20);
+    requested_ms.min(available_ms.saturating_sub(transport_reserve_ms))
+}
+
 enum ServerLine<'a> {
     Terminal(GameResult),
     Event(&'a str),
@@ -2202,10 +2241,11 @@ mod tests {
         AnalysisLog, BetweenGameReceiveWindow, Color, Config, CsaClient, EvaluationMode,
         GameRecord, GameResult, RecordMetadata, RootCandidateRecord, RuntimeStatusDetails,
         ServerLine, TOURNAMENT_MAX_PLIES, ThinkResult, advance_tournament_ply, bare_server_move,
-        classify_server_line, clock_after_echo, csa_think_budget_ms, current_timestamp_ms,
-        game_result_name, json_string, opponent_receive_deadline, parse_game_end, parse_our_color,
-        parse_time_from_echo, pv_to_csa, root_candidates_json, score_kind,
-        update_run_manifest_game, update_run_manifest_progress, write_reconnect_exhausted_progress,
+        classify_server_line, clock_after_echo, csa_fischer_bank_reserve_budget_ms,
+        csa_think_budget_ms, current_timestamp_ms, game_result_name, json_string,
+        opponent_receive_deadline, parse_game_end, parse_our_color, parse_time_from_echo,
+        pv_to_csa, root_candidates_json, score_kind, update_run_manifest_game,
+        update_run_manifest_progress, write_reconnect_exhausted_progress,
         write_runtime_status_progress, write_runtime_status_snapshot,
     };
     use sekirei_core::board::Board;
@@ -2391,6 +2431,31 @@ mod tests {
         assert_eq!(csa_think_budget_ms(500, 1_000, true), 800);
         assert_eq!(csa_think_budget_ms(0, 100, true), 80);
         assert_eq!(csa_think_budget_ms(0, 0, true), 0);
+    }
+
+    #[test]
+    fn optional_fischer_budget_preserves_bank_and_transport_reserve() {
+        assert_eq!(csa_think_budget_ms(300_000, 10_000, true), 18_000);
+        for (bank, expected) in [
+            (300_000, 20_000),
+            (170_000, 13_500),
+            (60_000, 8_000),
+            (0, 8_000),
+        ] {
+            assert_eq!(csa_fischer_bank_reserve_budget_ms(bank, 10_000), expected);
+        }
+        let mut bank: u64 = 300_000;
+        for _ in 0..200 {
+            let budget = csa_fischer_bank_reserve_budget_ms(bank, 10_000);
+            let surplus = bank.saturating_sub(60_000) / 20;
+            assert!(budget <= 8_000 + surplus);
+            assert!(budget.saturating_add(2_000) <= bank.saturating_add(10_000));
+            bank = bank
+                .saturating_add(10_000)
+                .saturating_sub(budget.saturating_add(2_000));
+            assert!(bank >= 60_000);
+        }
+        assert_eq!(csa_fischer_bank_reserve_budget_ms(0, 0), 0);
     }
 
     #[test]
@@ -4025,6 +4090,9 @@ mod tests {
 
     #[test]
     fn active_receive_deadline_preserves_bounded_progress_and_partial_line() {
+        // Coverage instrumentation and a busy hosted runner can delay the
+        // first game's result processing beyond a 150 ms test deadline.
+        const ACTIVE_DEADLINE: Duration = Duration::from_secs(1);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = thread::spawn(move || {
@@ -4044,7 +4112,7 @@ mod tests {
                 assert!(line.starts_with("%%GAME active-stall"));
                 if game == 2 {
                     // A healthy between-game pause may exceed the active deadline.
-                    thread::sleep(Duration::from_millis(300));
+                    thread::sleep(ACTIVE_DEADLINE + Duration::from_millis(200));
                 }
                 let summary = format!(
                     "Game_ID:active-stall-{game}\nYour_Turn:+\nTotal_Time:1\nByoyomi:1\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:active-stall-{game}\n"
@@ -4091,7 +4159,7 @@ mod tests {
             record_dir: record_dir.clone(),
             status_file: Some(status_file.clone()),
             run_manifest: Some(run_manifest.clone()),
-            active_receive_deadline_override: Some(Duration::from_millis(150)),
+            active_receive_deadline_override: Some(ACTIVE_DEADLINE),
             active_receive_poll: Duration::from_millis(30),
             ..Config::default()
         };
@@ -4108,8 +4176,14 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(status_file).unwrap()).unwrap();
         assert_eq!(status["terminal_stop_reason"], "active_receive_deadline");
         assert_eq!(status["active_receive_phase"], "opponent_move_or_result");
-        assert_eq!(status["active_receive_deadline_ms"], 150);
-        assert!(status["active_receive_idle_ms"].as_u64().unwrap() >= 150);
+        assert_eq!(
+            status["active_receive_deadline_ms"],
+            ACTIVE_DEADLINE.as_millis() as u64
+        );
+        assert!(
+            status["active_receive_idle_ms"].as_u64().unwrap()
+                >= ACTIVE_DEADLINE.as_millis() as u64
+        );
         assert!(status["active_receive_wait_started_ms"].as_u64().is_some());
         assert_eq!(status["active_receive_partial_line_bytes"], 5);
         assert_eq!(status["completed_attempts"], 1);

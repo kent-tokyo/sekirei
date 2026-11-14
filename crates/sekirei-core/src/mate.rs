@@ -570,8 +570,37 @@ pub(crate) fn analyze_mate_with_policy_until(
     )
 }
 
+// Completed results may be shared only in their monotone depth direction.
+// `path_dependent == false` means no repetition cutoff supported that result;
+// this does not repair all history dependence of the existing exact table.
+#[derive(Clone, Copy, Default)]
+struct SolvedBounds {
+    proof_min_remaining: Option<u32>,
+    disproof_max_remaining: Option<u32>,
+    conflicted: bool,
+}
+
+fn aggregate_path_dependency(
+    attacker: bool,
+    pn: u64,
+    dn: u64,
+    any_path_dependency: bool,
+    independent_proof_child: bool,
+    independent_disproof_child: bool,
+) -> bool {
+    if attacker && pn == 0 {
+        !independent_proof_child
+    } else if !attacker && dn == 0 {
+        !independent_disproof_child
+    } else {
+        any_path_dependency
+    }
+}
+
 struct Solver {
-    table: HashMap<u64, (u64, u64)>,
+    table: HashMap<(u64, u32), (u64, u64, bool)>,
+    solved: HashMap<u64, SolvedBounds>,
+    terminals: HashMap<u64, (u64, u64)>,
     path: Vec<u64>,
     nodes: u64,
     node_limit: u64,
@@ -590,6 +619,8 @@ pub fn solve_mate(
 ) -> MateResult {
     let mut solver = Solver {
         table: HashMap::new(),
+        terminals: HashMap::new(),
+        solved: HashMap::new(),
         path: Vec::new(),
         nodes: 0,
         node_limit,
@@ -600,10 +631,10 @@ pub fn solve_mate(
     let mut root = board.clone();
     solver.mid(&mut root, INF - 1, INF - 1, true, 0);
     let mut mate_move = None;
-    if solver.lookup(root.hash()).0 == 0 {
+    if solver.lookup(root.hash(), 0).0 == 0 {
         for m in solver.children(&mut root, true) {
             let tok = root.do_move_for_search(m);
-            let proven = solver.lookup(root.hash()).0 == 0;
+            let proven = solver.lookup(root.hash(), 1).0 == 0;
             root.undo_move_for_search(tok);
             if proven {
                 mate_move = Some(m);
@@ -618,8 +649,73 @@ pub fn solve_mate(
 }
 
 impl Solver {
-    fn lookup(&self, hash: u64) -> (u64, u64) {
-        self.table.get(&hash).copied().unwrap_or((1, 1))
+    fn lookup(&self, hash: u64, ply: u32) -> (u64, u64) {
+        let (pn, dn, _) = self.lookup_with_dependency(hash, ply);
+        (pn, dn)
+    }
+
+    fn lookup_with_dependency(&self, hash: u64, ply: u32) -> (u64, u64, bool) {
+        if let Some(&(pn, dn)) = self.terminals.get(&hash) {
+            return (pn, dn, false);
+        }
+        let remaining = self.max_ply.saturating_sub(ply);
+        let bounds = self.solved.get(&hash);
+        let conflicted = bounds.is_some_and(|entry| entry.conflicted);
+        if let Some(entry) = bounds.filter(|entry| !entry.conflicted) {
+            if entry
+                .proof_min_remaining
+                .is_some_and(|min| remaining >= min)
+            {
+                return (0, INF, false);
+            }
+            if entry
+                .disproof_max_remaining
+                .is_some_and(|max| remaining <= max)
+            {
+                return (INF, 0, false);
+            }
+        }
+        let (pn, dn, path_dependent) = self
+            .table
+            .get(&(hash, remaining))
+            .copied()
+            .unwrap_or((1, 1, false));
+        (pn, dn, path_dependent || conflicted)
+    }
+
+    fn save_result(&mut self, hash: u64, ply: u32, pn: u64, dn: u64, path_dependent: bool) {
+        let remaining = self.max_ply.saturating_sub(ply);
+        self.table
+            .insert((hash, remaining), (pn, dn, path_dependent));
+        if path_dependent || self.aborted || (pn != 0 && dn != 0) {
+            return;
+        }
+        let entry = self.solved.entry(hash).or_default();
+        if entry.conflicted {
+            return;
+        }
+        if pn == 0 {
+            entry.proof_min_remaining = Some(
+                entry
+                    .proof_min_remaining
+                    .map_or(remaining, |old| old.min(remaining)),
+            );
+        }
+        if dn == 0 {
+            entry.disproof_max_remaining = Some(
+                entry
+                    .disproof_max_remaining
+                    .map_or(remaining, |old| old.max(remaining)),
+            );
+        }
+        if let (Some(proof_min), Some(disproof_max)) =
+            (entry.proof_min_remaining, entry.disproof_max_remaining)
+        {
+            // Overlap contradicts the claimed independent conclusions. Never
+            // select one bound arbitrarily or generalize this hash upstream.
+            // Exact-context behavior remains the legacy fallback, now tainted.
+            entry.conflicted = proof_min <= disproof_max;
+        }
     }
 
     /// Attacker: checking moves only. Defender: every legal reply.
@@ -660,11 +756,11 @@ impl Solver {
         if moves.is_empty() {
             // No checks: the attack fails. No replies to a check: mate.
             let value = if attacker { (INF, 0) } else { (0, INF) };
-            self.table.insert(hash, value);
+            self.terminals.insert(hash, value);
             return;
         }
         if attacker && ply >= self.max_ply {
-            self.table.insert(hash, (INF, 0));
+            self.save_result(hash, ply, INF, 0, false);
             return;
         }
         let child_hashes: Vec<u64> = moves
@@ -682,13 +778,19 @@ impl Solver {
             let mut min = INF;
             let mut second = INF;
             let mut sum = 0u64;
+            let mut any_path_dependency = false;
+            let mut independent_proof_child = false;
+            let mut independent_disproof_child = false;
             for (i, &child) in child_hashes.iter().enumerate() {
                 // A repetition on the path is a failed attack either way.
-                let (cp, cd) = if self.path.contains(&child) {
-                    (INF, 0)
+                let (cp, cd, path_dependent) = if self.path.contains(&child) {
+                    (INF, 0, true)
                 } else {
-                    self.lookup(child)
+                    self.lookup_with_dependency(child, ply + 1)
                 };
+                any_path_dependency |= path_dependent;
+                independent_proof_child |= cp == 0 && !path_dependent;
+                independent_disproof_child |= cd == 0 && !path_dependent;
                 let (selected, summed) = if attacker { (cp, cd) } else { (cd, cp) };
                 if selected < min {
                     second = min;
@@ -701,14 +803,28 @@ impl Solver {
             }
             let (pn, dn) = if attacker { (min, sum) } else { (sum, min) };
             if pn >= th_pn || dn >= th_dn || self.aborted {
-                self.table.insert(hash, (pn, dn));
+                let path_dependent = aggregate_path_dependency(
+                    attacker,
+                    pn,
+                    dn,
+                    any_path_dependency,
+                    independent_proof_child,
+                    independent_disproof_child,
+                );
+                self.save_result(hash, ply, pn, dn, path_dependent);
                 break;
             }
-            let (cp, cd) = self.lookup(child_hashes[best]);
+            let (cp, cd) = self.lookup(child_hashes[best], ply + 1);
             let (child_pn, child_dn) = if attacker {
-                (th_pn.min(second.saturating_add(1)), th_dn - dn + cd)
+                (
+                    th_pn.min(second.saturating_add(second / 4).saturating_add(1)),
+                    th_dn - dn + cd,
+                )
             } else {
-                (th_pn - pn + cp, th_dn.min(second.saturating_add(1)))
+                (
+                    th_pn - pn + cp,
+                    th_dn.min(second.saturating_add(second / 4).saturating_add(1)),
+                )
             };
             let tok = board.do_move_for_search(moves[best]);
             self.mid(board, child_pn, child_dn, !attacker, ply + 1);
@@ -718,10 +834,735 @@ impl Solver {
     }
 }
 
+/// A check-only mating strategy: one checking move at each attacker node and
+/// every legal answer at each defender node. Empty defender replies are a
+/// checked terminal mate, including otherwise futile interpositions upstream.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MateProofTree {
+    /// The attacker chooses one legal check.
+    Attack {
+        /// Legal checking move chosen by the attacker.
+        mv: Move,
+        /// Defender node after the check.
+        next: Box<MateProofTree>,
+    },
+    /// The defender may choose any of these legal replies.
+    Defense {
+        /// All legal replies and their checked continuations.
+        replies: Vec<(Move, MateProofTree)>,
+    },
+}
+
+impl MateProofTree {
+    /// One legal representative line, choosing the first defender reply.
+    pub fn representative_line(&self) -> Vec<Move> {
+        match self {
+            Self::Attack { mv, next } => {
+                let mut line = vec![*mv];
+                line.extend(next.representative_line());
+                line
+            }
+            Self::Defense { replies } => replies.first().map_or_else(Vec::new, |(mv, next)| {
+                let mut line = vec![*mv];
+                line.extend(next.representative_line());
+                line
+            }),
+        }
+    }
+
+    /// Longest proven branch in plies. This does not prove shortest mate.
+    pub fn longest_line_ply(&self) -> u32 {
+        match self {
+            Self::Attack { next, .. } => 1 + next.longest_line_ply(),
+            Self::Defense { replies } => replies
+                .iter()
+                .map(|(_, next)| 1 + next.longest_line_ply())
+                .max()
+                .unwrap_or(0),
+        }
+    }
+}
+
+/// Why a bounded existence proof did not finish.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MateProofStop {
+    /// The search node budget was exhausted.
+    SearchNodes,
+    /// The search deadline was reached.
+    SearchDeadline,
+    /// The search ended without a verified mate; no-mate is not claimed.
+    SearchNoProof,
+    /// The proof-table extraction node budget was exhausted.
+    ExtractionNodes,
+    /// The proof table did not contain a complete bounded strategy.
+    ExtractionIncomplete,
+    /// The independent replay node budget was exhausted.
+    VerificationNodes,
+    /// Legal replay rejected the extracted tree.
+    VerificationFailed,
+}
+
+/// Separate limits for fast search, proof-table extraction, and legal replay.
+#[derive(Clone, Copy, Debug)]
+pub struct MateProofLimits {
+    /// Maximum visited positions in the fast df-pn search.
+    pub search_nodes: u64,
+    /// Maximum plies in any proved line.
+    pub max_ply: u32,
+    /// Optional absolute search deadline.
+    pub deadline: Option<Instant>,
+    /// Maximum positions examined while extracting the candidate tree.
+    pub extraction_nodes: u64,
+    /// Maximum positions checked while independently replaying the tree.
+    pub verification_nodes: u64,
+}
+
+/// A bounded existence proof. A present tree has been replayed across every
+/// legal defense; absence never means a proven no-mate result.
+#[derive(Clone, Debug)]
+pub struct MateExistenceProof {
+    /// Invalid problem position, if any.
+    pub invalid_reason: Option<MateInOneInvalidReason>,
+    /// Why no verified proof was returned.
+    pub stop_reason: Option<MateProofStop>,
+    /// Verified tree, present only after complete extraction and replay.
+    pub tree: Option<MateProofTree>,
+    /// Actual search positions visited.
+    pub search_nodes: u64,
+    /// Actual extraction positions visited.
+    pub extraction_nodes: u64,
+    /// Actual verification positions visited.
+    pub verification_nodes: u64,
+    /// The limits supplied by the caller.
+    pub limits: MateProofLimits,
+}
+
+/// Result of replaying a proof tree against freshly generated legal moves.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MateProofVerification {
+    /// Whether every branch reached a checked no-reply leaf.
+    pub verified: bool,
+    /// Invalid initial position, if any.
+    pub invalid_reason: Option<MateInOneInvalidReason>,
+    /// Replay positions visited; never exceeds the supplied node limit.
+    pub nodes: u64,
+    /// Why replay did not verify the tree.
+    pub stop_reason: Option<MateProofStop>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TreeWorkStop {
+    Limit,
+    Invalid,
+}
+
+#[derive(Clone, Copy)]
+struct ReplayLimits {
+    nodes: u64,
+    max_ply: u32,
+}
+
+/// Find and independently verify one bounded check-only mating strategy.
+///
+/// The fast solver's table only nominates a candidate. A separate replay
+/// checks legal attacks, every legal defense, checkmate leaves, path
+/// repetition, the ply limit, and board restoration. No shortest-distance or
+/// no-mate assertion is made. The [`solve_mate`] signature and result shape
+/// remain unchanged; both entry points use the same internal search machinery.
+pub fn prove_mate_existence(
+    board: &Board,
+    limits: MateProofLimits,
+    position_policy: MatePositionPolicy,
+) -> MateExistenceProof {
+    let mut result = MateExistenceProof {
+        invalid_reason: validate_problem_position(board, position_policy),
+        stop_reason: None,
+        tree: None,
+        search_nodes: 0,
+        extraction_nodes: 0,
+        verification_nodes: 0,
+        limits,
+    };
+    if result.invalid_reason.is_some() {
+        return result;
+    }
+    if limits.search_nodes == 0 {
+        result.stop_reason = Some(MateProofStop::SearchNodes);
+        return result;
+    }
+    if limits
+        .deadline
+        .is_some_and(|deadline| Instant::now() >= deadline)
+    {
+        result.stop_reason = Some(MateProofStop::SearchDeadline);
+        return result;
+    }
+    let mut solver = Solver {
+        table: HashMap::new(),
+        terminals: HashMap::new(),
+        solved: HashMap::new(),
+        path: Vec::new(),
+        nodes: 0,
+        // Legacy Solver counts the rejected visit. Reserve that one visit so
+        // this new API never reports more than the caller's search budget.
+        node_limit: limits.search_nodes - 1,
+        max_ply: limits.max_ply,
+        deadline: limits.deadline,
+        aborted: false,
+    };
+    let mut position = board.clone();
+    solver.mid(&mut position, INF - 1, INF - 1, true, 0);
+    result.search_nodes = solver.nodes;
+    if solver.aborted {
+        result.stop_reason = Some(if solver.nodes > solver.node_limit {
+            MateProofStop::SearchNodes
+        } else {
+            MateProofStop::SearchDeadline
+        });
+        return result;
+    }
+    if limits
+        .deadline
+        .is_some_and(|deadline| Instant::now() >= deadline)
+    {
+        // The legacy solver samples its deadline only every 64 visits.
+        // Never expose a proof completed after the caller's search deadline.
+        result.stop_reason = Some(MateProofStop::SearchDeadline);
+        return result;
+    }
+    if solver.lookup(position.hash(), 0).0 != 0 {
+        result.stop_reason = Some(MateProofStop::SearchNoProof);
+        return result;
+    }
+    let candidate = extract_proof_tree(
+        &solver,
+        &mut position,
+        true,
+        0,
+        &mut vec![board.hash()],
+        &mut result.extraction_nodes,
+        limits.extraction_nodes,
+    );
+    let tree = match candidate {
+        Ok(tree) => tree,
+        Err(TreeWorkStop::Limit) => {
+            result.stop_reason = Some(MateProofStop::ExtractionNodes);
+            return result;
+        }
+        Err(TreeWorkStop::Invalid) => {
+            result.stop_reason = Some(MateProofStop::ExtractionIncomplete);
+            return result;
+        }
+    };
+    let verification = verify_mate_proof_tree(
+        board,
+        &tree,
+        limits.max_ply,
+        limits.verification_nodes,
+        position_policy,
+    );
+    result.verification_nodes = verification.nodes;
+    if verification.verified {
+        result.tree = Some(tree);
+    } else {
+        result.stop_reason = verification.stop_reason;
+    }
+    result
+}
+
+/// Replay a claimed strategy with a separate node limit. The verifier
+/// regenerates legal moves and does not consult the fast solver's proof table.
+pub fn verify_mate_proof_tree(
+    board: &Board,
+    tree: &MateProofTree,
+    max_ply: u32,
+    node_limit: u64,
+    position_policy: MatePositionPolicy,
+) -> MateProofVerification {
+    let invalid_reason = validate_problem_position(board, position_policy);
+    if invalid_reason.is_some() {
+        return MateProofVerification {
+            verified: false,
+            invalid_reason,
+            nodes: 0,
+            stop_reason: None,
+        };
+    }
+    let mut position = board.clone();
+    let mut nodes = 0;
+    let checked = verify_proof_tree(
+        tree,
+        &mut position,
+        true,
+        0,
+        &mut vec![board.hash()],
+        &mut nodes,
+        ReplayLimits {
+            nodes: node_limit,
+            max_ply,
+        },
+    );
+    let verified = checked.is_ok();
+    let stop_reason = match checked {
+        Ok(()) => None,
+        Err(TreeWorkStop::Limit) => Some(MateProofStop::VerificationNodes),
+        Err(TreeWorkStop::Invalid) => Some(MateProofStop::VerificationFailed),
+    };
+    MateProofVerification {
+        verified,
+        invalid_reason: None,
+        nodes,
+        stop_reason,
+    }
+}
+
+fn with_proof_child<T>(
+    board: &mut Board,
+    mv: Move,
+    path: &mut Vec<u64>,
+    step: impl FnOnce(&mut Board, &mut Vec<u64>) -> Result<T, TreeWorkStop>,
+) -> Result<T, TreeWorkStop> {
+    let token = board.do_move_for_search(mv);
+    let hash = board.hash();
+    let outcome = if path.contains(&hash) {
+        Err(TreeWorkStop::Invalid)
+    } else {
+        path.push(hash);
+        let outcome = step(board, path);
+        path.pop();
+        outcome
+    };
+    board.undo_move_for_search(token);
+    outcome
+}
+
+fn extract_proof_tree(
+    solver: &Solver,
+    board: &mut Board,
+    attacker: bool,
+    ply: u32,
+    path: &mut Vec<u64>,
+    nodes: &mut u64,
+    limit: u64,
+) -> Result<MateProofTree, TreeWorkStop> {
+    if *nodes >= limit {
+        return Err(TreeWorkStop::Limit);
+    }
+    *nodes += 1;
+    if ply > solver.max_ply || solver.lookup(board.hash(), ply).0 != 0 {
+        return Err(TreeWorkStop::Invalid);
+    }
+    if attacker {
+        if ply >= solver.max_ply {
+            return Err(TreeWorkStop::Invalid);
+        }
+        for mv in solver.children(board, true) {
+            let outcome = with_proof_child(board, mv, path, |board, path| {
+                extract_proof_tree(solver, board, false, ply + 1, path, nodes, limit)
+            });
+            match outcome {
+                Ok(next) => {
+                    return Ok(MateProofTree::Attack {
+                        mv,
+                        next: Box::new(next),
+                    });
+                }
+                Err(TreeWorkStop::Limit) => return Err(TreeWorkStop::Limit),
+                Err(TreeWorkStop::Invalid) => {}
+            }
+        }
+        Err(TreeWorkStop::Invalid)
+    } else {
+        let mut legal = generate_legal_moves(board);
+        legal.sort_unstable_by_key(|mv| mv.raw());
+        if legal.is_empty() {
+            return is_in_check(board, board.side_to_move)
+                .then_some(MateProofTree::Defense {
+                    replies: Vec::new(),
+                })
+                .ok_or(TreeWorkStop::Invalid);
+        }
+        if ply >= solver.max_ply {
+            return Err(TreeWorkStop::Invalid);
+        }
+        let mut replies = Vec::with_capacity(legal.len());
+        for mv in legal {
+            let next = with_proof_child(board, mv, path, |board, path| {
+                extract_proof_tree(solver, board, true, ply + 1, path, nodes, limit)
+            })?;
+            replies.push((mv, next));
+        }
+        Ok(MateProofTree::Defense { replies })
+    }
+}
+
+fn verify_proof_tree(
+    tree: &MateProofTree,
+    board: &mut Board,
+    attacker: bool,
+    ply: u32,
+    path: &mut Vec<u64>,
+    nodes: &mut u64,
+    limits: ReplayLimits,
+) -> Result<(), TreeWorkStop> {
+    if *nodes >= limits.nodes {
+        return Err(TreeWorkStop::Limit);
+    }
+    *nodes += 1;
+    if ply > limits.max_ply {
+        return Err(TreeWorkStop::Invalid);
+    }
+    match (attacker, tree) {
+        (true, MateProofTree::Attack { mv, next }) => {
+            if ply >= limits.max_ply || !generate_legal_moves(board).contains(mv) {
+                return Err(TreeWorkStop::Invalid);
+            }
+            with_proof_child(board, *mv, path, |board, path| {
+                if !is_in_check(board, board.side_to_move) {
+                    return Err(TreeWorkStop::Invalid);
+                }
+                verify_proof_tree(next, board, false, ply + 1, path, nodes, limits)
+            })
+        }
+        (false, MateProofTree::Defense { replies }) => {
+            let mut legal = generate_legal_moves(board);
+            legal.sort_unstable_by_key(|mv| mv.raw());
+            if legal.len() != replies.len()
+                || !legal
+                    .iter()
+                    .zip(replies)
+                    .all(|(expected, (actual, _))| expected == actual)
+            {
+                return Err(TreeWorkStop::Invalid);
+            }
+            if legal.is_empty() {
+                return is_in_check(board, board.side_to_move)
+                    .then_some(())
+                    .ok_or(TreeWorkStop::Invalid);
+            }
+            if ply >= limits.max_ply {
+                return Err(TreeWorkStop::Invalid);
+            }
+            for (mv, next) in replies {
+                with_proof_child(board, *mv, path, |board, path| {
+                    verify_proof_tree(next, board, true, ply + 1, path, nodes, limits)
+                })?;
+            }
+            Ok(())
+        }
+        _ => Err(TreeWorkStop::Invalid),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sfen::{move_from_usi, move_to_usi};
+
+    #[test]
+    fn proof_table_preserves_three_ply_mate_after_shallow_prewarm() {
+        let original = Board::from_sfen(SHORTEST_THREE_SFEN).unwrap();
+        let before = crate::sfen::board_to_sfen(&original);
+        let hash = original.hash();
+        let oracle = analyze_mate(&original, 3, 10_000);
+        assert_eq!(oracle.invalid_reason, None);
+        assert!(!oracle.aborted);
+        assert_eq!(oracle.outcome, MateAnalysisOutcome::Mate);
+        assert_eq!(oracle.shortest_proof_ply(), Some(3));
+
+        // Artificial cache-context contrast, not a public legal-history reproducer.
+        // Remaining zero is the direct-root-cut control; remaining one stores
+        // shallow child results that previously suppressed the three-ply proof.
+        for remaining in [0, 1] {
+            let mut board = original.clone();
+            let mut solver = Solver {
+                table: HashMap::new(),
+                solved: HashMap::new(),
+                terminals: HashMap::new(),
+                path: Vec::new(),
+                nodes: 0,
+                node_limit: 10_000,
+                max_ply: 3,
+                deadline: None,
+                aborted: false,
+            };
+            let starting_ply = 3 - remaining;
+            solver.mid(&mut board, INF - 1, INF - 1, true, starting_ply);
+            assert!(!solver.aborted);
+            assert_eq!(solver.lookup(hash, starting_ply), (INF, 0));
+            assert!(solver.path.is_empty());
+            assert_eq!(board.hash(), hash);
+            assert_eq!(crate::sfen::board_to_sfen(&board), before);
+
+            // Reuse the same solver, table, board and total node budget.
+            solver.mid(&mut board, INF - 1, INF - 1, true, 0);
+            assert!(!solver.aborted, "prewarm remaining={remaining}");
+            assert_eq!(solver.lookup(hash, 0).0, 0, "remaining={remaining}");
+            assert!(solver.path.is_empty());
+            assert_eq!(board.hash(), hash);
+            assert_eq!(crate::sfen::board_to_sfen(&board), before);
+
+            // A proof-number flag alone is insufficient: extract and replay all
+            // defending replies using the same warmed solver's table.
+            let mut extraction_nodes = 0;
+            let mut proof_path = vec![hash];
+            let tree = extract_proof_tree(
+                &solver,
+                &mut board,
+                true,
+                0,
+                &mut proof_path,
+                &mut extraction_nodes,
+                10_000,
+            )
+            .expect("warmed table must supply a complete three-ply proof");
+            assert_eq!(proof_path, vec![hash]);
+            assert!(tree.longest_line_ply() <= 3);
+            let replay = verify_mate_proof_tree(
+                &board,
+                &tree,
+                3,
+                10_000,
+                MatePositionPolicy::RequireBothKings,
+            );
+            assert_eq!(replay.invalid_reason, None);
+            assert_eq!(replay.stop_reason, None);
+            assert!(replay.verified);
+            assert_eq!(board.hash(), hash);
+            assert_eq!(crate::sfen::board_to_sfen(&board), before);
+        }
+    }
+
+    #[test]
+    fn existence_proof_and_replay_respect_three_ply_boundary() {
+        let board = Board::from_sfen(SHORTEST_THREE_SFEN).unwrap();
+        let before = crate::sfen::board_to_sfen(&board);
+        let hash = board.hash();
+        for max_ply in [1, 2] {
+            let proof = prove_mate_existence(
+                &board,
+                proof_limits(max_ply, 10_000),
+                MatePositionPolicy::RequireBothKings,
+            );
+            assert_eq!(proof.invalid_reason, None);
+            assert_eq!(proof.stop_reason, Some(MateProofStop::SearchNoProof));
+            assert!(proof.tree.is_none());
+            // SearchNoProof is an incomplete existence result, not a NoMate label.
+            assert_eq!(board.hash(), hash);
+            assert_eq!(crate::sfen::board_to_sfen(&board), before);
+        }
+
+        let proof = prove_mate_existence(
+            &board,
+            proof_limits(3, 10_000),
+            MatePositionPolicy::RequireBothKings,
+        );
+        assert_eq!(proof.invalid_reason, None);
+        assert_eq!(proof.stop_reason, None);
+        let tree = proof.tree.expect("three-ply proof");
+        assert_eq!(tree.longest_line_ply(), 3);
+        let too_short = verify_mate_proof_tree(
+            &board,
+            &tree,
+            2,
+            10_000,
+            MatePositionPolicy::RequireBothKings,
+        );
+        assert_eq!(too_short.invalid_reason, None);
+        assert!(!too_short.verified);
+        assert_eq!(
+            too_short.stop_reason,
+            Some(MateProofStop::VerificationFailed)
+        );
+        let replay = verify_mate_proof_tree(
+            &board,
+            &tree,
+            3,
+            10_000,
+            MatePositionPolicy::RequireBothKings,
+        );
+        assert_eq!(replay.invalid_reason, None);
+        assert_eq!(replay.stop_reason, None);
+        assert!(replay.verified);
+        assert_eq!(board.hash(), hash);
+        assert_eq!(crate::sfen::board_to_sfen(&board), before);
+    }
+
+    #[test]
+    #[ignore = "run explicitly in CI without coverage instrumentation"]
+    fn existence_proof_handles_fourth_public_diagram_within_fixed_budget() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let board =
+                    Board::from_sfen("4pR3/2n4p1/4k4/6p2/2p2B3/5L3/2N6/9/9 b 2Srb4g2s2n3l14p 1")
+                        .unwrap();
+                let before = crate::sfen::board_to_sfen(&board);
+                let hash = board.hash();
+                // Fixed work bounds, with no machine-dependent elapsed-time test.
+                let mut limits = proof_limits(25, 4_000_000);
+                limits.extraction_nodes = 100_000;
+                limits.verification_nodes = 100_000;
+                let proof = prove_mate_existence(
+                    &board,
+                    limits,
+                    MatePositionPolicy::AllowMissingAttackerKing,
+                );
+                assert_eq!(proof.invalid_reason, None);
+                assert_eq!(proof.stop_reason, None);
+                assert!(proof.search_nodes <= 4_000_000);
+                assert!(proof.extraction_nodes <= 100_000);
+                assert!(proof.verification_nodes <= 100_000);
+                let tree = proof.tree.expect("verified proof within fixed budget");
+                // This bounds the returned strategy; it does not assert the
+                // shortest mate distance or uniqueness of the first move.
+                assert!(tree.longest_line_ply() <= 25);
+                let replay = verify_mate_proof_tree(
+                    &board,
+                    &tree,
+                    25,
+                    100_000,
+                    MatePositionPolicy::AllowMissingAttackerKing,
+                );
+                assert_eq!(replay.invalid_reason, None);
+                assert_eq!(replay.stop_reason, None);
+                assert!(replay.verified);
+                assert_eq!(board.hash(), hash);
+                assert_eq!(crate::sfen::board_to_sfen(&board), before);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    // These tests exercise the direction and provenance of shared conclusions,
+    // not performance qualification.
+    fn bounds_test_solver(max_ply: u32) -> Solver {
+        Solver {
+            table: HashMap::new(),
+            terminals: HashMap::new(),
+            solved: HashMap::new(),
+            path: Vec::new(),
+            nodes: 0,
+            node_limit: 10_000,
+            max_ply,
+            deadline: None,
+            aborted: false,
+        }
+    }
+
+    #[test]
+    fn bounded_disproof_is_shared_only_toward_smaller_remaining() {
+        let mut board = Board::from_sfen(SHORTEST_THREE_SFEN).unwrap();
+        let hash = board.hash();
+        let before = crate::sfen::board_to_sfen(&board);
+        let oracle = analyze_mate(&board, 1, 10_000);
+        assert_eq!(oracle.invalid_reason, None);
+        assert!(!oracle.aborted);
+        assert_eq!(oracle.outcome, MateAnalysisOutcome::NoMate);
+
+        let mut solver = bounds_test_solver(5);
+        solver.mid(&mut board, INF - 1, INF - 1, true, 4);
+        assert!(!solver.aborted);
+        assert_eq!(solver.lookup_with_dependency(hash, 4), (INF, 0, false));
+        assert_eq!(solver.lookup_with_dependency(hash, 5), (INF, 0, false));
+        assert_eq!(solver.lookup(hash, 3), (1, 1)); // remaining two
+        assert_eq!(solver.lookup(hash, 2), (1, 1)); // remaining three
+        assert!(solver.path.is_empty());
+        assert_eq!(board.hash(), hash);
+        assert_eq!(crate::sfen::board_to_sfen(&board), before);
+    }
+
+    #[test]
+    fn completed_proof_is_shared_only_toward_larger_remaining() {
+        let mut board = Board::from_sfen(SHORTEST_THREE_SFEN).unwrap();
+        let hash = board.hash();
+        let before = crate::sfen::board_to_sfen(&board);
+        let oracle = analyze_mate(&board, 3, 10_000);
+        assert_eq!(oracle.invalid_reason, None);
+        assert!(!oracle.aborted);
+        assert_eq!(oracle.outcome, MateAnalysisOutcome::Mate);
+        assert_eq!(oracle.shortest_proof_ply(), Some(3));
+
+        let mut solver = bounds_test_solver(5);
+        solver.mid(&mut board, INF - 1, INF - 1, true, 2);
+        assert!(!solver.aborted);
+        assert_eq!(solver.lookup_with_dependency(hash, 2), (0, INF, false));
+        assert_eq!(solver.lookup_with_dependency(hash, 1), (0, INF, false));
+        assert_eq!(solver.lookup_with_dependency(hash, 0), (0, INF, false));
+        assert_ne!(solver.lookup(hash, 3).0, 0); // remaining two is insufficient
+
+        // Replay a strategy extracted using the larger-remaining shared root.
+        let mut path = vec![hash];
+        let mut nodes = 0;
+        let tree = extract_proof_tree(&solver, &mut board, true, 0, &mut path, &mut nodes, 10_000)
+            .expect("shared positive bound must retain an extractable proof");
+        let replay = verify_mate_proof_tree(
+            &board,
+            &tree,
+            5,
+            10_000,
+            MatePositionPolicy::RequireBothKings,
+        );
+        assert_eq!(replay.invalid_reason, None);
+        assert_eq!(replay.stop_reason, None);
+        assert!(replay.verified);
+        assert!(solver.path.is_empty());
+        assert_eq!(path, vec![hash]);
+        assert_eq!(board.hash(), hash);
+        assert_eq!(crate::sfen::board_to_sfen(&board), before);
+    }
+
+    #[test]
+    fn tainted_and_unfinished_results_stay_in_the_exact_depth_table() {
+        let mut solver = bounds_test_solver(7);
+        solver.save_result(11, 4, 0, INF, true);
+        assert_eq!(solver.lookup_with_dependency(11, 4), (0, INF, true));
+        assert_eq!(solver.lookup(11, 3), (1, 1));
+        assert!(!solver.solved.contains_key(&11));
+        solver.save_result(12, 4, INF, 0, true);
+        assert_eq!(solver.lookup_with_dependency(12, 4), (INF, 0, true));
+        assert_eq!(solver.lookup(12, 5), (1, 1));
+        assert!(!solver.solved.contains_key(&12));
+        solver.save_result(13, 4, 2, 9, false);
+        assert_eq!(solver.lookup_with_dependency(13, 4), (2, 9, false));
+        assert_eq!(solver.lookup(13, 3), (1, 1));
+        assert_eq!(solver.lookup(13, 5), (1, 1));
+        assert!(!solver.solved.contains_key(&13));
+    }
+
+    #[test]
+    fn solved_dependency_requires_the_relevant_independent_children() {
+        // OR proof and AND disproof need one independent witnessing child.
+        assert!(aggregate_path_dependency(true, 0, INF, true, false, false));
+        assert!(!aggregate_path_dependency(true, 0, INF, true, true, false));
+        assert!(aggregate_path_dependency(false, INF, 0, true, false, false));
+        assert!(!aggregate_path_dependency(false, INF, 0, true, false, true));
+        // OR disproof and AND proof depend on all children, even when one child
+        // supplies an independent result. An unfinished result is conservative.
+        assert!(aggregate_path_dependency(true, INF, 0, true, false, true));
+        assert!(aggregate_path_dependency(false, 0, INF, true, true, false));
+        assert!(aggregate_path_dependency(true, 3, 5, true, false, false));
+        assert!(!aggregate_path_dependency(true, INF, 0, false, false, true));
+        assert!(!aggregate_path_dependency(
+            false, 0, INF, false, true, false
+        ));
+    }
+
+    #[test]
+    fn contradictory_completed_bounds_disable_range_reuse_and_taint_fallback() {
+        let mut solver = bounds_test_solver(7);
+        solver.save_result(21, 4, 0, INF, false); // mate within remaining three
+        solver.save_result(21, 3, INF, 0, false); // incompatible no mate within four
+        assert!(solver.solved.get(&21).unwrap().conflicted);
+        assert_eq!(solver.lookup_with_dependency(21, 4), (0, INF, true));
+        assert_eq!(solver.lookup_with_dependency(21, 3), (INF, 0, true));
+        assert_eq!(solver.lookup_with_dependency(21, 2), (1, 1, true));
+        assert_eq!(solver.lookup_with_dependency(21, 5), (1, 1, true));
+        solver.save_result(21, 6, INF, 0, false);
+        assert!(solver.solved.get(&21).unwrap().conflicted);
+        assert_eq!(solver.lookup_with_dependency(21, 7), (1, 1, true));
+    }
 
     const ALREADY_CHECKED_SFEN: &str = "4k4/2S3S2/3S1S3/4R4/9/9/9/9/4K4 b - 1";
     const DISTANT_ROOK_MATE_SFEN: &str = "4k4/2S3S2/2SGpGS2/9/4R4/9/9/9/4K4 b - 1";
@@ -735,6 +1576,267 @@ mod tests {
     const FUTILE_INTERPOSITION_ELEVEN_SFEN: &str =
         "6s2/7Pk/5B3/4+B4/7N1/9/9/9/K8 b 2r4g3s3n4l17p 1";
     const FUTILE_INTERPOSITION_NINE_SFEN: &str = "9/6p1k/7P1/6nB1/5R3/7L1/9/9/K8 b rb4g4s3n3l16p 1";
+
+    fn proof_limits(max_ply: u32, search_nodes: u64) -> MateProofLimits {
+        MateProofLimits {
+            search_nodes,
+            max_ply,
+            deadline: None,
+            extraction_nodes: 20_000,
+            verification_nodes: 20_000,
+        }
+    }
+
+    #[test]
+    fn existence_proof_replays_one_ply_and_respects_separate_limits() {
+        let board = Board::from_sfen("4k4/9/4P4/9/9/9/9/9/4K4 b G 1").unwrap();
+        let before = crate::sfen::board_to_sfen(&board);
+        let verified = prove_mate_existence(
+            &board,
+            proof_limits(1, 100_000),
+            MatePositionPolicy::RequireBothKings,
+        );
+        assert_eq!(verified.stop_reason, None);
+        let tree = verified.tree.unwrap();
+        assert_eq!(tree.longest_line_ply(), 1);
+        assert_eq!(tree.representative_line().len(), 1);
+        assert!(
+            verify_mate_proof_tree(&board, &tree, 1, 100, MatePositionPolicy::RequireBothKings,)
+                .verified
+        );
+        assert_eq!(
+            verify_mate_proof_tree(
+                &board,
+                &MateProofTree::Defense {
+                    replies: Vec::new()
+                },
+                1,
+                100,
+                MatePositionPolicy::RequireBothKings,
+            )
+            .stop_reason,
+            Some(MateProofStop::VerificationFailed),
+        );
+        assert_eq!(crate::sfen::board_to_sfen(&board), before);
+
+        let mut cut = proof_limits(1, 100_000);
+        cut.extraction_nodes = 0;
+        let result = prove_mate_existence(&board, cut, MatePositionPolicy::RequireBothKings);
+        assert_eq!(result.stop_reason, Some(MateProofStop::ExtractionNodes));
+        assert!(result.tree.is_none());
+        cut.extraction_nodes = 100;
+        cut.verification_nodes = 0;
+        let result = prove_mate_existence(&board, cut, MatePositionPolicy::RequireBothKings);
+        assert_eq!(result.stop_reason, Some(MateProofStop::VerificationNodes));
+        assert!(result.tree.is_none());
+        cut.search_nodes = 0;
+        let result = prove_mate_existence(&board, cut, MatePositionPolicy::RequireBothKings);
+        assert_eq!(result.stop_reason, Some(MateProofStop::SearchNodes));
+        assert_eq!(result.search_nodes, 0);
+        cut.search_nodes = 1;
+        let result = prove_mate_existence(&board, cut, MatePositionPolicy::RequireBothKings);
+        assert_eq!(result.stop_reason, Some(MateProofStop::SearchNodes));
+        assert_eq!(result.search_nodes, 1);
+    }
+
+    #[test]
+    fn existence_proof_validates_problem_position_and_deadline() {
+        let missing = Board::from_sfen("4k4/9/4P4/9/9/9/9/9/9 b G 1").unwrap();
+        let invalid = prove_mate_existence(
+            &missing,
+            proof_limits(1, 100),
+            MatePositionPolicy::RequireBothKings,
+        );
+        assert_eq!(
+            invalid.invalid_reason,
+            Some(MateInOneInvalidReason::MissingAttackerKing)
+        );
+        assert_eq!(invalid.search_nodes, 0);
+        let forged = MateProofTree::Defense {
+            replies: Vec::new(),
+        };
+        let invalid_replay = verify_mate_proof_tree(
+            &missing,
+            &forged,
+            1,
+            100,
+            MatePositionPolicy::RequireBothKings,
+        );
+        assert!(!invalid_replay.verified);
+        assert_eq!(
+            invalid_replay.invalid_reason,
+            Some(MateInOneInvalidReason::MissingAttackerKing)
+        );
+        assert_eq!(invalid_replay.nodes, 0);
+
+        let no_proof = prove_mate_existence(
+            &Board::startpos(),
+            proof_limits(1, 100),
+            MatePositionPolicy::RequireBothKings,
+        );
+        assert_eq!(no_proof.stop_reason, Some(MateProofStop::SearchNoProof));
+        assert!(no_proof.tree.is_none());
+
+        let mut cut = proof_limits(1, 100);
+        cut.deadline = Some(Instant::now());
+        let timed = prove_mate_existence(
+            &Board::startpos(),
+            cut,
+            MatePositionPolicy::RequireBothKings,
+        );
+        assert_eq!(timed.stop_reason, Some(MateProofStop::SearchDeadline));
+        assert_eq!(timed.search_nodes, 0);
+    }
+
+    #[test]
+    fn existence_proof_handles_three_public_diagrams() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let cases = [
+                    ("6knl/4+R4/8p/8g/7rb/6p2/9/9/9 b SLb3g3s3n2l16p 1", "L*3e"),
+                    ("5n2k/4+b3l/4+R4/9/9/6N2/9/9/9 b BSNr4g3sn3l18p 1", "N*2c"),
+                    ("9/2l6/r2G1B3/2k6/1R7/9/2+B6/9/9 b GN2g4s3n3l18p 1", "6c7c"),
+                ];
+                for (sfen, first) in cases {
+                    let board = Board::from_sfen(sfen).unwrap();
+                    let proof = prove_mate_existence(
+                        &board,
+                        proof_limits(17, 1_000_000),
+                        MatePositionPolicy::AllowMissingAttackerKing,
+                    );
+                    assert_eq!(proof.stop_reason, None, "{sfen}: {proof:?}");
+                    let tree = proof.tree.expect("verified proof");
+                    assert_eq!(move_to_usi(tree.representative_line()[0]), first);
+                    assert!(tree.longest_line_ply() <= 17);
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn existence_proof_replays_white_drop_and_promotion() {
+        let white = Board::from_sfen("9/9/9/9/9/9/4p4/9/4K4 w g 1").unwrap();
+        let proof = prove_mate_existence(
+            &white,
+            proof_limits(1, 100_000),
+            MatePositionPolicy::AllowMissingAttackerKing,
+        );
+        assert_eq!(proof.stop_reason, None);
+        let tree = proof.tree.expect("white proof");
+        assert_eq!(move_to_usi(tree.representative_line()[0]), "G*5h");
+        assert!(
+            verify_mate_proof_tree(
+                &white,
+                &tree,
+                1,
+                100,
+                MatePositionPolicy::AllowMissingAttackerKing,
+            )
+            .verified
+        );
+
+        let promotion = Board::from_sfen(DISTANT_ROOK_MATE_SFEN).unwrap();
+        let proof = prove_mate_existence(
+            &promotion,
+            proof_limits(1, 100_000),
+            MatePositionPolicy::RequireBothKings,
+        );
+        assert_eq!(proof.stop_reason, None);
+        assert!(proof.tree.is_some());
+        for first in ["5e5c", "5e5c+"] {
+            let forged = MateProofTree::Attack {
+                mv: move_from_usi(first, &promotion).unwrap(),
+                next: Box::new(MateProofTree::Defense { replies: vec![] }),
+            };
+            assert!(
+                verify_mate_proof_tree(
+                    &promotion,
+                    &forged,
+                    1,
+                    100,
+                    MatePositionPolicy::RequireBothKings,
+                )
+                .verified,
+                "{first}"
+            );
+        }
+    }
+
+    #[test]
+    fn verification_rejects_illegal_pawn_drop_mate_and_missing_reply() {
+        let pawn = Board::from_sfen("8k/9/7G1/9/9/9/9/9/9 b P 1").unwrap();
+        let forged = MateProofTree::Attack {
+            mv: Move::drop(crate::square::Square::from_shogi(1, 2), PieceKind::Fu),
+            next: Box::new(MateProofTree::Defense { replies: vec![] }),
+        };
+        let result = verify_mate_proof_tree(
+            &pawn,
+            &forged,
+            1,
+            100,
+            MatePositionPolicy::AllowMissingAttackerKing,
+        );
+        assert_eq!(result.stop_reason, Some(MateProofStop::VerificationFailed));
+
+        let start = Board::startpos();
+        let non_check = MateProofTree::Attack {
+            mv: move_from_usi("7g7f", &start).unwrap(),
+            next: Box::new(MateProofTree::Defense {
+                replies: Vec::new(),
+            }),
+        };
+        assert_eq!(
+            verify_mate_proof_tree(
+                &start,
+                &non_check,
+                1,
+                100,
+                MatePositionPolicy::RequireBothKings,
+            )
+            .stop_reason,
+            Some(MateProofStop::VerificationFailed),
+        );
+
+        let board = Board::from_sfen(SHORTEST_THREE_SFEN).unwrap();
+        let proof = prove_mate_existence(
+            &board,
+            proof_limits(3, 100_000),
+            MatePositionPolicy::RequireBothKings,
+        );
+        assert_eq!(proof.stop_reason, None);
+        let mut tree = proof.tree.expect("three-ply proof");
+        let MateProofTree::Attack { ref mut next, .. } = tree else {
+            panic!("root must attack")
+        };
+        let MateProofTree::Defense { ref mut replies } = **next else {
+            panic!("defender must have replies")
+        };
+        assert!(!replies.is_empty());
+        replies.pop();
+        let result =
+            verify_mate_proof_tree(&board, &tree, 3, 100, MatePositionPolicy::RequireBothKings);
+        assert_eq!(result.stop_reason, Some(MateProofStop::VerificationFailed));
+    }
+
+    #[test]
+    fn proof_replay_rejects_repeated_path_and_restores_board() {
+        let mut board = Board::startpos();
+        let mv = move_from_usi("7g7f", &board).unwrap();
+        let before = crate::sfen::board_to_sfen(&board);
+        let mut after = board.clone();
+        after.do_move_for_search(mv);
+        let mut path = vec![board.hash(), after.hash()];
+        let outcome: Result<(), TreeWorkStop> =
+            with_proof_child(&mut board, mv, &mut path, |_, _| {
+                panic!("repeated position must not be replayed")
+            });
+        assert_eq!(outcome, Err(TreeWorkStop::Invalid));
+        assert_eq!(crate::sfen::board_to_sfen(&board), before);
+        assert_eq!(path.len(), 2);
+    }
 
     fn solution_strings(sfen: &str) -> Vec<String> {
         let board = Board::from_sfen(sfen).expect("fixture must parse");
@@ -790,6 +1892,8 @@ mod tests {
     fn attacker_moves_are_exactly_the_checks() {
         let solver = Solver {
             table: HashMap::new(),
+            terminals: HashMap::new(),
+            solved: HashMap::new(),
             path: Vec::new(),
             nodes: 0,
             node_limit: 0,

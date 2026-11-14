@@ -3115,11 +3115,12 @@ fn root_search_inner_tracked(
         let score = if i == 0 {
             search(board, alpha, hi, depth - 1)
         } else {
-            let reduce = if child_in_check && p::ROOT_LMR() == 0 {
-                0
-            } else {
-                reduce
-            };
+            let reduce =
+                if !state.pruning.late_move_reduction || (child_in_check && p::ROOT_LMR() == 0) {
+                    0
+                } else {
+                    reduce
+                };
             let mut s = search(board, alpha, alpha + 1, depth - 1 - reduce);
             if reduce > 0 && s > alpha {
                 s = search(board, alpha, alpha + 1, depth - 1);

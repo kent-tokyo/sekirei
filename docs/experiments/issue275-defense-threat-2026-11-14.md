@@ -25,4 +25,6 @@ let report = analyze_defense_threats(&board, &moves, 9, 500_000, Duration::from_
 
 最初のPRのCIで、既存の公開 enum に `Deadline` を追加すると `cargo-semver-checks` が破壊的変更と判定した。公開 enum を元に戻し、診断専用の `DefenseLimit` / `TimedOut` に分離した。同じCIで公開 `main` に元からある `sekirei-train/src/trainer.rs` の重複Clippy属性がworkspaceの2 jobを止めていたため、隔離PRで重複行を1つ削除した。修正後の `cargo clippy --workspace --all-targets -- -D warnings` は通過した。
 
+初回のcoverageはRust stableが前回成功時の1.99.1から1.100.0へ変わり、同一公開 `main` を基点とする計測でline coverageが98.0329%から97.8927%へ落ちた。`defense.rs` 自身は161/165行を通過した。計測器の変更によるゲートのドリフトを防ぐため、coverage workflowのみ前回成功版1.99.1へ固定した。固定後のCI判定は別途確認する。
+
 [PR #278](https://github.com/kent-tokyo/sekirei/pull/278) は `57f85130` にマージされ、issue #275 は完了として閉鎖された。GitHub の必須チェック設定がないため、`--auto` の指定は保留にならず直ちにマージされた。PR 側の全テスト、公開 API 互換性、成果物監査は成功。マージ後 `main` のCI・公開 API 互換性と coverage は成功。coverage run `43538764140` は51,666/52,704行（98.0305%）で98%ゲートを通過した。PR 側の coverage run `43537616108` も成功した。

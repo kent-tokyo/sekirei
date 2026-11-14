@@ -60,7 +60,7 @@ fn main() {
                 ("pairs", HalfKpNetwork::forward_pairs as Forward),
                 ("dense", HalfKpNetwork::forward_dense as Forward),
             ] {
-                let (elapsed_ns, checksum) = measure(&net, us, them, forward, iters);
+                let (elapsed_ns, checksum) = measure(net, us, them, forward, iters);
                 println!("{position}\t{round}\t{label}\t{elapsed_ns}\t{checksum}");
             }
         }
