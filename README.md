@@ -3,17 +3,17 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.5.2-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.2)
+[![Release](https://img.shields.io/badge/release-v0.5.3-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.3)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.5.2` uses
+Sekirei is an experimental Pure Rust shogi engine. Release `0.5.3` uses
 material evaluation by default. Optional NNUE weights require an explicit
 file path; see [weights and evidence](docs/nnue_weights.md). This release
-updates data and verdict dependencies plus standalone-match receipt handling;
-it makes no playing-strength claim. Release changes are in the
+adds bounded mate and defense diagnostics, an opt-in CSA Fischer clock policy,
+and a mate proof depth fix. It makes no playing-strength claim. Changes are in the
 [changelog](CHANGELOG.md).
 
 ## Quick start

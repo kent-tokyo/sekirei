@@ -4,6 +4,26 @@ This file summarizes recent releases. The
 [archived detailed history](CHANGELOG_ARCHIVE.md)
 preserves older per-change notes.
 
+## [0.5.3] – 2026-11-14
+
+Version 0.5.3 adds bounded mate and defense diagnostics and an opt-in CSA
+Fischer clock policy. The default material evaluator and ordinary search
+settings are unchanged. This release makes no playing-strength claim.
+
+### Added
+
+- Add `sekirei-core` defense-threat analysis with shared node and time limits,
+  explicit incomplete results, and board-restoration checks.
+- Add a `sekirei-csa` `--fischer-time-policy bank-reserve` option. The existing
+  `legacy` policy remains the default.
+- Add bounded mate-existence and search diagnostics with recorded limits.
+
+### Fixed
+
+- Respect remaining depth when reusing mate proof results, with regression
+  coverage for depth-bound cases.
+- Apply requested pruning ablations to the V2 search diagnostic path.
+
 ## [0.5.2] – 2026-10-25
 
 Version 0.5.2 updates release-facing data and statistical-gate dependencies,
