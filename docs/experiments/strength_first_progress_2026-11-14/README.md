@@ -287,3 +287,21 @@ S20の4敗局とは別の公開Floodgate元CSAから、[PT19～PT20](../public_t
 **最小検査・停止:** r6ロード・`FV_SCALE=24`・absolute ACKを要求。材料評価側と同じ1T、Hash64、Speculative、SpecTopN0、book無効、`T_SEARCH_V2=1`、`go nodes 1000000 movetime 1000`、冷起動1回、外側4秒・出力1MiB以内、全体8秒。返却が`G*8b`ならこのsource/1局面で評価器切替と選択の変化を観測したとする。別手ならr6も同sourceでは見逃す。どちらも因果の一般化や棋力差、既定採用に使わず、この既知局面の追加反復・閾値変更をしない。
 
 **S22結果:** source `1e963743`の同じtune binaryでr6を明示ロードすると、`G*8b`を33,752節点・完了深さ11・mate 13 scoreで返した。PT21の材料評価・既定64は同じ局面で`5b6a`、100万節点打切りだった。r6ロード・尺度・absolute応答、正常終了を確認。私有`tasks/strength-progress-20261114/private/s22/result.json` SHA `f45fc7d0defd3133b197bf066f81b793effceccebce30e681e2310dc92ec5651`。**判定 `EVALUATOR_SWITCH_CHANGES_KNOWN_CASE_S22`。** この1既知局面では評価器の切替と証明初手の選択が対応した。探索途中の経路や他局面へ一般化する因果は未確定。PT21で候補値1が別棋譜に転移しなかった事実、PT22の材料評価・強制root未到達、既定採用停止を維持する。次の優先はr6使用条件で再現する未解決の実戦反例を別源から得ることか、既存#280の候補を正式対局に進める独立入力・資源条件の整備である。今回の3件を追加反復しない。
+
+## S23: 旧PT08の別実戦2局面は同一sourceのr6でも見逃すか（実行前登録）
+
+**入力と問い:** [PT08の固定corpus](../public_tsume_2026-11-14/corpus-pt08.json) SHA-256 `2bd5b15f88bb77ed4774ae9eaab2557d823235d6132e82604a59bbe2dba4934b`の全2件。PT11の同一source詰み解析は13手を完了証明し、初手は`2b2a+`と`G*8c`。材料評価・既定64の通常探索はPT16で両方を見逃した。S22と同様に評価器だけr6へ切り替えた場合、この2件の通常探索がどうなるかを確認する。S21の新しい3件と合算して採用の標本とはしない。
+
+**上限と判定:** PT16/S22と同じ隔離source `1e963743`のtune USI binary SHA-256 `3819b63e0bd119f903aa6354bab8a9d05293ba6ee0a4a28ee3aa3fc37bdb4a79`、r6重みSHA-256 `634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469`。各冷起動でr6ロード、`FV_SCALE=24`、absoluteのACKを確認。既定`T_V2_CHECK_R=64`、`T_SEARCH_V2=1`、材料評価対照と同じ1T、Hash64、Speculative、SpecTopN0、book無効、`go nodes 1000000 movetime 1000`。逐次2呼出し、外側各4秒、全体10秒、各出力1MiB以内。2件の返却手・深さ・score・節点・終了を保存し、詰み初手に不一致が1件以上なら`R6_MATE_MISS_REPRODUCED_S23`、両件一致なら`NO_R6_MATE_MISS_IN_SAMPLE_S23`。技術異常は別停止。元の2件は既知開発例なので独立資格や棋力改善には使わず、結果後の上限変更・再実行をしない。
+
+**S23結果:** 2023年の元局面は詰み証明初手`2b2a+`に対して、r6通常探索は100万節点・完了深さ15で`3e2d`、cp507を返した。2017年の元局面は`G*8c`を58,103節点・mate 13 scoreで選んだ。両件のr6ロード・尺度・absolute ACKと正常終了を確認。私有`tasks/strength-progress-20261114/private/s23/result.json` SHA `750d8729ebbc3d81f949e9a3b7a1c1e74e1a00594231083e1067a371314259cc`。**判定 `R6_MATE_MISS_REPRODUCED_S23`。** 2023年は材料評価でもr6でも、この固定予算の通常探索が13手詰みの初手を見落とした。別手が敗着と確定したわけではない。これは既知開発局面であり、独立確認や棋力差ではない。
+
+## S24: 王手LMR候補1はr6の2023年見逃しを回復するか（実行前登録）
+
+**入力:** S23で見逃したPT08の2023年元局面1件のみ。PT11が合法手`2b2a+`から13手詰みを全応手で証明した。S23のr6・既定64では`3e2d`、PT16の材料評価・候補1は`2b2a+`を選んだ。候補の既知例への機構診断であり、独立screenではない。
+
+**最小検査・上限:** S23と同じsource `1e963743`、binary SHA `3819b63e0bd119f903aa6354bab8a9d05293ba6ee0a4a28ee3aa3fc37bdb4a79`、r6 SHA `634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469`を使う。変更は`T_V2_CHECK_R=64`から`1`だけ。r6明示ロード、尺度24・absolute ACK、1T、Hash64、Speculative、SpecTopN0、book無効、`T_SEARCH_V2=1`、`go nodes 1000000 movetime 1000`、1冷起動・外側4秒、全体6秒、出力1MiB以内。入力/重み/binary SHA不一致やロード失敗で技術停止。
+
+**判定・停止:** 証明初手`2b2a+`なら`R6_KNOWN_CASE_RECOVERED_S24`、別手なら`R6_KNOWN_CASE_NOT_RECOVERED_S24`。いずれも1件の既知局面だけで候補値1の棋力、独立転移、既定採用を判断しない。PT21の別棋譜で候補が転移しなかった判定を維持し、この局面の上限・候補値を結果後に変えない。
+
+**S24結果:** r6明示ロードの同一binaryで`T_V2_CHECK_R=1`へ切り替えると、既定64が`3e2d`を返した2023年の元局面で、証明初手`2b2a+`を99,727節点・完了深さ12・mate 13 scoreで返した。尺度・absolute・重みロードACK、正常終了を確認。私有`tasks/strength-progress-20261114/private/s24/result.json` SHA `3eb329da6a3ca424e655b5d4562ec90967d9ecc0fbc19ca8948e84aec2eb968b`。判定`R6_KNOWN_CASE_RECOVERED_S24`。既知1例に対する機構上の回復であり、PT21の別3例で候補1が既定と同じ2/3だった事実を変えない。候補の既定採用・対局棋力は未確認。次は別出典で元二玉局面の詰みを独立に証明できる入力が得られたとき、その固定集合に対するr6通常探索の見逃しと候補転移を別IDで調べる。
