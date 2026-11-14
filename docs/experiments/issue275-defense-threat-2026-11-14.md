@@ -24,3 +24,5 @@ let report = analyze_defense_threats(&board, &moves, 9, 500_000, Duration::from_
 2026-11-14 の公開 `main` (`03dc17db`) を基点とする隔離checkoutで、上記2候補は `8a8b+` 後に相手 `Mate`・最短1手・`N*2g`、`S*2g` 後に `NoMate`。先後、打ち駒、成り・不成、王手を放置する違法手、合計節点0/1、期限切れ、全合法手、元盤面の復元を対象テストで確認した。`cargo test -p sekirei-core --lib` は470件通過・10件無視、`cargo clippy -p sekirei-core --lib -- -D warnings` と `cargo fmt --all -- --check` も通過。これは診断機能の確認であり、通常探索の棋力改善や issue #277 の解決ではない。
 
 最初のPRのCIで、既存の公開 enum に `Deadline` を追加すると `cargo-semver-checks` が破壊的変更と判定した。公開 enum を元に戻し、診断専用の `DefenseLimit` / `TimedOut` に分離した。同じCIで公開 `main` に元からある `sekirei-train/src/trainer.rs` の重複Clippy属性がworkspaceの2 jobを止めていたため、隔離PRで重複行を1つ削除した。修正後の `cargo clippy --workspace --all-targets -- -D warnings` は通過した。
+
+初回のcoverageはRust stableが前回成功時の1.99.1から1.100.0へ変わり、同一公開 `main` を基点とする計測でline coverageが98.0329%から97.8927%へ落ちた。`defense.rs` 自身は161/165行を通過した。計測器の変更によるゲートのドリフトを防ぐため、coverage workflowのみ前回成功版1.99.1へ固定した。固定後のCI判定は別途確認する。
