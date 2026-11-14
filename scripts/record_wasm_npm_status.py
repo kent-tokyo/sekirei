@@ -31,7 +31,8 @@ def updated_manifest(source: dict, *, status: str, result: str,
     if isinstance(limitations, list):
         limitations = [note for note in limitations if not (isinstance(note, str) and
                                                           ("not published to the npm registry" in note or
-                                                           "registry publication remains unverified" in note))]
+                                                           "registry publication remains unverified" in note or
+                                                           "npm registry publication and package-file parity are not yet verified" in note))]
         if status == "unverified":
             limitations.append(f"npm publication was attempted in workflow run {workflow_run}; registry publication remains unverified.")
         output["known_limitations"] = limitations

@@ -12,6 +12,11 @@ on:
         type: boolean
         required: true
         default: true
+      verify_only:
+        description: "Verify an already published version after registry propagation; never publish again"
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -37,6 +42,10 @@ jobs:
       - name: Validate stable release and download the official asset
         run: |
           set -euo pipefail
+          if [[ '${{ inputs.verify_only }}' == true && '${{ inputs.dry_run }}' == true ]]; then
+            echo 'verify_only requires dry_run=false so registry parity and install smoke run' >&2
+            exit 1
+          fi
           if ! [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo 'Only stable vMAJOR.MINOR.PATCH releases may receive npm latest' >&2
             exit 1
@@ -96,6 +105,7 @@ jobs:
       - name: Pin npm CLI for trusted publishing
         run: npm install --global npm@11.21.0
       - name: Check registry version is vacant and inspect publish payload
+        if: ${{ !inputs.verify_only }}
         run: |
           set -euo pipefail
           status="$(curl --retry 3 --retry-all-errors --silent --show-error \
@@ -123,7 +133,7 @@ jobs:
           npm publish "$WASM_ASSET" --dry-run --tag latest --access public
       - name: Publish exact GitHub Release archive
         id: publish
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && !inputs.verify_only }}
         run: npm publish "$WASM_ASSET" --tag latest --access public --provenance
       - name: Verify registry files and install smoke
         id: verify

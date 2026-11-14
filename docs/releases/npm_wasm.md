@@ -61,6 +61,14 @@ If the source manifest has already moved to the archive, update that versioned
 file there. Keep the original GitHub Release asset available regardless of
 npm's outcome.
 
+If npm accepts the archive but the registry is still processing it when the
+verification step times out, retain the `unverified` manifest and check the
+registry version. Once it appears, run the workflow from `main` with
+`dry_run=false` and `verify_only=true`. That path skips the vacancy check and
+publish command, then checks the registry files and fresh-install smoke. Use
+the resulting status artifact to update the manifest. Never rerun the publish
+path for a version that already exists.
+
 For a published version, use `npm install sekirei-wasm@X.Y.Z`. To pin the
 original Release archive instead, use
 `npm install https://github.com/kent-tokyo/sekirei/releases/download/vX.Y.Z/sekirei-wasm-X.Y.Z.tgz`.

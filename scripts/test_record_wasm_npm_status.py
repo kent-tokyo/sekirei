@@ -43,6 +43,15 @@ class NpmStatusTests(unittest.TestCase):
         self.assertFalse(any("registry publication remains unverified" in note
                              for note in published["known_limitations"]))
 
+    def test_recovery_removes_pending_publication_note(self):
+        pending = json.loads(json.dumps(self.source))
+        pending["known_limitations"].append(
+            "npm registry publication and package-file parity are not yet verified.")
+        published = updated_manifest(pending, status="published", result="verified",
+                                     workflow_run="456", integrity="sha512-" + "a" * 86 + "==")
+        self.assertEqual(validate(published), [])
+        self.assertFalse(any("not yet verified" in note for note in published["known_limitations"]))
+
     def test_invalid_or_unsupported_evidence_is_rejected(self):
         with self.assertRaises(ValueError):
             updated_manifest(self.source, status="published", result="verified",
