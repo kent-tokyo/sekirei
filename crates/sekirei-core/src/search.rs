@@ -5504,6 +5504,58 @@ mod see_tests {
     }
 
     #[test]
+    fn full_sampler_probe_window_reports_loss_without_false_tt_attribution() {
+        let sampled_hash = (0..u64::MAX)
+            .find(|&hash| TtReuseStats::sampled_fingerprint(hash).is_some())
+            .expect("a sampled hash must exist");
+        let (fingerprint, start) = TtReuseStats::sampled_fingerprint(sampled_hash).unwrap();
+        let overlap = WorkOverlapStats::new();
+        let reuse = TtReuseStats::new();
+        for probe in 0..WORK_SAMPLE_PROBES {
+            let slot = (start + probe) & (WORK_SAMPLE_SLOTS - 1);
+            let other_fingerprint = fingerprint ^ (1 << (probe + 1));
+            overlap.slots[slot]
+                .fingerprint
+                .store(other_fingerprint, Ordering::Relaxed);
+            reuse.slots[slot].fingerprint.store(
+                if probe == 0 {
+                    WORK_SAMPLE_CLAIMED
+                } else {
+                    other_fingerprint
+                },
+                Ordering::Relaxed,
+            );
+        }
+
+        overlap.record(sampled_hash, 0);
+        reuse.record_store(sampled_hash, 0);
+        assert_eq!(overlap.snapshot().sampled_visits, 1);
+        assert_eq!(overlap.snapshot().unique_fingerprints, 0);
+        assert_eq!(overlap.snapshot().dropped, 1);
+        assert_eq!(reuse.snapshot().sampled_stores, 1);
+        assert_eq!(reuse.snapshot().dropped_stores, 1);
+        assert_eq!(
+            reuse.record_hit(sampled_hash, 0),
+            Some(TtReuseOrigin::Unknown)
+        );
+        assert_eq!(reuse.snapshot().unknown_hits, 1);
+        assert_eq!(reuse.snapshot().local_hits, 0);
+        assert_eq!(reuse.snapshot().foreign_hits, 0);
+
+        overlap.reset();
+        reuse.reset();
+        overlap.record(sampled_hash, 0);
+        reuse.record_store(sampled_hash, 0);
+        assert_eq!(overlap.snapshot().unique_fingerprints, 1);
+        assert_eq!(overlap.snapshot().dropped, 0);
+        assert_eq!(
+            reuse.record_hit(sampled_hash, 0),
+            Some(TtReuseOrigin::Local)
+        );
+        assert_eq!(reuse.snapshot().dropped_stores, 0);
+    }
+
+    #[test]
     fn parallel_worker_diagnostics_separate_local_foreign_and_unknown_tt_hits() {
         let sampled_hash = (0..u64::MAX)
             .find(|&hash| mix_work_hash(hash) & ((1 << WORK_SAMPLE_LOG2) - 1) == 0)

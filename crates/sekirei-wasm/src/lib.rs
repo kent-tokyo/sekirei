@@ -1700,6 +1700,48 @@ mod tests {
     const ASYMMETRIC_WHITE: &str = "4k4/9/9/9/9/9/9/9/4K4 w P 1";
 
     #[test]
+    fn release_contract_accepts_only_lowercase_full_commit_ids() {
+        let valid = "0123456789abcdef0123456789abcdef01234567";
+        assert!(valid_commit(valid));
+        assert!(!valid_commit(&valid[..39]));
+        assert!(!valid_commit(&format!("{valid}0")));
+        assert!(!valid_commit(&valid.replace('a', "A")));
+        assert!(!valid_commit(&valid.replace('a', "g")));
+    }
+
+    #[test]
+    fn release_contract_multi_pv_rejects_missing_or_checked_nonmoving_king() {
+        for sfen in ["9/9/9/9/9/9/9/9/4K4 b - 1", ALREADY_CHECKED_MATE_SFEN] {
+            let error = analyze_position_multi_pv_impl(sfen, 1, 1000, 2).unwrap_err();
+            assert_eq!(error.code, "invalid_position");
+            assert!(error.message.contains("non-moving king"));
+        }
+    }
+
+    #[test]
+    fn release_contract_single_king_mate_in_one_exposes_policy() {
+        let strict = analyze_mate_in_one(SINGLE_KING_SEVEN_SFEN).unwrap();
+        assert!(!strict.valid_position());
+        assert_eq!(
+            strict.invalid_reason().as_deref(),
+            Some("missing_attacker_king")
+        );
+
+        let single = analyze_single_king_mate_in_one(SINGLE_KING_SEVEN_SFEN).unwrap();
+        assert!(single.valid_position());
+        assert_eq!(single.position_policy(), "attacker_king_optional");
+        assert_eq!(single.invalid_reason(), None);
+        assert!(!single.defender_already_in_check());
+
+        let ordinary = analyze_single_king_mate_in_one(VALID_MATE_SFEN).unwrap();
+        let ordinary_strict = analyze_mate_in_one(VALID_MATE_SFEN).unwrap();
+        assert!(ordinary.valid_position());
+        assert_eq!(ordinary.position_policy(), "attacker_king_optional");
+        assert!(!ordinary.result.solutions.is_empty());
+        assert_eq!(ordinary.result.solutions, ordinary_strict.result.solutions);
+    }
+
+    #[test]
     fn package_provenance_is_available_without_board_or_evaluator() {
         let info = package_info();
         assert_eq!(info.api_version(), 4);
