@@ -1,0 +1,49 @@
+{
+  "schema": "sekirei.public-tsume-pt45-flawed-source-selection.v1",
+  "shards": [
+    {
+      "number": 1,
+      "parquet_sha256": "7aa1b3b426f927b94a69efa4b6ec1e387d7fc1f66b24c13827e0a7dc875763bd",
+      "rows_scanned": 500000,
+      "eligible_rows": 0,
+      "selected_rows": 0
+    },
+    {
+      "number": 2,
+      "parquet_sha256": "fd48a9f9fe1311e98c405a6b3fde23e907dfc908178232df019b7ba891185627",
+      "rows_scanned": 500000,
+      "eligible_rows": 0,
+      "selected_rows": 0
+    },
+    {
+      "number": 3,
+      "parquet_sha256": "8431ed46630f54979050fbd7d8b82266a4049c7ebab02e4f8bbe156fc5fcac52",
+      "rows_scanned": 500000,
+      "eligible_rows": 0,
+      "selected_rows": 0
+    },
+    {
+      "number": 4,
+      "parquet_sha256": "3dfc4f33f68a9cae21587b59b1fc63db515809adf130983ab3c33cd4b083ca7a",
+      "rows_scanned": 500000,
+      "eligible_rows": 0,
+      "selected_rows": 0
+    },
+    {
+      "number": 5,
+      "parquet_sha256": "fc30747f6e21c942268bb77be997f3968b822e8345c81ebf4737d2d2a09416ad",
+      "rows_scanned": 500000,
+      "eligible_rows": 0,
+      "selected_rows": 0
+    },
+    {
+      "number": 6,
+      "parquet_sha256": "4f5f758dd2e33bfd761663ce9d705d9a3f782c8885c7b77b7c34cdfd85b95843",
+      "rows_scanned": 76906,
+      "eligible_rows": 0,
+      "selected_rows": 0
+    }
+  ],
+  "selection_limit_per_shard": 6,
+  "cases": []
+}

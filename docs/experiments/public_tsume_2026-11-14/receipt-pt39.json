@@ -1,0 +1,70 @@
+{
+  "schema": "sekirei.public-tsume-pt39-r6-search.v1",
+  "status": "FIRST_MOVE_MATCH_PT39",
+  "source_ref": "1e963743",
+  "binary_sha256": "3819b63e0bd119f903aa6354bab8a9d05293ba6ee0a4a28ee3aa3fc37bdb4a79",
+  "corpus_sha256": "9bde0ba7aba552aa8b7f84d3572535ff1c28d1176b6bfd7728ec861980c99c45",
+  "proof_sha256": "0d3d8398f34f42bb1e7ca3613155ed4cff0a555cd0830a72691e50481717d816",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "limits": {
+    "threads": 1,
+    "hash_mib": 64,
+    "nodes_each": 1000000,
+    "movetime_ms_each": 1000,
+    "wall_s_each": 4,
+    "total_wall_s": 5
+  },
+  "elapsed_s": 0.28,
+  "cases": [
+    {
+      "id": "fgv4-f66b24492c26",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2008/03/30/wdoor+floodgate-900-0+YSS+garyu+20080330080007.csa",
+      "proved_first": "G*2e",
+      "r6_bestmove": "G*2e",
+      "matches_proof": true,
+      "depth": 14,
+      "nodes": 271927,
+      "score_pv": {
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "G*2e",
+          "2d1c",
+          "2e1d",
+          "1c1d",
+          "1f1e",
+          "1d2d",
+          "G*2e",
+          "2d1c",
+          "1e1d",
+          "1c1b",
+          "1d1c+",
+          "1b2a",
+          "3d2b+"
+        ]
+      },
+      "elapsed_s": 0.157,
+      "ready": [
+        "info string NNUE output mode absolute",
+        "info string FV_SCALE 24",
+        "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+        "info string evaluator format HalfKP 256x2-32-32",
+        "readyok"
+      ],
+      "search": [
+        "info string root_mate_safety mate1_cache_hits 13 blunder_cache_hits 1 mate1_nodes 90 blunder_nodes 423",
+        "info depth 14 score mate 13 nodes 271927 nps 1800841 time 151 hashfull 13 pv G*2e 2d1c 2e1d 1c1d 1f1e 1d2d G*2e 2d1c 1e1d 1c1b 1d1c+ 1b2a 3d2b+",
+        "bestmove G*2e ponder 2d1c"
+      ],
+      "termination": {
+        "exitcode": 0,
+        "killed": false,
+        "reaped": true
+      }
+    }
+  ],
+  "strength_claim": false,
+  "adoption": false
+}

@@ -1,0 +1,166 @@
+{
+  "schema": "sekirei.public-tsume-pt31-r6-search.v1",
+  "status": "R6_MATE_MISS_REPRODUCED_PT31",
+  "source_ref": "1e963743",
+  "binary_sha256": "3819b63e0bd119f903aa6354bab8a9d05293ba6ee0a4a28ee3aa3fc37bdb4a79",
+  "corpus_sha256": "94fb990ec93a4ce42387004d914a35eb757e625d25828c535665e36346ae7f01",
+  "proof_sha256": "6c8ba58a1964f9f938fa59f742919c5bb6dacc7c1c7c885d350f2d6206e4b14f",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "limits": {
+    "threads": 1,
+    "hash_mib": 64,
+    "nodes_each": 1000000,
+    "movetime_ms_each": 1000,
+    "wall_s_each": 4,
+    "total_wall_s": 15
+  },
+  "elapsed_s": 1.275,
+  "cases": [
+    {
+      "id": "fgv4-88f7cf8b3b8e",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2021/10/30/wdoor+floodgate-300-10F+CR8+Yss1000k+20211030133003.csa",
+      "proved_first": "5a8a",
+      "r6_bestmove": "G*7a",
+      "matches_proof": false,
+      "depth": 15,
+      "nodes": 362689,
+      "score_pv": {
+        "score": [
+          "mate",
+          "15"
+        ],
+        "pv": [
+          "G*7a",
+          "6i8i+",
+          "9i8i",
+          "N*9g",
+          "8f9g",
+          "B*6a",
+          "5a6a",
+          "8b7a",
+          "6b7a+",
+          "G*8b",
+          "N*7d",
+          "9c9d",
+          "7a8a",
+          "8b8a",
+          "G*8b"
+        ]
+      },
+      "elapsed_s": 0.208,
+      "ready": [
+        "info string NNUE output mode absolute",
+        "info string FV_SCALE 24",
+        "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+        "info string evaluator format HalfKP 256x2-32-32",
+        "readyok"
+      ],
+      "search": [
+        "info string root_mate_safety mate1_cache_hits 14 blunder_cache_hits 1 mate1_nodes 108 blunder_nodes 435",
+        "info depth 15 score mate 15 nodes 362689 nps 1786645 time 203 hashfull 24 pv G*7a 6i8i+ 9i8i N*9g 8f9g B*6a 5a6a 8b7a 6b7a+ G*8b N*7d 9c9d 7a8a 8b8a G*8b",
+        "bestmove G*7a ponder 6i8i+"
+      ],
+      "termination": {
+        "exitcode": 0,
+        "killed": false,
+        "reaped": true
+      }
+    },
+    {
+      "id": "fgv4-89f5024b081d",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2019/10/01/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20191001193001.csa",
+      "proved_first": "9d8b+",
+      "r6_bestmove": "9d8b+",
+      "matches_proof": true,
+      "depth": 14,
+      "nodes": 1000000,
+      "score_pv": {
+        "score": [
+          "cp",
+          "768"
+        ],
+        "pv": [
+          "9d8b+",
+          "7a8b",
+          "2a2b",
+          "3c3b",
+          "2b3b",
+          "3a3b",
+          "G*5b",
+          "S*7a",
+          "5b6a",
+          "8c8d",
+          "R*3a",
+          "N*6e",
+          "9f9b+",
+          "8b9b"
+        ]
+      },
+      "elapsed_s": 0.714,
+      "ready": [
+        "info string NNUE output mode absolute",
+        "info string FV_SCALE 24",
+        "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+        "info string evaluator format HalfKP 256x2-32-32",
+        "readyok"
+      ],
+      "search": [
+        "info string root_mate_safety mate1_cache_hits 14 blunder_cache_hits 1 mate1_nodes 98 blunder_nodes 383",
+        "info depth 14 score cp 768 nodes 1000000 nps 1410437 time 709 hashfull 53 pv 9d8b+ 7a8b 2a2b 3c3b 2b3b 3a3b G*5b S*7a 5b6a 8c8d R*3a N*6e 9f9b+ 8b9b",
+        "bestmove 9d8b+ ponder 7a8b"
+      ],
+      "termination": {
+        "exitcode": 0,
+        "killed": false,
+        "reaped": true
+      }
+    },
+    {
+      "id": "fgv4-96e7bb41abff",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2021/11/20/wdoor+floodgate-300-10F+tanuki2+coduck_oci_1c+20211120190002.csa",
+      "proved_first": "S*7b",
+      "r6_bestmove": "S*7b",
+      "matches_proof": true,
+      "depth": 10,
+      "nodes": 36914,
+      "score_pv": {
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "S*7b",
+          "6a7b",
+          "6c7b",
+          "8a7b",
+          "5c6c",
+          "7b8a",
+          "G*7b",
+          "8a9b",
+          "7d8c",
+          "9b8c"
+        ]
+      },
+      "elapsed_s": 0.033,
+      "ready": [
+        "info string NNUE output mode absolute",
+        "info string FV_SCALE 24",
+        "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+        "info string evaluator format HalfKP 256x2-32-32",
+        "readyok"
+      ],
+      "search": [
+        "info string root_mate_safety mate1_cache_hits 9 blunder_cache_hits 1 mate1_nodes 85 blunder_nodes 478",
+        "info depth 10 score mate 13 nodes 36914 nps 1318357 time 28 hashfull 2 pv S*7b 6a7b 6c7b 8a7b 5c6c 7b8a G*7b 8a9b 7d8c 9b8c",
+        "bestmove S*7b ponder 6a7b"
+      ],
+      "termination": {
+        "exitcode": 0,
+        "killed": false,
+        "reaped": true
+      }
+    }
+  ],
+  "strength_claim": false,
+  "adoption": false
+}

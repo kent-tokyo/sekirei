@@ -1,0 +1,69 @@
+{
+  "schema": "sekirei.public-tsume-two-king-pt07.v1",
+  "dataset": "tokoroten-jp/generated-tsume-shogi",
+  "revision": "849617b78fa5769a666d6045aea586c301e03201",
+  "config": "default",
+  "split": "test",
+  "source_pages_sha256": {
+    "0": "59f4700a5bab37728fd9bdf0e16e1fc36d60617807c83c728820f7710d56d769",
+    "100": "cced8f8293182e46669117c6d9d26231fa76fcb2e9cb5dc59c9fe1e633d352f8",
+    "200": "5b1d2aa10e039b254f4084dc3ddb22e1feffad1cef4153222e130940b26f3698",
+    "300": "1160d68dbb6bd0e9a0ad0bda8c5501a38e27fe5082c1b7c22e96c8044839759f",
+    "400": "07ac20b0fd0e5bafd1147e98b0e1c0beebf6980e51a8c646543eccf213032727",
+    "500": "72b70eb461300ef0a0164ce7ac952bf333f08a198a78b8d2be73afb237d9a0f5"
+  },
+  "cases": [
+    {
+      "id": "0037aed341ef5fe21ec338a06a55e199aeff21861bec150db8bb769952287c1e",
+      "row_idx": 79,
+      "mate_ply": 13,
+      "sfen": "9/9/9/9/9/2R6/4kg+S2/2R+sB4/K7+B b 3g2s4n4l18p 1",
+      "solution_usi": [
+        "3g4g",
+        "5g5h",
+        "7h6h",
+        "5h6h",
+        "1i4f",
+        "6h6g",
+        "G*6f",
+        "6g5h",
+        "4f5g",
+        "5h5i",
+        "S*6h",
+        "5i4i",
+        "5g4h"
+      ],
+      "is_representative": true,
+      "defense_coverage_verified": true,
+      "unique_first_move": true,
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "modification": "added black king on 9i; core shortest mate reconfirmed"
+    },
+    {
+      "id": "00abc536c99e87690c198dc92ccd6858dd870ad9e95bc9f1297489cd23950b40",
+      "row_idx": 254,
+      "mate_ply": 13,
+      "sfen": "9/9/9/9/9/6s+L1/5BR1G/7k1/K8 b rb3g3s4n3l18p 1",
+      "solution_usi": [
+        "2f2g",
+        "3f2g",
+        "1g2g",
+        "2h1h",
+        "S*2i",
+        "1h1i",
+        "2i2h",
+        "1i1h",
+        "4g2i",
+        "1h2i",
+        "3g3i",
+        "2i1h",
+        "3i1i"
+      ],
+      "is_representative": true,
+      "defense_coverage_verified": true,
+      "unique_first_move": true,
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "modification": "added black king on 9i; core shortest mate reconfirmed"
+    }
+  ]
+}

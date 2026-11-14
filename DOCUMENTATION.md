@@ -4,6 +4,20 @@ Start with the repository [`README.md`](README.md). This index separates current
 contracts from design notes and dated evidence so historical results are not
 mistaken for current behavior.
 
+## Working instructions and planning
+
+| Question | Source |
+|---|---|
+| What outcome, resource limits, and safety rules govern the work? | [`AGENTS.md`](AGENTS.md) |
+| What should happen next? | Local `ROADMAP.md`, when present; otherwise the current user task and its evidence |
+| What are this run's exact inputs, limits, and decision rule? | Its registered plan and manifests; preserve them when later policy changes |
+| What can a tool do? | [`scripts/README.md`](scripts/README.md); choose the relevant tool, not the whole index |
+| Why did an earlier instruction differ? | [Instruction history](docs/agent-instructions/README.md), read only for the relevant scope |
+
+Keep current priorities in the roadmap and detailed outcomes in their dated
+records. A completed release request or a historical plan's “next step” is not
+a new task. Do not edit frozen inputs to synchronize them with current policy.
+
 ## Current contracts
 
 | Document | Scope |
@@ -38,8 +52,9 @@ stronger.
 
 Files under [`docs/experiments/`](docs/experiments/) preserve
 preregistrations, exact run conditions, hashes, and results. Their dates and
-revisions are part of the record. Do not reuse an old verdict as evidence for
-the current engine without re-running the stated contract.
+revisions are part of the record. A verdict applies only to its recorded
+artifact and conditions. Qualification of a changed artifact or conditions
+requires a separately registered run; preserve the original bounds and verdict.
 
 The [2026-10-25 own-HalfKP 8T PGO study](docs/experiments/own_halfkp_pgo_8t_v0.5.1/README.md)
 records an inconclusive speed result; the candidate was not adopted.

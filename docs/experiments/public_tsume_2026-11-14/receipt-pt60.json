@@ -1,0 +1,123 @@
+{
+  "schema": "sekirei.public-tsume-pt60-material-control.v1",
+  "source_ref": "1e963743",
+  "binary_sha256": "3819b63e0bd119f903aa6354bab8a9d05293ba6ee0a4a28ee3aa3fc37bdb4a79",
+  "inputs": [
+    {
+      "path": "corpus-pt23-original.json",
+      "sha256": "a44e6eeba687f328f08cbd1e95d79b65e293014ef96f5e7ac0bed8b603ef7b66",
+      "id": "fgv4-664b2c354ebe"
+    },
+    {
+      "path": "corpus-pt47-original.json",
+      "sha256": "ff8480f7740001b414ba048ffbee8bda282a80a38141e404370bfb00d6af3258",
+      "id": "fgv4-63dace5aee7f"
+    }
+  ],
+  "limits": {
+    "threads": 1,
+    "hash_mib": 64,
+    "nodes_each": 1000000,
+    "movetime_ms_each": 1000,
+    "wall_s_each": 4,
+    "total_wall_s": 12
+  },
+  "evaluator": "material-only",
+  "cases": [
+    {
+      "id": "fgv4-664b2c354ebe",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/03/wdoor+floodgate-900-0+gps_l+NanohaWCSC21USI+20120303233003.csa",
+      "proved_first": "4a3b",
+      "bestmove": "8g8h",
+      "matches_proof": false,
+      "depth": 18,
+      "nodes": 1000000,
+      "score_pv": {
+        "score": [
+          "cp",
+          "4278"
+        ],
+        "pv": [
+          "8g8h",
+          "8f8g+",
+          "8h8g",
+          "P*8f",
+          "8g8h",
+          "6g7g",
+          "8h7g",
+          "8f8g+",
+          "7g8g",
+          "6f6g+",
+          "P*6e",
+          "N*2f",
+          "3h2h",
+          "6d8d",
+          "4a9f"
+        ]
+      },
+      "elapsed_s": 0.686,
+      "ready": [
+        "readyok"
+      ],
+      "search": [
+        "info string root_mate_safety mate1_cache_hits 18 blunder_cache_hits 1 mate1_nodes 143 blunder_nodes 419",
+        "info depth 18 score cp 4278 nodes 1000000 nps 1468428 time 681 hashfull 73 pv 8g8h 8f8g+ 8h8g P*8f 8g8h 6g7g 8h7g 8f8g+ 7g8g 6f6g+ P*6e N*2f 3h2h 6d8d 4a9f",
+        "bestmove 8g8h ponder 8f8g+"
+      ],
+      "termination": {
+        "exitcode": 0,
+        "killed": false,
+        "reaped": true
+      },
+      "first_check": "first_move_legal=true gives_check=false legal_replies=29\n",
+      "pv_replay": "plies=15 terminal_check=false legal_replies=34 final_sfen=lnSB3nl/3+P2gk1/p1p1pPspp/1r3pp2/3P3P1/+B1P1SGPn1/PG1+p4P/4P2R1/L3K3L w GSNP 104\n"
+    },
+    {
+      "id": "fgv4-63dace5aee7f",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2017/12/07/wdoor+floodgate-300-10F+gps_l+Sunfish4-AWS09+20171207150005.csa",
+      "proved_first": "3a2a",
+      "bestmove": "3a2a",
+      "matches_proof": true,
+      "depth": 11,
+      "nodes": 114138,
+      "score_pv": {
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "3a2a",
+          "2b2a",
+          "6a2a",
+          "1a2a",
+          "N*1c",
+          "1b1c",
+          "G*1b",
+          "2a1b",
+          "1d1c+",
+          "1b2a",
+          "1c1b"
+        ]
+      },
+      "elapsed_s": 0.06,
+      "ready": [
+        "readyok"
+      ],
+      "search": [
+        "info string root_mate_safety mate1_cache_hits 10 blunder_cache_hits 1 mate1_nodes 115 blunder_nodes 1059",
+        "info depth 11 score mate 13 nodes 114138 nps 2113666 time 54 hashfull 9 pv 3a2a 2b2a 6a2a 1a2a N*1c 1b1c G*1b 2a1b 1d1c+ 1b2a 1c1b",
+        "bestmove 3a2a ponder 2b2a"
+      ],
+      "termination": {
+        "exitcode": 0,
+        "killed": false,
+        "reaped": true
+      },
+      "first_check": "first_move_legal=true gives_check=true legal_replies=1\n",
+      "pv_replay": "plies=11 terminal_check=true legal_replies=1 final_sfen=7k1/6g1+P/5Lsp1/4ppp2/1p3s1nL/3PP1P1+r/1P1N1P3/2KS5/LN2S2+b1 w G2Prb2gnl5p 126\n"
+    }
+  ],
+  "strength_claim": false,
+  "adoption": false,
+  "elapsed_s": 0.818
+}

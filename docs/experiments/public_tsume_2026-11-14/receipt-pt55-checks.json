@@ -1,0 +1,84 @@
+{
+  "schema": "sekirei.public-tsume-pt55-first-check.v1",
+  "search_sha256": "7b66091e5418549a97b3efbcb6c62871d77ac9bb1ae44eacfe878ad3731a0e21",
+  "binary_sha256": "2c65e30449c785e70c6dd2d3790dc901298a09a3181419d4856ab645dd1d2ada",
+  "cases": [
+    {
+      "id": "sbq13-0001",
+      "move": "8e9c+",
+      "exit_code": 0,
+      "stdout": "first_move_legal=true gives_check=false legal_replies=482\n",
+      "stderr": ""
+    },
+    {
+      "id": "sbq13-0002",
+      "move": "5d6c+",
+      "exit_code": 0,
+      "stdout": "first_move_legal=true gives_check=true legal_replies=2\n",
+      "stderr": ""
+    },
+    {
+      "id": "sbq13-0003",
+      "move": "P*9f",
+      "exit_code": 0,
+      "stdout": "first_move_legal=true gives_check=true legal_replies=2\n",
+      "stderr": ""
+    },
+    {
+      "id": "sbq13-0004",
+      "move": "6f7e",
+      "exit_code": 0,
+      "stdout": "first_move_legal=true gives_check=false legal_replies=409\n",
+      "stderr": ""
+    },
+    {
+      "id": "sbq13-0005",
+      "move": "6d9d",
+      "exit_code": 0,
+      "stdout": "first_move_legal=true gives_check=true legal_replies=7\n",
+      "stderr": ""
+    },
+    {
+      "id": "sbq13-0006",
+      "move": "6e7e",
+      "exit_code": 0,
+      "stdout": "first_move_legal=true gives_check=true legal_replies=2\n",
+      "stderr": ""
+    },
+    {
+      "id": "sbq13-0007",
+      "move": "6f7d",
+      "exit_code": 0,
+      "stdout": "first_move_legal=true gives_check=true legal_replies=3\n",
+      "stderr": ""
+    },
+    {
+      "id": "sbq13-0008",
+      "move": "6e7d",
+      "exit_code": 0,
+      "stdout": "first_move_legal=true gives_check=false legal_replies=482\n",
+      "stderr": ""
+    },
+    {
+      "id": "sbq13-0009",
+      "move": "2a3b+",
+      "exit_code": 0,
+      "stdout": "first_move_legal=true gives_check=false legal_replies=417\n",
+      "stderr": ""
+    },
+    {
+      "id": "sbq13-0010",
+      "move": "9g9f",
+      "exit_code": 0,
+      "stdout": "first_move_legal=true gives_check=true legal_replies=1\n",
+      "stderr": ""
+    },
+    {
+      "id": "sbq13-0011",
+      "move": "S*2h",
+      "exit_code": 0,
+      "stdout": "first_move_legal=true gives_check=true legal_replies=3\n",
+      "stderr": ""
+    }
+  ]
+}

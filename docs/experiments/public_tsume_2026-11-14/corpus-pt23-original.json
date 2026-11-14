@@ -1,0 +1,62 @@
+{
+  "schema": "sekirei.public-tsume-pt23-original-csa.v1",
+  "selected_corpus_sha256": "0b31ab0b6da197d34b656691fddbffc5dbe589b96f7f607ef1f53f92d44fb197",
+  "parquet_sha256": "fd48a9f9fe1311e98c405a6b3fde23e907dfc908178232df019b7ba891185627",
+  "replay_binary_sha256": "870051373e790fb76f230d82ed96d69def6db892887948a3348fbcabb3b3a704",
+  "cases": [
+    {
+      "id": "fgv4-664b2c354ebe",
+      "dataset_id": "664b2c354ebe7ff7f725ab10fa1f0346761a4121223c7eb432c8091f54a8aff1",
+      "dataset_row_index": 1230042,
+      "dataset_mate_ply": 13,
+      "mate_ply": 13,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/03/wdoor+floodgate-900-0+gps_l+NanohaWCSC21USI+20120303233003.csa",
+      "source_file": "wdoor2012.7z!wdoor+floodgate-900-0+gps_l+NanohaWCSC21USI+20120303233003.csa",
+      "source_line": 88,
+      "csa_sha256": "923acab00ebf5fd2bf3d2596f0b9cc0662fecd57538c56a1e3947c5d8609800f",
+      "sfen": "lnSB1+B1nl/3+P2gk1/p1p1pPspp/3r1pp2/7P1/1pPpSGP2/PGN+n4P/4P1R2/L3K3L b GSp 89",
+      "solution_usi": [
+        "4a3b",
+        "2b3b",
+        "4c4b+",
+        "3c4b",
+        "S*4a",
+        "3b4a",
+        "G*5b",
+        "4a3b",
+        "5b4b",
+        "3b3c",
+        "G*3b"
+      ],
+      "dataset_first_move": "4a3b"
+    },
+    {
+      "id": "fgv4-6e83e3a0b021",
+      "dataset_id": "6e83e3a0b0211cad516f549521a7dba402f05f1ce04dfbb2cd91a519198494cb",
+      "dataset_row_index": 1329544,
+      "dataset_mate_ply": 13,
+      "mate_ply": 13,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2019/10/01/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20191001193001.csa",
+      "source_file": "wdoor2019.7z!wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20191001193001.csa",
+      "source_line": 90,
+      "csa_sha256": "2a72b62e018253092b946ce63cab3d37e55d41333375bf07f23211d31270363f",
+      "sfen": "3n2p+Rl/pk1b5/1pppp1rpp/9/5p1P1/LPP1sP1+b1/1KNP4P/2S1GS3/3G4L b 2G3Ps2nl 91",
+      "solution_usi": [
+        "9f9b+",
+        "8b9b",
+        "P*9c",
+        "9b9c",
+        "7g8e",
+        "9c9d",
+        "P*9e",
+        "9d9e",
+        "P*9f",
+        "9e8d",
+        "G*7e",
+        "8d9d",
+        "G*9c"
+      ],
+      "dataset_first_move": "9f9b+"
+    }
+  ]
+}

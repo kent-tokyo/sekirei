@@ -1,0 +1,28 @@
+{
+  "schema": "sekirei.public-tsume-pt50-seventh-index.v1",
+  "seven_index_sha256": "75b598d615f2e9881afd46a15d9b2484d5aae0e387e3cf942931881e6f8124dd",
+  "prior_six_ids": [
+    "fgv4-13c05ce598b2",
+    "fgv4-63dace5aee7f",
+    "fgv4-70efa1b414dc",
+    "fgv4-ba6d7bc66b02",
+    "fgv4-cc68966cec8e",
+    "fgv4-dd00fe3a6f65"
+  ],
+  "case": {
+    "id": "fgv4-ea673a5450f2",
+    "dataset_id": "ea673a5450f20b57f7eee5b85439c467192c23681bc8107c537d3065091951e5",
+    "shard": 5,
+    "row_index_in_shard": 317560,
+    "global_row_index": 2817560,
+    "mate_ply": 13,
+    "label": "yozume",
+    "dataset_sfen": "9/9/p8/kNG6/n1P6/R2P5/PP7/1BG6/LN7 b 3Prb2g4sn3l10p 1",
+    "dataset_main_line": "9f9e 9d9e 9g9f 9e9d 9f9e 9d8e 8g8f 8e8f 8h7g 8f7f N*8h 7f8e 8i9g",
+    "source_file": "wdoor2021.7z!wdoor+floodgate-300-10F+cobra_RTX2080Ti+Krist_483_473stb_1000k+20210507100010.csa",
+    "source_line": 98,
+    "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2021/05/07/wdoor+floodgate-300-10F+cobra_RTX2080Ti+Krist_483_473stb_1000k+20210507100010.csa",
+    "source_archive_sha256": "96182a29d30c4f851f20fbcd68a92afc06afa6b991092e78a6a39d5b14abaa60",
+    "unique_first_move": null
+  }
+}

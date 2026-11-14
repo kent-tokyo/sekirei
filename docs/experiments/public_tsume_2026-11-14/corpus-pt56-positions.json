@@ -1,0 +1,50 @@
+{
+  "schema": "sekirei.public-tsume-pt56-sougyoku-positions.v1",
+  "list_sha256": "9f7c3489329671e02d5cacc11146680773145e998d32051315704ed01e53f40c",
+  "cases": [
+    {
+      "list_index": 4,
+      "title": "(^O^)／15手詰だよ　#2285",
+      "listed_ply": 15,
+      "source_url": "https://tsumeshogi.com/problems/pxmboxlphx",
+      "html_sha256": "788e3eb1934a37bff10b28bb5b0360f21d9ad325d8dc91f805a68fd0891ef02e",
+      "sfen": "l8/2S6/2G6/kp1p1B3/9/P1bN5/1PP6/2S2r3/LNK6 b r3g2s2n2l13p 1",
+      "html_solution_attr": "",
+      "black_kings": 1,
+      "white_kings": 1
+    },
+    {
+      "list_index": 16,
+      "title": "(^O^)／19手詰だよ　#2280",
+      "listed_ply": 19,
+      "source_url": "https://tsumeshogi.com/problems/_s7sdncxcu",
+      "html_sha256": "4c202f3d6539aff570d512ffec6c266d75c67c1205651240d4f2fcad96dae5ef",
+      "sfen": "9/np3P3/pkp6/1Nl6/3PP4/P2pp4/1KP6/LL7/9 b 2B2r4g4s2nl8p 1",
+      "html_solution_attr": "",
+      "black_kings": 1,
+      "white_kings": 1
+    },
+    {
+      "list_index": 23,
+      "title": "実戦詰将棋",
+      "listed_ply": 13,
+      "source_url": "https://tsumeshogi.com/problems/jvsq3wb3fv",
+      "html_sha256": "2589bf74c13d5c9bf449329108d3c7801e08c20c1ec7e4e20c1151f448e646f3",
+      "sfen": "4l4/4G1+R2/2nkp1p2/2p1l4/3p2G2/9/1NSP5/1NK6/5L3 b r2b2g3snl13p 1",
+      "html_solution_attr": "",
+      "black_kings": 1,
+      "white_kings": 1
+    },
+    {
+      "list_index": 24,
+      "title": "双玉詰将棋",
+      "listed_ply": 13,
+      "source_url": "https://tsumeshogi.com/problems/n0i1vnpzl1",
+      "html_sha256": "effd1e5521e22f781be366f5d96e9452951cfab2a57d180dbda33a9b75404e3d",
+      "sfen": "4l2+R1/9/4RK1S1/6g2/8k/5B2l/9/9/9 b b3g3s4n2l18p 1",
+      "html_solution_attr": "",
+      "black_kings": 1,
+      "white_kings": 1
+    }
+  ]
+}

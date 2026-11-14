@@ -22,6 +22,12 @@ explicit_scale = base("nnue", True)
 explicit_scale["weights"]["path"] = "/tmp/synthetic-halfkp.bin"
 explicit_scale["fv_scale"] = 24
 assert validate(explicit_scale) == []
+explicit_scale["threads"] = 4
+assert validate(explicit_scale) == []
+for value in (0, 65, True, None, "4"):
+    invalid_threads = base()
+    invalid_threads["threads"] = value
+    assert "threads" in validate(invalid_threads)
 for value in (0, 129, True, False, None, "24", 24.0):
     invalid_scale = base()
     invalid_scale["fv_scale"] = value

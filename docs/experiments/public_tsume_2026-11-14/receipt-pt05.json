@@ -1,0 +1,125 @@
+{
+  "schema": "sekirei.public-tsume-core-probe.v1",
+  "source_input_sha256": "2f08fab8dc6f0a249e61f8ad33002d92b1cfcae5dc8e33331a2838f44a1fde30",
+  "binary_sha256": "214e8c8db1b6f40953e7c56803deef03104c7b501a6ba54ab1aa92326a240172",
+  "rlib_sha256": "12a03246d32d4480ef8379e58ef179b1538939bac3690d2d199b66ed48999588",
+  "limits": {
+    "nodes": 1000000,
+    "wall_s": 4.0,
+    "threads": 1
+  },
+  "cases": [
+    {
+      "id": "001565f919d6579ebf8dd3226567d97b3afcc665480b24dcd14c70e1dc498b2b",
+      "sfen": "9/9/9/9/9/6SgB/5B+L1k/8g/8G b 2rg3s4n3l18p 1",
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "mate_ply": 13,
+      "searched_max_ply": 15,
+      "verified_line": [
+        "1i1h",
+        "1g1h",
+        "1f2g",
+        "1h2h",
+        "3g3h",
+        "2h2i",
+        "G*2h",
+        "2i1i",
+        "2h1h",
+        "1i2i",
+        "3h4h",
+        "2i3i",
+        "4h4i"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.055,
+        "stdout": "outcome=Mate valid=true distance=Some(15) nodes=195348 aborted=false solutions=1i1h",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "0054702ad1b633ef72a86fc8cb61824d17dcecefd704a01a4e89c8c7b1f5e5d8",
+      "sfen": "9/9/9/9/9/2+R6/1+B2g1+N2/2S1k4/3s5 b Grb2g2s3n4l18p 1",
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "mate_ply": 13,
+      "searched_max_ply": 15,
+      "verified_line": [
+        "7h6i",
+        "5h5i",
+        "6i6h",
+        "5g6h",
+        "S*4h",
+        "5i4h",
+        "7f4f",
+        "4h3i",
+        "G*3h",
+        "3i2i",
+        "4f2f",
+        "2i1h",
+        "2f2h"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.302,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "00cd42f5c0d22c579fbc423168b2113fd563c7cbb43bec63f1382ee1d60d045e",
+      "sfen": "9/4+B4/3+R5/4B4/4k4/9/4P4/4G4/9 b r3g4s4n4l17p 1",
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "mate_ply": 13,
+      "searched_max_ply": 15,
+      "verified_line": [
+        "5g5f",
+        "5e4f",
+        "6c4c",
+        "4f5f",
+        "5b7d",
+        "5f6f",
+        "7d6e",
+        "6f7g",
+        "6e8g",
+        "7g6f",
+        "8g7f",
+        "6f5e",
+        "7f6e"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.305,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "016c7a4536630342255a159827c6514bc3e9c2b8503f02264f33da6ee7e4fe63",
+      "sfen": "9/9/9/7r1/9/5B+S1+B/5k3/4R1g2/4S4 b 3g2s4n4l18p 1",
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "mate_ply": 13,
+      "searched_max_ply": 15,
+      "verified_line": [
+        "1f3h",
+        "4g3f",
+        "3h3g",
+        "3f2e",
+        "G*1e",
+        "2e3d",
+        "1e2d",
+        "3d4c",
+        "R*3c",
+        "4c4b",
+        "4f6d",
+        "4b4a",
+        "3c3a"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.348,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    }
+  ]
+}

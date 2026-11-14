@@ -1,0 +1,28 @@
+{
+  "schema": "sekirei.public-tsume-pt24-mate.v1",
+  "corpus_sha256": "a44e6eeba687f328f08cbd1e95d79b65e293014ef96f5e7ac0bed8b603ef7b66",
+  "source_commit": "f5507603a59d19f1d258246e7a2ed3569d7bf0dc",
+  "binary_sha256": "ae346ae724eaf2cc9256b0748725b79c18aaa0e793995829eff90603a4ca7a91",
+  "limits": {
+    "max_ply": 13,
+    "nodes_each": 1000000,
+    "wall_s_each": 4,
+    "calls": 2
+  },
+  "cases": [
+    {
+      "id": "fgv4-664b2c354ebe",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/03/wdoor+floodgate-900-0+gps_l+NanohaWCSC21USI+20120303233003.csa",
+      "exit_code": 0,
+      "stdout": "outcome=Mate valid=true distance=Some(13) nodes=31835 aborted=false solutions=4a3b\n",
+      "stderr": ""
+    },
+    {
+      "id": "fgv4-6e83e3a0b021",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2019/10/01/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20191001193001.csa",
+      "exit_code": 0,
+      "stdout": "outcome=Mate valid=true distance=Some(13) nodes=19380 aborted=false solutions=9f9b+\n",
+      "stderr": ""
+    }
+  ]
+}

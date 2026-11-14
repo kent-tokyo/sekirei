@@ -1,0 +1,40 @@
+{
+  "schema": "sekirei.public-tsume-pt64-no-lmr-root-trace.v1",
+  "prior_sha256": "f7d453c519534482912922b50d0acc182de42e31965e1f11c0fc4337f1e9806f",
+  "binary_sha256": "61d762ade21cbcf0c2596d4162913061351d2d8ae2ee7018e264d3d32b1b161a",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "case_id": "fgv4-664b2c354ebe",
+  "limits": {
+    "nodes": 1000000,
+    "wall_s": 4,
+    "output_bytes": 1000000
+  },
+  "command_args": [
+    "--nodes",
+    "1000000",
+    "--sfen",
+    "lnSB1+B1nl/3+P2gk1/p1p1pPspp/3r1pp2/7P1/1pPpSGP2/PGN+n4P/4P1R2/L3K3L b GSp 89",
+    "--weights",
+    "/Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+    "--fv-scale",
+    "24",
+    "--nnue-output",
+    "absolute",
+    "--disable-lmr",
+    "--iteration-trace"
+  ],
+  "exit_code": 0,
+  "stdout": "bestmove=2e2d\tdepth=12\tscore_cp=929\tnodes=1000000\telapsed_ms=766\telapsed_ns=766299958\tbound=unknown\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=true\tabort_reason=budget\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=705195\teval_cache_probes=705195\teval_cache_hits=126213\ttt_probes=507971\ttt_hits=105411\ttt_stores=431235\torder_tt=12\torder_killer=0\torder_countermove=0\torder_history=1808\troot_mate_in_one_nodes=143\troot_mate_blunder_nodes=419\troot_mate_in_one_cache_hits=12\troot_mate_blunder_cache_hits=1\talpha_beta_calls=350477\tquiescence_calls=648961\tqsearch_top_level_calls=159167\tqsearch_in_check=95351\tqsearch_tt_cutoffs=16156\tqsearch_stand_pat_cutoffs=216706\tqsearch_terminal_nodes=28833\tqsearch_searched_moves=489794\tqsearch_beta_cutoffs=169780\tqsearch_depth_cap_exits=22694\tqsearch_mate_in_one_exits=25779\tqsearch_delta_pruning_exits=87\tstatic_evaluation_ns=114898357\ttt_probe_ns=47812855\ttt_store_ns=8809404\tmovegen_order_ns=74097607\tmovegen_generate_ns=36963273\tmove_order_ns=14392197\tmove_order_score_ns=31704\tmove_order_sort_ns=98417\tquiescence_inclusive_ns=1328716100\troot_mate_safety_ns=978918\tpv_usi=2e2d,6g5h,5i5h,1c1d,S*3a,2b1c,4a3b,6f6g+,5h4h,1c2d,3h2h\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=b62fbdd6bac83429\thistory_final_hash=b62fbdd6bac83429\thistory_matches_expected=true\troot_candidates=\troot_initial_order=9g9f,7f7e,5h5g,4c4b+,4c4b,3f3e,2e2d,1g1f,9i9h,1i1h,7g8e,7g6e,7a8b+,7a8b,5f6e,5f6g,5f5e,5f4e,5f4g,8g9f,8g8f,8g8h,4f5e,4f4e,4f4g,4f3e,6b7b,6b6c,6b5a,6b5b,6a9d+,6a9d,6a8c+,6a8c,6a7b+,6a7b,6a5b+,6a5b,3h3g,3h3i,3h4h,3h2h,3h1h,4a9f,4a8e,4a7d,4a6c,4a5b,4a3b,4a5a,4a4b,4a3a,5i6i,5i4h,5i4i,S*9b,S*9d,S*9e,S*9f,S*9h,S*8b,S*8c,S*8d,S*8e,S*8h,S*8i,S*7b,S*7d,S*7e,S*7h,S*7i,S*6c,S*6e,S*6h,S*6i,S*5a,S*5b,S*5d,S*5e,S*5g,S*4b,S*4e,S*4g,S*4h,S*4i,S*3a,S*3e,S*3g,S*3i,S*2d,S*2f,S*2g,S*2h,S*2i,S*1b,S*1d,S*1e,S*1f,S*1h,G*9b,G*9d,G*9e,G*9f,G*9h,G*8b,G*8c,G*8d,G*8e,G*8h,G*8i,G*7b,G*7d,G*7e,G*7h,G*7i,G*6c,G*6e,G*6h,G*6i,G*5a,G*5b,G*5d,G*5e,G*5g,G*4b,G*4e,G*4g,G*4h,G*4i,G*3a,G*3e,G*3g,G*3i,G*2d,G*2f,G*2g,G*2h,G*2i,G*1b,G*1d,G*1e,G*1f,G*1h\titeration_trace=1:6b6c:707:787:exact:143:419,2:6b6c:753:1041:exact:143:419,3:6b6c:753:1522:exact:143:419,4:6b6c:742:2254:exact:143:419,5:G*4b:729:3605:exact:143:419,6:2e2d:755:6061:exact:143:419,7:2e2d:850:24608:exact:143:419,8:2e2d:889:27641:exact:143:419,9:2e2d:884:36247:exact:143:419,10:2e2d:865:55873:exact:143:419,11:2e2d:879:141102:exact:143:419,12:2e2d:929:914757:exact:143:419\n",
+  "stderr": "",
+  "summary": {
+    "bestmove": "2e2d",
+    "depth": "12",
+    "nodes": "1000000",
+    "aborted": "true",
+    "root_legal_count": 143,
+    "proof_first_initial_rank_1_based": 49,
+    "iteration_trace": "1:6b6c:707:787:exact:143:419,2:6b6c:753:1041:exact:143:419,3:6b6c:753:1522:exact:143:419,4:6b6c:742:2254:exact:143:419,5:G*4b:729:3605:exact:143:419,6:2e2d:755:6061:exact:143:419,7:2e2d:850:24608:exact:143:419,8:2e2d:889:27641:exact:143:419,9:2e2d:884:36247:exact:143:419,10:2e2d:865:55873:exact:143:419,11:2e2d:879:141102:exact:143:419,12:2e2d:929:914757:exact:143:419"
+  },
+  "strength_claim": false,
+  "adoption": false
+}

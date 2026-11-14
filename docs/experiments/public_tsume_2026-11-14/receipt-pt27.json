@@ -1,0 +1,26 @@
+{
+  "schema": "sekirei.public-tsume-pt27-root-diagnostic.v1",
+  "id": "fgv4-664b2c354ebe",
+  "binary_sha256": "feca39fd6edbf61a108b72a8b0a8b1d0bdc7010189e4643b52f11b4e2fcbb8b3",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "corpus_sha256": "a44e6eeba687f328f08cbd1e95d79b65e293014ef96f5e7ac0bed8b603ef7b66",
+  "limits": {
+    "nodes_each": 1000000,
+    "wall_s_each": 4,
+    "calls": 2
+  },
+  "cases": [
+    {
+      "root_move": "4a3b",
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "unknown option: --fv-scale\n"
+    },
+    {
+      "root_move": "2e2d",
+      "exit_code": 2,
+      "stdout": "",
+      "stderr": "unknown option: --fv-scale\n"
+    }
+  ]
+}

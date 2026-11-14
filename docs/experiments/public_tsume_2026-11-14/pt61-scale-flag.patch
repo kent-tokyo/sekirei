@@ -1,0 +1,54 @@
+diff --git a/crates/sekirei-core/src/bin/search_diagnostic.rs b/crates/sekirei-core/src/bin/search_diagnostic.rs
+index 284c5fe..7c0f500 100644
+--- a/crates/sekirei-core/src/bin/search_diagnostic.rs
++++ b/crates/sekirei-core/src/bin/search_diagnostic.rs
+@@ -8,6 +8,7 @@ use std::time::Duration;
+ 
+ use sekirei_core::board::Board;
+ use sekirei_core::eval::{NnueOutputMode, set_nnue_output_mode, set_nnue_residual_scale_permille};
++use sekirei_core::halfkp;
+ use sekirei_core::movegen::{generate_legal_moves, is_in_check};
+ use sekirei_core::nnue::load_evaluator;
+ use sekirei_core::search::{PruningConfig, SearchConfig, SearchDiagnostics, Searcher};
+@@ -22,6 +23,7 @@ fn main() {
+     let mut depth_mode = false;
+     let mut warmup_nodes = None;
+     let mut weights = None;
++    let mut fv_scale = halfkp::DEFAULT_FV_SCALE;
+     let mut nnue_output = NnueOutputMode::Absolute;
+     let mut nnue_residual_scale_permille = 1_000_u16;
+     let mut sfen = None;
+@@ -75,6 +77,16 @@ fn main() {
+                 }
+             }
+             "--weights" => weights = args.next(),
++            "--fv-scale" => {
++                fv_scale = args
++                    .next()
++                    .and_then(|value| value.parse::<i32>().ok())
++                    .filter(|value| (1..=128).contains(value))
++                    .unwrap_or_else(|| {
++                        eprintln!("--fv-scale requires 1..=128");
++                        std::process::exit(2);
++                    });
++            }
+             "--nnue-output" => match args.next().as_deref() {
+                 Some("absolute") => nnue_output = NnueOutputMode::Absolute,
+                 Some("residual-material") => nnue_output = NnueOutputMode::ResidualMaterial,
+@@ -131,6 +143,7 @@ fn main() {
+         std::process::exit(2);
+     }
+     if let Some(path) = weights {
++        halfkp::set_fv_scale(fv_scale).expect("FV_SCALE was validated");
+         load_evaluator(Path::new(&path)).unwrap_or_else(|error| {
+             eprintln!("failed to load weights: {error}");
+             std::process::exit(1);
+@@ -140,7 +153,7 @@ fn main() {
+     }
+     let Some(sfen) = sfen else {
+         eprintln!(
+-            "usage: sekirei-search-diagnostic [--nodes N | --time-ms N] --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--iteration-trace] [--profile-cost] [--disable-root-mate-safety] [--warmup-nodes N] [--weights FILE --nnue-output absolute|residual-material --nnue-residual-scale-permille 0..=2000] [--teacher-search] [--disable-nmp] [--disable-lmr]"
++            "usage: sekirei-search-diagnostic [--nodes N | --time-ms N] --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--iteration-trace] [--profile-cost] [--disable-root-mate-safety] [--warmup-nodes N] [--weights FILE --fv-scale 1..=128 --nnue-output absolute|residual-material --nnue-residual-scale-permille 0..=2000] [--teacher-search] [--disable-nmp] [--disable-lmr]"
+         );
+         std::process::exit(2);
+     };

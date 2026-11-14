@@ -1,0 +1,35 @@
+{
+  "schema": "sekirei.public-tsume-pt23-source-selection.v1",
+  "source_parquet_sha256": "fd48a9f9fe1311e98c405a6b3fde23e907dfc908178232df019b7ba891185627",
+  "rows_scanned": 500000,
+  "eligible_rows": 2,
+  "selection_limit": 6,
+  "cases": [
+    {
+      "id": "fgv4-664b2c354ebe",
+      "dataset_id": "664b2c354ebe7ff7f725ab10fa1f0346761a4121223c7eb432c8091f54a8aff1",
+      "row_index": 1230042,
+      "mate_ply": 13,
+      "dataset_sfen": "3B1+B1nl/6gk1/4pPspp/5pp2/7P1/9/9/9/9 b GS2r2g2s3n3l11p 1",
+      "dataset_main_line": "4a3b 2b1b G*2b 3c2b 3b2b 1b2b S*3a 2b3a 4c4b+ 3a2b S*3a 2b1b G*2b",
+      "source_file": "wdoor2012.7z!wdoor+floodgate-900-0+gps_l+NanohaWCSC21USI+20120303233003.csa",
+      "source_line": 88,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/03/wdoor+floodgate-900-0+gps_l+NanohaWCSC21USI+20120303233003.csa",
+      "source_archive_sha256": "8fbc7cafbad92539bc2a0fb22733e461e1e22aa4f64c3771c765aeaf270558be",
+      "unique_first_move": true
+    },
+    {
+      "id": "fgv4-6e83e3a0b021",
+      "dataset_id": "6e83e3a0b0211cad516f549521a7dba402f05f1ce04dfbb2cd91a519198494cb",
+      "row_index": 1329544,
+      "mate_ply": 13,
+      "dataset_sfen": "3n5/pk1b5/1ppp5/9/9/LPP6/2N6/2S6/9 b 2G2P2rb2g3s2n3l10p 1",
+      "dataset_main_line": "9f9b+ 8b9b P*9c 9b9c P*9d 9c9d P*9e 9d9c 7g8e 9c8b G*9c 8b7a G*8b",
+      "source_file": "wdoor2019.7z!wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20191001193001.csa",
+      "source_line": 90,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2019/10/01/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20191001193001.csa",
+      "source_archive_sha256": "7e9d10b2e32f27eec57bbde0983a3eea5c847052a70b0dce58349cca6780624b",
+      "unique_first_move": true
+    }
+  ]
+}

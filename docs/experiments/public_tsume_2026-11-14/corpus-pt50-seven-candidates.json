@@ -1,0 +1,169 @@
+{
+  "schema": "sekirei.public-tsume-pt46-flawed-source-index.v1",
+  "shards": [
+    {
+      "number": 0,
+      "parquet_sha256": "5c998ef29299adeab88583df25c073c18956fa6cce8dc88d897a397cf91104e2",
+      "rows_scanned": 500000,
+      "eligible_rows": 1,
+      "selected_rows": 1
+    },
+    {
+      "number": 1,
+      "parquet_sha256": "7aa1b3b426f927b94a69efa4b6ec1e387d7fc1f66b24c13827e0a7dc875763bd",
+      "rows_scanned": 500000,
+      "eligible_rows": 0,
+      "selected_rows": 0
+    },
+    {
+      "number": 2,
+      "parquet_sha256": "fd48a9f9fe1311e98c405a6b3fde23e907dfc908178232df019b7ba891185627",
+      "rows_scanned": 500000,
+      "eligible_rows": 2,
+      "selected_rows": 2
+    },
+    {
+      "number": 3,
+      "parquet_sha256": "8431ed46630f54979050fbd7d8b82266a4049c7ebab02e4f8bbe156fc5fcac52",
+      "rows_scanned": 500000,
+      "eligible_rows": 0,
+      "selected_rows": 0
+    },
+    {
+      "number": 4,
+      "parquet_sha256": "3dfc4f33f68a9cae21587b59b1fc63db515809adf130983ab3c33cd4b083ca7a",
+      "rows_scanned": 500000,
+      "eligible_rows": 2,
+      "selected_rows": 2
+    },
+    {
+      "number": 5,
+      "parquet_sha256": "fc30747f6e21c942268bb77be997f3968b822e8345c81ebf4737d2d2a09416ad",
+      "rows_scanned": 500000,
+      "eligible_rows": 2,
+      "selected_rows": 2
+    },
+    {
+      "number": 6,
+      "parquet_sha256": "4f5f758dd2e33bfd761663ce9d705d9a3f782c8885c7b77b7c34cdfd85b95843",
+      "rows_scanned": 76906,
+      "eligible_rows": 0,
+      "selected_rows": 0
+    }
+  ],
+  "selection_limit_overall": 7,
+  "cases": [
+    {
+      "id": "fgv4-13c05ce598b2",
+      "dataset_id": "13c05ce598b21656f81963d9aa1cda7d653a658bb9083d4c2e962a071b3b25d8",
+      "shard": 0,
+      "row_index_in_shard": 237983,
+      "global_row_index": 237983,
+      "mate_ply": 13,
+      "label": "yozume",
+      "dataset_sfen": "9/9/1s7/2p6/p1kn5/1pNP5/LP1G5/LS7/1NG6 b GNL2r2bg2sl13p 1",
+      "dataset_main_line": "G*8e 7e8e 8g8f 8e7e N*8g 7e8f 6g7g 6e7g 8h7g 8f8e L*8f 8e9d 9g9e",
+      "source_file": "wdoor2013.7z!wdoor+floodgate-900-0+BlunderXX_Q6700_2c+Titanda_L+20130924213000.csa",
+      "source_line": 124,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2013/09/24/wdoor+floodgate-900-0+BlunderXX_Q6700_2c+Titanda_L+20130924213000.csa",
+      "source_archive_sha256": "bfd50bdb5acd570c96d7909d63b43db3ffc4ffcc2187d56fe5edc8120bf5a0ee",
+      "unique_first_move": null
+    },
+    {
+      "id": "fgv4-63dace5aee7f",
+      "dataset_id": "63dace5aee7fcececfedac36043e2ff77da0ce2d9d8fe34b01b32891f73af04f",
+      "shard": 2,
+      "row_index_in_shard": 200641,
+      "global_row_index": 1200641,
+      "mate_ply": 13,
+      "label": "yozume",
+      "dataset_sfen": "3+R2Gnk/6ggp/5Lsp1/6p1P/8L/9/9/9/9 b Gr2b3s3n2l14p 1",
+      "dataset_main_line": "3a2a 2b2a 6a2a 1a2a N*1c 1b1c G*1b 2a1b 1d1c 1b2a 1c1b+ 2a3a G*2a",
+      "source_file": "wdoor2017.7z!wdoor+floodgate-300-10F+gps_l+Sunfish4-AWS09+20171207150005.csa",
+      "source_line": 114,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2017/12/07/wdoor+floodgate-300-10F+gps_l+Sunfish4-AWS09+20171207150005.csa",
+      "source_archive_sha256": "31a43e57d92ad89ec17da441604922a814d565e93fe0638bc7e1a5ece249c14f",
+      "unique_first_move": null
+    },
+    {
+      "id": "fgv4-70efa1b414dc",
+      "dataset_id": "70efa1b414dc2f257385f8189e5ceffce7cc653a93ab9ae51ef9cc8a22a44bd0",
+      "shard": 2,
+      "row_index_in_shard": 358811,
+      "global_row_index": 1358811,
+      "mate_ply": 13,
+      "label": "defect",
+      "dataset_sfen": "5+P2l/4G1g2/6npk/5gN2/1G3p1PP/2p3P2/8L/5L3/9 b N2P2r2b4snl9p 1",
+      "dataset_main_line": "1e1d 1c1b 1d1c+ 1b2a 1c2b 3b2b 4a3a 2a3a 5b4b 3a2a 3d2b+ 2a2b G*3b",
+      "source_file": "wdoor2008.7z!wdoor+floodgate-900-0+gps_normal+MyMove900+20080802133005.csa",
+      "source_line": 114,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2008/08/02/wdoor+floodgate-900-0+gps_normal+MyMove900+20080802133005.csa",
+      "source_archive_sha256": "1fe9c0695aceea077a78bbbaf033feff2d6750726975c16e9d4264cc18df609c",
+      "unique_first_move": null
+    },
+    {
+      "id": "fgv4-ba6d7bc66b02",
+      "dataset_id": "ba6d7bc66b0253940f58d85341f803978022a897f3131ebe3929282cd2648ed3",
+      "shard": 4,
+      "row_index_in_shard": 240104,
+      "global_row_index": 2240104,
+      "mate_ply": 13,
+      "label": "defect",
+      "dataset_sfen": "8l/5+SG2/6npk/6p1p/9/3BSpPPP/6GB1/9/9 b N2r2g2s2n3l11p 1",
+      "dataset_main_line": "N*2e 3c2e 6f2b+ 1c2d 2f2e 2d2e N*1g 2e2d 2b3c 2d1c 1g2e 1c1b 3b2b",
+      "source_file": "wdoor2022.7z!wdoor+floodgate-300-10F+Kristallweizen-Core2Duo-P7450+audio25+20220713000005.csa",
+      "source_line": 152,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2022/07/13/wdoor+floodgate-300-10F+Kristallweizen-Core2Duo-P7450+audio25+20220713000005.csa",
+      "source_archive_sha256": "e0c367f2a5224eed8a70e6b82ca87aaa16cf578ba2c9478c493b78828068cb60",
+      "unique_first_move": null
+    },
+    {
+      "id": "fgv4-cc68966cec8e",
+      "dataset_id": "cc68966cec8e5a2c18c4deeb26e7703bf2cf21793388fb11317c1487f0d56b8c",
+      "shard": 4,
+      "row_index_in_shard": 457083,
+      "global_row_index": 2457083,
+      "mate_ply": 13,
+      "label": "defect",
+      "dataset_sfen": "+L8/9/1+L7/g2+N5/kp7/p2P4P/1PG3N2/LSG6/1N7 b 2r2bg3snl13p 1",
+      "dataset_main_line": "9h9f 9e9f 8h9g 9f9e 7g8f 8e8f P*9f 9e8e 8g8f 8e7e 6d6e 7e7f 7h7g",
+      "source_file": "wdoor2015.7z!wdoor+floodgate-600-10+ponaX_test+gpsfish_XeonX5680_12c_bid+20151219190004.csa",
+      "source_line": 126,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2015/12/19/wdoor+floodgate-600-10+ponaX_test+gpsfish_XeonX5680_12c_bid+20151219190004.csa",
+      "source_archive_sha256": "24780b2b3a9ebbb094ff4199df9a0c47b2a1cc699ce205d91dcccb53665e81d2",
+      "unique_first_move": null
+    },
+    {
+      "id": "fgv4-dd00fe3a6f65",
+      "dataset_id": "dd00fe3a6f659b0ff6cab7e3a531e26dce428219fc84dcf282af3c8646654d17",
+      "shard": 5,
+      "row_index_in_shard": 156388,
+      "global_row_index": 2656388,
+      "mate_ply": 13,
+      "label": "yozume",
+      "dataset_sfen": "2S6/l1+N6/kp7/p1p6/8l/P1P6/1P1G5/3G5/L8 b L2P2r2b2g3s3n10p 1",
+      "dataset_main_line": "7a8b 9c8d L*8f B*8e 8f8e 8d8e 8g8f 8e8f 6g7g 8f8e P*8f 8e8d B*5a",
+      "source_file": "wdoor2010.7z!wdoor+floodgate-900-0+bonanza3-c2q+google_todaishogibuhuman+20100223023007.csa",
+      "source_line": 114,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2010/02/23/wdoor+floodgate-900-0+bonanza3-c2q+google_todaishogibuhuman+20100223023007.csa",
+      "source_archive_sha256": "a2c24f5b8c37ab8917352b2a0b041af960bde5a786980a8ad35d90f9348bdaab",
+      "unique_first_move": null
+    },
+    {
+      "id": "fgv4-ea673a5450f2",
+      "dataset_id": "ea673a5450f20b57f7eee5b85439c467192c23681bc8107c537d3065091951e5",
+      "shard": 5,
+      "row_index_in_shard": 317560,
+      "global_row_index": 2817560,
+      "mate_ply": 13,
+      "label": "yozume",
+      "dataset_sfen": "9/9/p8/kNG6/n1P6/R2P5/PP7/1BG6/LN7 b 3Prb2g4sn3l10p 1",
+      "dataset_main_line": "9f9e 9d9e 9g9f 9e9d 9f9e 9d8e 8g8f 8e8f 8h7g 8f7f N*8h 7f8e 8i9g",
+      "source_file": "wdoor2021.7z!wdoor+floodgate-300-10F+cobra_RTX2080Ti+Krist_483_473stb_1000k+20210507100010.csa",
+      "source_line": 98,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2021/05/07/wdoor+floodgate-300-10F+cobra_RTX2080Ti+Krist_483_473stb_1000k+20210507100010.csa",
+      "source_archive_sha256": "96182a29d30c4f851f20fbcd68a92afc06afa6b991092e78a6a39d5b14abaa60",
+      "unique_first_move": null
+    }
+  ]
+}

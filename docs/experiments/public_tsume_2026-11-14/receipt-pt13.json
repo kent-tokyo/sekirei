@@ -1,0 +1,30 @@
+{
+  "schema": "sekirei.public-tsume-iteration-trace.v1",
+  "binary_sha256": "2b2225b96f3858a8308b9c6401e4ed99739af0327a998bc0b6a74e8863458384",
+  "corpus_sha256": "2bd5b15f88bb77ed4774ae9eaab2557d823235d6132e82604a59bbe2dba4934b",
+  "limits": {
+    "nodes": 1000000,
+    "wall_s_each": 4,
+    "calls": 2
+  },
+  "cases": [
+    {
+      "id": "fg-20230118-p96",
+      "exit_code": 0,
+      "stdout": "bestmove=7i8i\tdepth=14\tscore_cp=1426\tnodes=1000000\telapsed_ms=552\telapsed_ns=552788375\tbound=unknown\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=true\tabort_reason=budget\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=741249\teval_cache_probes=0\teval_cache_hits=0\ttt_probes=599775\ttt_hits=190344\ttt_stores=437102\torder_tt=14\torder_killer=0\torder_countermove=0\torder_history=1380\troot_mate_in_one_nodes=107\troot_mate_blunder_nodes=323\troot_mate_in_one_cache_hits=14\troot_mate_blunder_cache_hits=1\talpha_beta_calls=425754\tquiescence_calls=573818\tqsearch_top_level_calls=181328\tqsearch_in_check=64741\tqsearch_tt_cutoffs=12159\tqsearch_stand_pat_cutoffs=229695\tqsearch_terminal_nodes=5919\tqsearch_searched_moves=392490\tqsearch_beta_cutoffs=100368\tqsearch_depth_cap_exits=3200\tqsearch_mate_in_one_exits=9429\tqsearch_delta_pruning_exits=56447\tstatic_evaluation_ns=16198349\ttt_probe_ns=46048079\ttt_store_ns=8708142\tmovegen_order_ns=52490446\tmovegen_generate_ns=24154777\tmove_order_ns=12437615\tmove_order_score_ns=30462\tmove_order_sort_ns=79499\tquiescence_inclusive_ns=405399121\troot_mate_safety_ns=161209\tpv_usi=7i8i,3b4b,2b2a+,1a2a,1c1b+,2a3b,1b2b,3a2b,1d2b+,3b2b\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=2388015df045a61a\thistory_final_hash=2388015df045a61a\thistory_matches_expected=true\troot_candidates=\troot_initial_order=9g9f,5e5d,4f4e,2g2f,1c1b+,1c1b,9i9h,2b2a+,6h7g,6h5g,6h5i,3e4d,3e3d,3e2d,3e2f,7i8i,7i6i,6f9c+,6f9c,6f8d,6f7e,6f8h,6f7g,6f5g,6f4h,6f3i,4b5a+,4b5a,4b3a+,4b3a,4b5c+,4b5c,4b3c+,4b3c,3g3f,3g3h,3g3i,3g5g,3g4g,4i5h,4i5i,4i4h,4i3h,4i3i,P*8b,P*8c,P*8d,P*8e,P*8f,P*8g,P*8h,P*7b,P*7c,P*7e,P*7g,P*7h,P*3d,P*3h,P*3i,G*9b,G*9d,G*9e,G*9f,G*9h,G*8a,G*8b,G*8c,G*8d,G*8e,G*8f,G*8g,G*8h,G*7a,G*7b,G*7c,G*7e,G*7g,G*7h,G*6a,G*6b,G*6d,G*6e,G*6i,G*5a,G*5b,G*5d,G*5f,G*5g,G*5h,G*5i,G*4a,G*4c,G*4e,G*4g,G*4h,G*3d,G*3h,G*3i,G*2e,G*2f,G*2h,G*2i,G*1e,G*1f,G*1g,G*1h,G*1i\titeration_trace=1:7i8i:1010:840:exact:107:323,2:7i8i:1010:1153:exact:107:323,3:7i8i:1010:1446:exact:107:323,4:7i8i:1010:1824:exact:107:323,5:7i8i:1010:2130:exact:107:323,6:7i8i:1010:2504:exact:107:323,7:2b2a+:920:8984:exact:107:323,8:2b2a+:1004:14197:exact:107:323,9:2b2a+:859:22455:exact:107:323,10:2b2a+:1183:39173:exact:107:323,11:2b2a+:1556:55431:exact:107:323,12:7i8i:1327:122812:exact:107:323,13:7i8i:1298:216489:exact:107:323,14:7i8i:1426:264820:exact:107:323\n",
+      "stderr": "",
+      "proved_first": "2b2a+",
+      "initial_root_rank": 8,
+      "initial_root_count": 107
+    },
+    {
+      "id": "fg-20171030-p156",
+      "exit_code": 0,
+      "stdout": "bestmove=9f9e\tdepth=15\tscore_cp=-2452\tnodes=1000000\telapsed_ms=516\telapsed_ns=516564625\tbound=unknown\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=true\tabort_reason=budget\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=772117\teval_cache_probes=0\teval_cache_hits=0\ttt_probes=497603\ttt_hits=157624\ttt_stores=362312\torder_tt=15\torder_killer=0\torder_countermove=0\torder_history=1381\troot_mate_in_one_nodes=89\troot_mate_blunder_nodes=971\troot_mate_in_one_cache_hits=15\troot_mate_blunder_cache_hits=1\talpha_beta_calls=367819\tquiescence_calls=631121\tqsearch_top_level_calls=137137\tqsearch_in_check=78759\tqsearch_tt_cutoffs=7327\tqsearch_stand_pat_cutoffs=247626\tqsearch_terminal_nodes=35176\tqsearch_searched_moves=493984\tqsearch_beta_cutoffs=137886\tqsearch_depth_cap_exits=5058\tqsearch_mate_in_one_exits=5507\tqsearch_delta_pruning_exits=28158\tstatic_evaluation_ns=16989349\ttt_probe_ns=40877333\ttt_store_ns=7357296\tmovegen_order_ns=64281876\tmovegen_generate_ns=31484838\tmove_order_ns=12120887\tmove_order_score_ns=24793\tmove_order_sort_ns=64583\tquiescence_inclusive_ns=528149036\troot_mate_safety_ns=316083\tpv_usi=9f9e,9d9e,7b8a,3i6i,G*7i,6i5h,N*8f,7d8c,9i9e,P*9d,G*9a,G*8b,9e9d,8c9d,8f9d\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=27f3dbf442a3f303\thistory_final_hash=27f3dbf442a3f303\thistory_matches_expected=true\troot_candidates=\troot_initial_order=9f9e,8g8f,7f7e,1g1f,9i9g,9i9h,8i9g,8i7g,2e3c+,2e3c,2e1c+,2e1c,7b8a+,7b8a,7b8c+,7b8c,7b7a+,7b7a,7b6a+,7b6a,7b6c+,7b6c,6h7g,6h7i,6h5g,6h5i,6i7h,6i5h,5b6a,5b6b,5b5a,5b5c,5b4a,5b4b,8h9g,8h9h,8h7g,8h7h,8h7i,G*9a,G*9e,G*9g,G*9h,G*8b,G*8c,G*8e,G*8f,G*7a,G*7e,G*7g,G*7h,G*7i,G*6a,G*6b,G*6c,G*6e,G*5a,G*5c,G*5d,G*5e,G*5g,G*5h,G*5i,G*4a,G*4b,G*4c,G*4e,G*4f,G*4h,G*4i,G*3a,G*3b,G*3c,G*3e,G*3g,G*3h,G*2a,G*2b,G*2d,G*2g,G*2h,G*2i,G*1a,G*1b,G*1c,G*1e,G*1f,G*1h,G*1i\titeration_trace=1:6i7h:-2500:1648:exact:89:971,2:6i7h:-2500:2082:exact:89:971,3:6i7h:-2640:3187:exact:89:971,4:8h7h:-2640:3591:exact:89:971,5:8h7h:-2640:3881:exact:89:971,6:7b8a+:-2641:5884:exact:89:971,7:7b8a+:-2767:14831:exact:89:971,8:7b8a:-2640:20091:exact:89:971,9:7b8a:-2902:39592:exact:89:971,10:9f9e:-2795:72957:exact:89:971,11:9f9e:-2520:103492:exact:89:971,12:9f9e:-2526:164025:exact:89:971,13:9f9e:-2489:453503:exact:89:971,14:9f9e:-2411:786735:exact:89:971,15:9f9e:-2452:889057:exact:89:971\n",
+      "stderr": "",
+      "proved_first": "G*8c",
+      "initial_root_rank": 45,
+      "initial_root_count": 89
+    }
+  ]
+}

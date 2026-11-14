@@ -207,6 +207,8 @@ jobs:
         run: |
           python3 scripts/test_run_ab_match.py
           python3 scripts/test_ab_match_supervisor.py
+          python3 scripts/test_managed_child.py
+          python3 scripts/test_analyze_paired_openings.py
       - name: material-only SPSA contract
         run: python3 -m unittest scripts/test_spsa.py
       - name: teacher comparison tests
@@ -487,6 +489,11 @@ jobs:
             scripts/test_idle_capacity_admission.py \
             scripts/test_compare_yaneura_speed.py \
             scripts/test_freeze_material_gate_openings.py \
+            scripts/test_freeze_balanced_gate_openings.py \
+            scripts/test_validate_opening_corpus.py \
+            scripts/test_stream_opening_exclusions.py \
+            scripts/test_compare_selected_nnue_moves.py \
+            scripts/test_nnue_screen_robustness.py \
             scripts/test_export_opening_identity_exclusions.py
 
   king-relative-feature:

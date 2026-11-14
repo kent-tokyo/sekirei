@@ -81,10 +81,12 @@ def test_parse_core_result_keeps_bound_abort_and_pv_fields():
 def test_parse_core_result_normalizes_pv_integrity_booleans():
     result = MODULE.parse_result(
         "bestmove=3c4e\tdepth=4\tscore_cp=200\tnodes=20\telapsed_ms=5\tcompleted_bound=exact\tcompleted_iteration_valid=true"
-        "\tpv_legal=true\tpv_replay_preserves_input=false"
+        "\tpv_legal=true\tpv_replay_preserves_input=false\tbestmove_legal=true\tpv_starts_with_bestmove=false"
     )
     assert result["pv_legal"] is True
     assert result["pv_replay_preserves_input"] is False
+    assert result["bestmove_legal"] is True
+    assert result["pv_starts_with_bestmove"] is False
 
 
 def test_parse_core_result_structures_opt_in_root_candidates():

@@ -1,0 +1,45 @@
+{
+  "schema": "sekirei.public-tsume-root-diagnostic.v1",
+  "source_commit": "f5507603a59d19f1d258246e7a2ed3569d7bf0dc",
+  "corpus_sha256": "2bd5b15f88bb77ed4774ae9eaab2557d823235d6132e82604a59bbe2dba4934b",
+  "binary_sha256": "2b2225b96f3858a8308b9c6401e4ed99739af0327a998bc0b6a74e8863458384",
+  "limits": {
+    "nodes": 1000000,
+    "wall_s_each": 4,
+    "calls": 4
+  },
+  "cases": [
+    {
+      "id": "fg-20230118-p96",
+      "role": "proved",
+      "root_move": "2b2a+",
+      "exit_code": 0,
+      "stdout": "bestmove=2b2a+\tdepth=13\tscore_cp=899987\tnodes=196932\telapsed_ms=115\telapsed_ns=115665458\tbound=exact\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=false\tabort_reason=none\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=0\teval_cache_probes=0\teval_cache_hits=0\ttt_probes=0\ttt_hits=0\ttt_stores=0\torder_tt=0\torder_killer=0\torder_countermove=0\torder_history=0\troot_mate_in_one_nodes=0\troot_mate_blunder_nodes=0\troot_mate_in_one_cache_hits=0\troot_mate_blunder_cache_hits=0\talpha_beta_calls=0\tquiescence_calls=0\tqsearch_top_level_calls=0\tqsearch_in_check=0\tqsearch_tt_cutoffs=0\tqsearch_stand_pat_cutoffs=0\tqsearch_terminal_nodes=0\tqsearch_searched_moves=0\tqsearch_beta_cutoffs=0\tqsearch_depth_cap_exits=0\tqsearch_mate_in_one_exits=0\tqsearch_delta_pruning_exits=0\tstatic_evaluation_ns=0\ttt_probe_ns=0\ttt_store_ns=0\tmovegen_order_ns=0\tmovegen_generate_ns=0\tmove_order_ns=0\tmove_order_score_ns=0\tmove_order_sort_ns=0\tquiescence_inclusive_ns=0\troot_mate_safety_ns=0\tpv_usi=2b2a+,1a2a,1c1b+,2a1b,P*1c,1b1c,N*2e,1c1d,P*1e,1d1e,3e2f,1e1d,G*1c\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=2388015df045a61a\thistory_final_hash=2388015df045a61a\thistory_matches_expected=true\troot_candidates=\troot_initial_order=\titeration_trace=\n",
+      "stderr": ""
+    },
+    {
+      "id": "fg-20230118-p96",
+      "role": "selected",
+      "root_move": "7i8i",
+      "exit_code": 0,
+      "stdout": "bestmove=7i8i\tdepth=17\tscore_cp=1107\tnodes=1000000\telapsed_ms=453\telapsed_ns=453907958\tbound=unknown\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=true\tabort_reason=budget\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=0\teval_cache_probes=0\teval_cache_hits=0\ttt_probes=0\ttt_hits=0\ttt_stores=0\torder_tt=0\torder_killer=0\torder_countermove=0\torder_history=0\troot_mate_in_one_nodes=0\troot_mate_blunder_nodes=0\troot_mate_in_one_cache_hits=0\troot_mate_blunder_cache_hits=0\talpha_beta_calls=0\tquiescence_calls=0\tqsearch_top_level_calls=0\tqsearch_in_check=0\tqsearch_tt_cutoffs=0\tqsearch_stand_pat_cutoffs=0\tqsearch_terminal_nodes=0\tqsearch_searched_moves=0\tqsearch_beta_cutoffs=0\tqsearch_depth_cap_exits=0\tqsearch_mate_in_one_exits=0\tqsearch_delta_pruning_exits=0\tstatic_evaluation_ns=0\ttt_probe_ns=0\ttt_store_ns=0\tmovegen_order_ns=0\tmovegen_generate_ns=0\tmove_order_ns=0\tmove_order_score_ns=0\tmove_order_sort_ns=0\tquiescence_inclusive_ns=0\troot_mate_safety_ns=0\tpv_usi=7i8i,3b4b,2b2a+,1a2a,1c1b+,2a3b,1b2b,3a2b,1d2b+,3b2b,R*6b,3f3g+,6b4b+,P*3b,S*3a,2b1b,G*2b\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=2388015df045a61a\thistory_final_hash=2388015df045a61a\thistory_matches_expected=true\troot_candidates=\troot_initial_order=\titeration_trace=\n",
+      "stderr": ""
+    },
+    {
+      "id": "fg-20171030-p156",
+      "role": "proved",
+      "root_move": "G*8c",
+      "exit_code": 0,
+      "stdout": "bestmove=G*8c\tdepth=10\tscore_cp=899987\tnodes=2735\telapsed_ms=1\telapsed_ns=1935375\tbound=exact\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=false\tabort_reason=none\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=0\teval_cache_probes=0\teval_cache_hits=0\ttt_probes=0\ttt_hits=0\ttt_stores=0\torder_tt=0\torder_killer=0\torder_countermove=0\torder_history=0\troot_mate_in_one_nodes=0\troot_mate_blunder_nodes=0\troot_mate_in_one_cache_hits=0\troot_mate_blunder_cache_hits=0\talpha_beta_calls=0\tquiescence_calls=0\tqsearch_top_level_calls=0\tqsearch_in_check=0\tqsearch_tt_cutoffs=0\tqsearch_stand_pat_cutoffs=0\tqsearch_terminal_nodes=0\tqsearch_searched_moves=0\tqsearch_beta_cutoffs=0\tqsearch_depth_cap_exits=0\tqsearch_mate_in_one_exits=0\tqsearch_delta_pruning_exits=0\tstatic_evaluation_ns=0\ttt_probe_ns=0\ttt_store_ns=0\tmovegen_order_ns=0\tmovegen_generate_ns=0\tmove_order_ns=0\tmove_order_score_ns=0\tmove_order_sort_ns=0\tquiescence_inclusive_ns=0\troot_mate_safety_ns=0\tpv_usi=G*8c,7d8c,7b8c+,9c8c,S*7b,8c8b,G*8c,8b9a,7b8a+,9a8a\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=27f3dbf442a3f303\thistory_final_hash=27f3dbf442a3f303\thistory_matches_expected=true\troot_candidates=\troot_initial_order=\titeration_trace=\n",
+      "stderr": ""
+    },
+    {
+      "id": "fg-20171030-p156",
+      "role": "selected",
+      "root_move": "9f9e",
+      "exit_code": 0,
+      "stdout": "bestmove=9f9e\tdepth=14\tscore_cp=-2619\tnodes=1000000\telapsed_ms=451\telapsed_ns=451595833\tbound=unknown\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=true\tabort_reason=budget\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=0\teval_cache_probes=0\teval_cache_hits=0\ttt_probes=0\ttt_hits=0\ttt_stores=0\torder_tt=0\torder_killer=0\torder_countermove=0\torder_history=0\troot_mate_in_one_nodes=0\troot_mate_blunder_nodes=0\troot_mate_in_one_cache_hits=0\troot_mate_blunder_cache_hits=0\talpha_beta_calls=0\tquiescence_calls=0\tqsearch_top_level_calls=0\tqsearch_in_check=0\tqsearch_tt_cutoffs=0\tqsearch_stand_pat_cutoffs=0\tqsearch_terminal_nodes=0\tqsearch_searched_moves=0\tqsearch_beta_cutoffs=0\tqsearch_depth_cap_exits=0\tqsearch_mate_in_one_exits=0\tqsearch_delta_pruning_exits=0\tstatic_evaluation_ns=0\ttt_probe_ns=0\ttt_store_ns=0\tmovegen_order_ns=0\tmovegen_generate_ns=0\tmove_order_ns=0\tmove_order_score_ns=0\tmove_order_sort_ns=0\tquiescence_inclusive_ns=0\troot_mate_safety_ns=0\tpv_usi=9f9e,9d9e,7b8a,3i6i,G*7i,6i2i,9i9e,P*9d,N*8f,7d8c,9e9d,8c9d,G*9a,G*8b\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=27f3dbf442a3f303\thistory_final_hash=27f3dbf442a3f303\thistory_matches_expected=true\troot_candidates=\troot_initial_order=\titeration_trace=\n",
+      "stderr": ""
+    }
+  ]
+}

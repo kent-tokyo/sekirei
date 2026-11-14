@@ -1,0 +1,27 @@
+{
+  "schema": "sekirei.public-tsume-pt22-root-diagnostic.v1",
+  "source_commit": "f5507603a59d19f1d258246e7a2ed3569d7bf0dc",
+  "corpus_sha256": "480881fe697ac4dd129c18502027faf47edbed66ab49e295aeb3fd76162049fc",
+  "binary_sha256": "2b2225b96f3858a8308b9c6401e4ed99739af0327a998bc0b6a74e8863458384",
+  "limits": {
+    "nodes": 1000000,
+    "wall_s_each": 4,
+    "calls": 2
+  },
+  "cases": [
+    {
+      "id": "fgv4-398d95eb7dce",
+      "root_move": "G*8b",
+      "exit_code": 0,
+      "stdout": "bestmove=G*8b\tdepth=15\tscore_cp=542\tnodes=1000000\telapsed_ms=478\telapsed_ns=478727875\tbound=unknown\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=true\tabort_reason=budget\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=0\teval_cache_probes=0\teval_cache_hits=0\ttt_probes=0\ttt_hits=0\ttt_stores=0\torder_tt=0\torder_killer=0\torder_countermove=0\torder_history=0\troot_mate_in_one_nodes=0\troot_mate_blunder_nodes=0\troot_mate_in_one_cache_hits=0\troot_mate_blunder_cache_hits=0\talpha_beta_calls=0\tquiescence_calls=0\tqsearch_top_level_calls=0\tqsearch_in_check=0\tqsearch_tt_cutoffs=0\tqsearch_stand_pat_cutoffs=0\tqsearch_terminal_nodes=0\tqsearch_searched_moves=0\tqsearch_beta_cutoffs=0\tqsearch_depth_cap_exits=0\tqsearch_mate_in_one_exits=0\tqsearch_delta_pruning_exits=0\tstatic_evaluation_ns=0\ttt_probe_ns=0\ttt_store_ns=0\tmovegen_order_ns=0\tmovegen_generate_ns=0\tmove_order_ns=0\tmove_order_score_ns=0\tmove_order_sort_ns=0\tquiescence_inclusive_ns=0\troot_mate_safety_ns=0\tpv_usi=G*8b,7a8b,8c8b,R*1a,G*8c,9d8c,7e8c+,9b8c,8b8a+,1a8a,N*2i,1g2g,B*7b,8c8b,2i3g\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=78ca0ba0f4b50a8a\thistory_final_hash=78ca0ba0f4b50a8a\thistory_matches_expected=true\troot_candidates=\troot_initial_order=\titeration_trace=\n",
+      "stderr": ""
+    },
+    {
+      "id": "fgv4-398d95eb7dce",
+      "root_move": "5b6a",
+      "exit_code": 0,
+      "stdout": "bestmove=5b6a\tdepth=9\tscore_cp=1580\tnodes=1000000\telapsed_ms=387\telapsed_ns=387254083\tbound=unknown\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=true\tabort_reason=budget\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=0\teval_cache_probes=0\teval_cache_hits=0\ttt_probes=0\ttt_hits=0\ttt_stores=0\torder_tt=0\torder_killer=0\torder_countermove=0\torder_history=0\troot_mate_in_one_nodes=0\troot_mate_blunder_nodes=0\troot_mate_in_one_cache_hits=0\troot_mate_blunder_cache_hits=0\talpha_beta_calls=0\tquiescence_calls=0\tqsearch_top_level_calls=0\tqsearch_in_check=0\tqsearch_tt_cutoffs=0\tqsearch_stand_pat_cutoffs=0\tqsearch_terminal_nodes=0\tqsearch_searched_moves=0\tqsearch_beta_cutoffs=0\tqsearch_depth_cap_exits=0\tqsearch_mate_in_one_exits=0\tqsearch_delta_pruning_exits=0\tstatic_evaluation_ns=0\ttt_probe_ns=0\ttt_store_ns=0\tmovegen_order_ns=0\tmovegen_generate_ns=0\tmove_order_ns=0\tmove_order_score_ns=0\tmove_order_sort_ns=0\tquiescence_inclusive_ns=0\troot_mate_safety_ns=0\tpv_usi=5b6a,S*8b,8c8b+,7a8b,6a9d,9c9d,S*8c,9b9c,8c8b+\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=78ca0ba0f4b50a8a\thistory_final_hash=78ca0ba0f4b50a8a\thistory_matches_expected=true\troot_candidates=\troot_initial_order=\titeration_trace=\n",
+      "stderr": ""
+    }
+  ]
+}

@@ -75,6 +75,11 @@ pub(crate) fn on_search_stack(test: impl FnOnce() + Send + 'static) {
 
 mod aspiration;
 mod child_search;
+mod eval_samples;
+pub use eval_samples::{
+    MAX_QUIESCENCE_EVAL_SAMPLES, MAX_ROOT_CHILD_EVAL_SAMPLES, QuiescenceEvalSample,
+    RootChildEvalSample,
+};
 mod helper_retirement;
 mod heuristics;
 mod late_move;
@@ -162,9 +167,12 @@ impl Default for SearchConfig {
 
 /// Result of a completed (or aborted) search.
 pub struct SearchInfo {
-    /// Best move found, if any.
+    /// Best move found, if any. An interrupted deeper pass can update this
+    /// without replacing the last completed score, depth, or PV.
     pub best_move: Option<Move>,
-    /// Score of `best_move` in centipawns (or a mate score).
+    /// Score of the last completed pass in centipawns (or a mate score).
+    /// When an interrupted pass changes `best_move`, do not attribute this
+    /// score to that move. With depth zero no completed pass backs this value.
     pub score: i32,
     /// Deepest iterative-deepening depth completed.
     pub depth: u32,
@@ -180,7 +188,8 @@ pub struct SearchInfo {
     ///
     /// This remains useful when a later, deeper pass hits a node or time
     /// budget and therefore makes [`Self::bound`] unknown. Consumers must
-    /// still require `depth > 0` before using the accompanying score.
+    /// still require `depth > 0` before using the accompanying score, and
+    /// check the completed PV before associating it with `best_move`.
     pub completed_bound: SearchBound,
     /// Whether the search stopped before completing its current budget.
     pub aborted: bool,
@@ -310,6 +319,10 @@ pub struct SearchDiagnostics {
     root_mate_blunder_cache_hits: AtomicU64,
     alpha_beta_calls: AtomicU64,
     quiescence_calls: AtomicU64,
+    qsearch_mate_probe_calls: AtomicU64,
+    qsearch_mate_probe_ns: AtomicU64,
+    qsearch_edge_calls: AtomicU64,
+    qsearch_edge_ns: AtomicU64,
     static_evaluation_ns: AtomicU64,
     tt_probe_ns: AtomicU64,
     tt_store_ns: AtomicU64,
@@ -385,6 +398,8 @@ pub struct SearchDiagnostics {
     /// then be classified as local, foreign-worker, or untracked without
     /// changing the production TT layout.
     tt_reuse: Option<TtReuseObserver>,
+    qsearch_samples: Option<eval_samples::Samples>,
+    root_child_eval_samples: Option<eval_samples::RootChildSamples>,
 }
 
 const WORK_SAMPLE_LOG2: u32 = 8;
@@ -781,7 +796,9 @@ pub struct SearchDiagnosticsSnapshot {
     /// Inclusive wall time spent in quiescence search.
     ///
     /// This overlaps the leaf component timers above because quiescence calls
-    /// them recursively; consumers must not add component durations together.
+    /// them recursively; only qply-zero spans are counted to avoid counting
+    /// the same quiescence subtree more than once. Consumers must not add
+    /// component durations together.
     pub quiescence_inclusive_ns: u64,
     /// Wall time spent in root mate-safety checks and their cache handling.
     pub root_mate_safety_ns: u64,
@@ -818,6 +835,17 @@ impl Drop for ProfileTimer<'_> {
 }
 
 impl SearchDiagnostics {
+    /// Diagnostic-only legacy qsearch costs: mate calls/ns, then edge calls/ns.
+    /// Edge time covers `play` and undo in the primary capture/evasion loop.
+    pub fn qsearch_component_costs(&self) -> (u64, u64, u64, u64) {
+        (
+            self.qsearch_mate_probe_calls.load(Ordering::Relaxed),
+            self.qsearch_mate_probe_ns.load(Ordering::Relaxed),
+            self.qsearch_edge_calls.load(Ordering::Relaxed),
+            self.qsearch_edge_ns.load(Ordering::Relaxed),
+        )
+    }
+
     /// Root aspiration evidence by depth; collected only by per-node observers.
     pub fn aspiration_snapshot(&self) -> AspirationSnapshot {
         self.aspiration.snapshot()
@@ -906,6 +934,10 @@ impl SearchDiagnostics {
             root_mate_blunder_cache_hits: AtomicU64::new(0),
             alpha_beta_calls: AtomicU64::new(0),
             quiescence_calls: AtomicU64::new(0),
+            qsearch_mate_probe_calls: AtomicU64::new(0),
+            qsearch_mate_probe_ns: AtomicU64::new(0),
+            qsearch_edge_calls: AtomicU64::new(0),
+            qsearch_edge_ns: AtomicU64::new(0),
             static_evaluation_ns: AtomicU64::new(0),
             tt_probe_ns: AtomicU64::new(0),
             tt_store_ns: AtomicU64::new(0),
@@ -936,6 +968,8 @@ impl SearchDiagnostics {
             qsearch: std::array::from_fn(|_| AtomicU64::new(0)),
             work_overlap: None,
             tt_reuse: None,
+            qsearch_samples: None,
+            root_child_eval_samples: None,
         }
     }
 
@@ -1342,6 +1376,18 @@ fn evaluate_for_search(state: &SearchState, board: &Board) -> i32 {
     }
 }
 
+/// Keep the qsearch mate probe unchanged while measuring only its own cost.
+#[inline]
+fn mate_in_one_for_qsearch(state: &SearchState, board: &mut Board) -> Option<Move> {
+    let _timer = state.timer(|d| &d.qsearch_mate_probe_ns);
+    if let Some(diagnostics) = state.counters() {
+        diagnostics
+            .qsearch_mate_probe_calls
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    mate_in_one(board)
+}
+
 #[inline]
 fn probe_tt_for_search(state: &SearchState, hash: u64) -> Option<TtEntry> {
     probe_tt_for_search_pv(state, hash).map(|(entry, _)| entry)
@@ -1426,7 +1472,8 @@ fn tm_scaled_soft_expired(
 pub struct PruningConfig {
     /// Enable null-move pruning and its verification search.
     pub null_move: bool,
-    /// Enable late-move reductions for quiet, late-ordered moves.
+    /// Enable root and recursive late-move reductions, including V2's
+    /// fallback reduced probes. Other shallow pruning remains independent.
     pub late_move_reduction: bool,
     /// Search young brothers in parallel on the Rayon pool (YBW). Lazy SMP
     /// workers already occupy the pool and search sequentially.
@@ -3036,7 +3083,11 @@ fn root_search_inner_tracked(
         // Late quiet root moves get a reduced null-window probe first
         // (ROOT_LMR 1: every late move).
         let quiet = p::ROOT_LMR() != 0 || (board.piece_at(m.to).is_none() && !m.promote);
-        let reduce = root_lmr_reduction(depth, i, quiet, full_root_lmr);
+        let reduce = if state.pruning.late_move_reduction {
+            root_lmr_reduction(depth, i, quiet, full_root_lmr)
+        } else {
+            0
+        };
         set_current_move(0, Some(m));
         let tok = board.do_move(m);
         let child_in_check = is_in_check(board, board.side_to_move);
@@ -4024,7 +4075,9 @@ fn quiescence_with_pending(
     history: &SearchHistory<'_>,
     pending: Option<&mut crate::board::QuietHalfKpToken>,
 ) -> i32 {
-    let _quiescence_timer = state.timer(|d| &d.quiescence_inclusive_ns);
+    // Every recursive child has qply > 0. Time each top-level quiescence
+    // subtree once, including its children, for an interpretable cost share.
+    let _quiescence_timer = (qply == 0).then(|| state.timer(|d| &d.quiescence_inclusive_ns));
     if let Some(diagnostics) = state.counters() {
         diagnostics.quiescence_calls.fetch_add(1, Ordering::Relaxed);
         diagnostics.record_work_sample(board.hash());
@@ -4144,7 +4197,7 @@ fn quiescence_with_pending(
         // Standing pat must not hide a mate in one at the horizon.
         let qstyle = p::QS_STYLE();
         if (qply == 0 || qstyle & 2 != 0)
-            && let Some(mate_move) = mate_in_one(board)
+            && let Some(mate_move) = mate_in_one_for_qsearch(state, board)
         {
             if let Some(diagnostics) = state.counters() {
                 diagnostics.qsearch[8].fetch_add(1, Ordering::Relaxed);
@@ -4162,12 +4215,14 @@ fn quiescence_with_pending(
             );
             return score;
         }
-        let mut stand_pat = evaluate_for_search(state, board);
+        let raw = evaluate_for_search(state, board);
+        let mut stand_pat = raw;
         if qstyle & 1 != 0 {
             let keys = CorrKeys::of(board, board.side_to_move);
             stand_pat = (stand_pat + state.history.correction(keys))
                 .clamp(-(MATE_SCORE - 2000), MATE_SCORE - 2000);
         }
+        let corrected = stand_pat;
         if qs_tt & 8 != 0
             && let Some((bound, adj)) = tt_bound
             && adj.abs() < MATE_SCORE - 1000
@@ -4178,6 +4233,15 @@ fn quiescence_with_pending(
             }
         {
             stand_pat = adj;
+        }
+        if let Some(samples) = state
+            .diagnostics
+            .as_ref()
+            .and_then(|d| d.qsearch_samples.as_ref())
+        {
+            samples.record(
+                board, raw, corrected, stand_pat, ply, qply, history, "legacy",
+            );
         }
         stand_pat_value = Some(stand_pat);
         if stand_pat >= beta {
@@ -4260,7 +4324,19 @@ fn quiescence_with_pending(
         move_buffer
     };
 
-    if move_buffer.is_empty() {
+    // Generate optional quiet promotions before the empty-capture return.
+    // The default QS_PROMO=0 leaves the existing path unchanged.
+    let qs_promo = p::QS_PROMO();
+    let quiet_promos = if qs_promo & 3 != 0 && !in_check && (qply == 0 || qs_promo & 8 != 0) {
+        Some(MoveBuffer::quiet_promotions(
+            board,
+            qs_promo & 1 != 0,
+            qs_promo & 2 != 0,
+        ))
+    } else {
+        None
+    };
+    if move_buffer.is_empty() && quiet_promos.as_ref().is_none_or(MoveBuffer::is_empty) {
         if let Some(diagnostics) = state.counters() {
             diagnostics.qsearch[4].fetch_add(1, Ordering::Relaxed);
         }
@@ -4333,13 +4409,24 @@ fn quiescence_with_pending(
         if qs_on {
             set_current_move(ply, Some(m));
         }
-        let (tok, child_in_check, child_history) = play(board, m, history);
+        if let Some(diagnostics) = state.counters() {
+            diagnostics
+                .qsearch_edge_calls
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        let (tok, child_in_check, child_history) = {
+            let _timer = state.timer(|d| &d.qsearch_edge_ns);
+            play(board, m, history)
+        };
         if prunable && !child_in_check {
             qs_count += 1;
             let futile =
                 qs_fut > 0 && stand_pat_value.is_some_and(|sp| sp + qs_fut + victim_value <= alpha);
             if futile || see_bad || (qs_limit > 0 && qs_count > qs_limit) {
-                board.undo_move_for_search(tok);
+                {
+                    let _timer = state.timer(|d| &d.qsearch_edge_ns);
+                    board.undo_move_for_search(tok);
+                }
                 continue;
             }
         }
@@ -4356,7 +4443,10 @@ fn quiescence_with_pending(
         if let Some(diagnostics) = state.counters() {
             diagnostics.qsearch[5].fetch_add(1, Ordering::Relaxed);
         }
-        board.undo_move_for_search(tok);
+        {
+            let _timer = state.timer(|d| &d.qsearch_edge_ns);
+            board.undo_move_for_search(tok);
+        }
 
         if state.budget.should_abort() {
             return 0;
@@ -4390,9 +4480,7 @@ fn quiescence_with_pending(
 
     // QS_PROMO: promotions that capture nothing (bit 1 pawns, 2 bishops and
     // rooks; bit 8 at every quiescence ply, otherwise at the first only).
-    let qs_promo = p::QS_PROMO();
-    if qs_promo & 3 != 0 && !in_check && (qply == 0 || qs_promo & 8 != 0) {
-        let promos = MoveBuffer::quiet_promotions(board, qs_promo & 1 != 0, qs_promo & 2 != 0);
+    if let Some(promos) = quiet_promos {
         for &m in promos.as_slice() {
             if qs_on {
                 set_current_move(ply, Some(m));
@@ -7412,6 +7500,127 @@ mod regression_tests {
             pruning: PruningConfig::default(),
             retirement: None,
         })
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "QS_PROMO is a process-wide tuning parameter"]
+    fn tuned_qsearch_reaches_quiet_promotion_without_captures() {
+        on_search_stack(|| {
+            struct RestoreDefault;
+            impl Drop for RestoreDefault {
+                fn drop(&mut self) {
+                    assert!(p::set("QS_PROMO", 0));
+                }
+            }
+            let _restore = RestoreDefault;
+            let cases = [
+                ("k8/9/4P4/9/9/9/9/9/8K b - 1", 5, 3, 5, 2, PieceKind::Fu, 1),
+                ("8k/9/9/9/9/9/4p4/9/K8 w - 1", 5, 7, 5, 8, PieceKind::Fu, 1),
+                (
+                    "k8/9/4B4/9/9/9/9/9/8K b - 1",
+                    5,
+                    3,
+                    4,
+                    2,
+                    PieceKind::Kaku,
+                    2,
+                ),
+            ];
+            for (sfen, from_file, from_rank, to_file, to_rank, kind, flag) in cases {
+                let mut board = Board::from_sfen(sfen).unwrap();
+                let original_hash = board.hash();
+                let history = PositionHistory::initial(original_hash);
+                let promotion = Move::normal(
+                    Square::from_shogi(from_file, from_rank),
+                    Square::from_shogi(to_file, to_rank),
+                    kind,
+                    true,
+                );
+                assert!(generate_legal_moves(&mut board).contains(&promotion));
+                assert!(generate_legal_captures(&mut board).is_empty());
+
+                assert!(p::set("QS_PROMO", 0));
+                let baseline = quiescence(
+                    &fresh_state(Tt::new(1)),
+                    &mut board,
+                    NEG_INF,
+                    POS_INF,
+                    0,
+                    0,
+                    None,
+                    &SearchHistory::root(&history),
+                );
+                assert!(p::set("QS_PROMO", flag));
+                let promoted = quiescence(
+                    &fresh_state(Tt::new(1)),
+                    &mut board,
+                    NEG_INF,
+                    POS_INF,
+                    0,
+                    0,
+                    None,
+                    &SearchHistory::root(&history),
+                );
+                assert!(
+                    promoted > baseline,
+                    "quiet promotion must be searched: {sfen}"
+                );
+                assert_eq!(board.hash(), original_hash);
+            }
+        });
+    }
+
+    #[test]
+    fn root_lmr_opt_out_preserves_full_child_probe_depth() {
+        for enabled in [true, false] {
+            let mut board = Board::startpos();
+            let root_hash = board.hash();
+            let accumulator = board.acc.clone();
+            let moves = generate_legal_moves(&mut board);
+            let tt = Tt::new(4);
+            // Exact child hits isolate the actual root probe depths, without
+            // expanding any subtree or triggering a full-window re-search.
+            for &mv in &moves {
+                let token = board.do_move(mv);
+                tt.store(
+                    board.hash(),
+                    TtEntry {
+                        score: 1,
+                        depth: 100,
+                        bound: Bound::Exact,
+                        mv: None,
+                    },
+                );
+                board.undo_move(token);
+            }
+            let diagnostics = Arc::new(SearchDiagnostics::counters_only());
+            let mut state = fresh_state(tt);
+            let inner = Arc::get_mut(&mut state).unwrap();
+            inner.pruning.late_move_reduction = enabled;
+            inner.diagnostics = Some(diagnostics.clone());
+            let game = PositionHistory::initial(root_hash);
+            let (_, score) = root_search_inner(
+                &state,
+                &mut board,
+                8,
+                &moves,
+                -1,
+                0,
+                &SearchHistory::root(&game),
+                false,
+            );
+            assert_eq!(score, -1);
+            let depths = diagnostics.depth_table();
+            let reduced_calls: u64 = depths[..7].iter().map(|row| row[0]).sum();
+            assert_eq!(reduced_calls > 0, enabled);
+            assert_eq!(
+                depths.iter().map(|row| row[0]).sum::<u64>(),
+                moves.len() as u64
+            );
+            assert_eq!(board.hash(), root_hash);
+            assert_eq!(board.acc, accumulator);
+        }
     }
 
     // Regression: root_search_inner used to always store Bound::Exact, even when

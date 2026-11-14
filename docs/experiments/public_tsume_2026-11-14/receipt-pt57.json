@@ -1,0 +1,48 @@
+{
+  "schema": "sekirei.public-tsume-pt57-sougyoku-mate.v1",
+  "corpus_sha256": "b399fc4179f539cb4a2891f337711348dee7e21f80dcef109932b3c03cb0760a",
+  "source_commit": "f5507603a59d19f1d258246e7a2ed3569d7bf0dc",
+  "binary_sha256": "ae346ae724eaf2cc9256b0748725b79c18aaa0e793995829eff90603a4ca7a91",
+  "limits": {
+    "nodes_each": 1000000,
+    "wall_s_each": 4,
+    "total_wall_s": 20,
+    "max_ply_each": [
+      15,
+      19,
+      13,
+      13
+    ]
+  },
+  "cases": [
+    {
+      "list_index": 4,
+      "source_url": "https://tsumeshogi.com/problems/pxmboxlphx",
+      "exit_code": 0,
+      "stdout": "outcome=Mate valid=true distance=Some(15) nodes=61346 aborted=false solutions=7b8c\n",
+      "stderr": ""
+    },
+    {
+      "list_index": 16,
+      "source_url": "https://tsumeshogi.com/problems/_s7sdncxcu",
+      "exit_code": 0,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=\n",
+      "stderr": ""
+    },
+    {
+      "list_index": 23,
+      "source_url": "https://tsumeshogi.com/problems/jvsq3wb3fv",
+      "exit_code": 0,
+      "stdout": "outcome=Mate valid=true distance=Some(13) nodes=3023 aborted=false solutions=5b6b\n",
+      "stderr": ""
+    },
+    {
+      "list_index": 24,
+      "source_url": "https://tsumeshogi.com/problems/n0i1vnpzl1",
+      "exit_code": 0,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=\n",
+      "stderr": ""
+    }
+  ],
+  "elapsed_s": 0.9
+}

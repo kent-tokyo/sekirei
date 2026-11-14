@@ -1,0 +1,29 @@
+{
+  "schema": "sekirei.public-tsume-original-csa.v1",
+  "dataset": "tokoroten-jp/generated-tsume-shogi v4, floodgate/train/0000.parquet",
+  "parquet_sha256": "5c998ef29299adeab88583df25c073c18956fa6cce8dc88d897a397cf91104e2",
+  "selection": "all label=sound, mate_ply>=13 rows in first train parquet shard; two rows",
+  "cases": [
+    {
+      "id": "fg-20230118-p96",
+      "dataset_id": "2299099624fac7344ba22fd52befc7a1a3d418927c5913385a56be8f6a5b61a2",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2023/01/18/wdoor+floodgate-300-10F+Krist_483_473stb_1000k+AI_Ari_Shogi_Super_torch_test2+20230118230001.csa",
+      "csa_sha256": "515b617bacc32cbfe04110b2325c5c2c6ffa2fd246b4dbe8cce6e2a95d4b407e",
+      "source_line": 96,
+      "mate_ply": 13,
+      "sfen": "l5snk/5BgLp/p2pp1gpP/2p2p1nN/4P1S2/2sB1Pl2/P2P2RP1/3S5/L+rG2K3 b G2Pn3p 97",
+      "solution_usi": ["2b2a+", "1a2a", "1c1b+", "2a1b", "P*1c", "1b1c", "N*2e", "1c1d", "P*1e", "1d1e", "3e2f", "1e1d", "G*1c"],
+      "dataset_main_line_last_move": "G*1e"
+    },
+    {
+      "id": "fg-20171030-p156",
+      "dataset_id": "268712c10cb7b310a9b2031e0d76ce328e34decf586c593e00e8b942e79d259f",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2017/10/30/wdoor+floodgate-300-10F+gps_l+Sunfish4-AWS09+20171030130000.csa",
+      "csa_sha256": "f2aae3364c5f669b48acc6abb7179b293bc685f7149c414327327899e96823f3",
+      "source_line": 156,
+      "mate_ply": 13,
+      "sfen": "1n7/l1S1+P4/k1p4p1/ppsN1bp1p/7N1/P1PLp1gP1/1P1P1+p2P/1K1S5/LN1S2+r2 b 2Grbgl3p 157",
+      "solution_usi": ["G*8c", "7d8c", "7b8c+", "9c8c", "S*7b", "8c8b", "G*8c", "8b9a", "7b8a+", "9a8a", "6d7b+", "8a9a", "7b8b"]
+    }
+  ]
+}

@@ -124,6 +124,30 @@ class IdentityExportTests(unittest.TestCase):
                 with self.subTest(extra=extra):
                     self.assert_clean_failure(self.args(root, [("sfen", source)], extra=extra))
 
+    def test_balanced_manifest_exports_every_reserved_identity_without_qualification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "balanced.json"
+            document = {"schema": "sekirei.independent-balanced-material-openings.v1",
+                        "identity_scheme": export.IDENTITY,
+                        "positions": [{"sfen": sfen, "identity_sha256": identity_hash(sfen)}
+                                      for sfen in (BASE, SAME, SIDE)]}
+            path.write_text(json.dumps(document))
+            result = export.export_manifest(self.args(root, [("opening-manifest", path)], complete=False, owner=None))
+            self.assertEqual(result["identities"], sorted({identity_hash(BASE), identity_hash(SIDE)}))
+            self.assertEqual(result["records"], 3)
+            self.assertFalse(result["complete_for_scope"])
+            self.assertNotIn(BASE, json.dumps(result))
+            for mutation in ("unknown-schema", "wrong-identity"):
+                broken = json.loads(json.dumps(document))
+                if mutation == "unknown-schema":
+                    broken["schema"] = "sekirei.independent-balanced-material-openings.v2"
+                else:
+                    broken["positions"][0]["identity_sha256"] = "0" * 64
+                path.write_text(json.dumps(broken))
+                with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "invalid opening-manifest"):
+                    export.read_source(path, "opening-manifest")
+
     def test_three_attested_roles_qualify_existing_loader_but_two_or_default_false_do_not(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

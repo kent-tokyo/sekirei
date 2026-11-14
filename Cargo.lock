@@ -896,6 +896,7 @@ name = "sekirei-csa"
 version = "0.5.2"
 dependencies = [
  "dotenvy",
+ "rayon",
  "sekirei-core",
  "serde_json",
 ]

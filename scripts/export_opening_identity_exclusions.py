@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Owner-side identity-only export; never discovers sources or starts a match.
 
-Only final SFEN records are accepted. A frozen material-opening manifest is
-also accepted after every recorded SFEN and identity is independently checked.
+Only final SFEN records are accepted. Original or balanced material-opening
+manifests are also accepted after every SFEN and identity is independently checked.
+This conservative identity export does not qualify a corpus for a new match.
 Completeness/ownership is an explicit self-attestation, not something this
 tool can infer from the selected files.
 """
@@ -25,6 +26,8 @@ from freeze_material_gate_openings import IDENTITY, ROLES, identity_hash
 MAX_RECORD_BYTES = 1024 * 1024
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 FORMATS = {"sfen", "tsv", "jsonl", "opening-manifest"}
+OPENING_SCHEMAS = {"sekirei.independent-material-openings.v1",
+                   "sekirei.independent-balanced-material-openings.v1"}
 
 
 @dataclass(frozen=True)
@@ -97,7 +100,7 @@ def read_opening_manifest(path: Path) -> tuple[set[str], dict, SourceStamp]:
         positions = document.get("positions") if isinstance(document, dict) else None
         if (
             not isinstance(document, dict)
-            or document.get("schema") != "sekirei.independent-material-openings.v1"
+            or document.get("schema") not in OPENING_SCHEMAS
             or document.get("identity_scheme") != IDENTITY
             or not isinstance(positions, list)
             or not positions

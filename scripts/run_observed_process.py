@@ -12,6 +12,7 @@ when independence from an interactive app/session is required.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import errno
 from datetime import datetime, timezone
 import fcntl
@@ -171,6 +172,7 @@ class ChildCleanupError(RuntimeError):
     def __init__(self, report):
         self.report = report
         self.cleanup_errors = report["errors"]
+        self.cleanup_incomplete = True
         super().__init__("owned child cleanup incomplete")
 
 
@@ -240,13 +242,48 @@ def cleanup_preserving_error(error, child, **kwargs):
         report = cleanup_child(child, **kwargs)
     except ChildCleanupError as cleanup_error:
         report = cleanup_error.report
-    except Exception as cleanup_error:
+    except BaseException as cleanup_error:
         report = {"signals": [], "returncode": child.returncode,
                   "errors": [{"action": "cleanup", "error_type": type(cleanup_error).__name__,
                               "error": str(cleanup_error)}]}
     error.cleanup_errors = list(getattr(error, "cleanup_errors", [])) + report["errors"]
     error.cleanup_incomplete = report["returncode"] is None
     return report
+
+
+@contextmanager
+def managed_child(command, *, stop_grace_seconds=20, kill_grace_seconds=5,
+                  **popen_options):
+    """Own one new process group until its bounded cleanup has completed.
+
+    Use around resource-monitor loops which can raise while the child is live.
+    Unlike Popen's context manager, leaving this scope never waits indefinitely
+    for a live child. Already exited children are not signalled. The original
+    body exception is retained, with cleanup failures attached for reporting.
+    Detached descendants still require their own supervisor; this context owns
+    only the direct child and its initial process group. It never retries work.
+    File handles and DEVNULL are supported; PIPE is deliberately excluded to
+    avoid pipe ownership and backpressure in these resource-monitor loops.
+    """
+    if os.name != "posix":
+        raise ValueError("managed_child requires POSIX process groups")
+    if any(not math.isfinite(value) or value <= 0
+           for value in (stop_grace_seconds, kill_grace_seconds)):
+        raise ValueError("cleanup grace periods must be finite and positive")
+    if {"start_new_session", "process_group", "preexec_fn"} & popen_options.keys():
+        raise ValueError("managed_child owns session and process-group creation")
+    if any(popen_options.get(name) == subprocess.PIPE for name in ("stdin", "stdout", "stderr")):
+        raise ValueError("managed_child requires files or DEVNULL instead of PIPE")
+    options = dict(stop_grace_seconds=stop_grace_seconds,
+                   kill_grace_seconds=kill_grace_seconds)
+    child = subprocess.Popen(command, start_new_session=True, **popen_options)
+    try:
+        yield child
+    except BaseException as error:
+        cleanup_preserving_error(error, child, **options)
+        raise
+    else:
+        cleanup_child(child, **options)
 
 
 def observe(command: list[str], directory: Path, poll_seconds: float = 10,

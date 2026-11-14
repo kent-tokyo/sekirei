@@ -62,7 +62,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from freeze_material_gate_openings import validate_corpus
+from validate_opening_corpus import DRIVER_PATHS as OPENING_DRIVER_FILES, validate_corpus
 from nps_threads import (
     bind_yaneuraou_evaluator, check_yaneuraou_evaluator,
     file_fingerprint, check_file_fingerprint, yaneuraou_eval_dir,
@@ -74,7 +74,8 @@ ROOT = Path(__file__).resolve().parent.parent
 RESULT = re.compile(r"→ (Engine1 Win|Engine2 Win|Draw)")
 RESULT_SCHEMA_VERSION = "sekirei.ab_gate_result.v1"
 GATE_DECLARATION_SCHEMA = "sekirei.gate-observation-declaration.v1"
-INDEPENDENT_DRIVER_FILES = (Path(__file__), Path(sys.modules[atomic_write_json.__module__].__file__))
+INDEPENDENT_DRIVER_FILES = (Path(__file__), Path(sys.modules[atomic_write_json.__module__].__file__),
+                            *OPENING_DRIVER_FILES)
 OUTCOME_FEATURE_WORDS = ("elo", "verdict", "result", "outcome", "games", "wins", "losses")
 SprtSpec = tuple[float, float, float, float]
 P_EPSILON = 1e-4

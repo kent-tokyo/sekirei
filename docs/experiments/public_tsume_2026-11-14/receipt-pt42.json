@@ -1,0 +1,21 @@
+{
+  "schema": "sekirei.public-tsume-pt42-mate.v1",
+  "corpus_sha256": "4e283ed8d5a6b468339306ad743eb13a2d51ea98df4ad838aaf7b64941f83e7d",
+  "source_commit": "f5507603a59d19f1d258246e7a2ed3569d7bf0dc",
+  "binary_sha256": "ae346ae724eaf2cc9256b0748725b79c18aaa0e793995829eff90603a4ca7a91",
+  "limits": {
+    "max_ply_each": 13,
+    "nodes_each": 1000000,
+    "wall_s_each": 4,
+    "calls": 1
+  },
+  "cases": [
+    {
+      "id": "fgv4-4f8f519d92bd",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2009/05/08/wdoor+floodgate-900-0+Blunder+YSS+20090508083007.csa",
+      "exit_code": 0,
+      "stdout": "outcome=NoMate valid=true distance=None nodes=7101 aborted=false solutions=\n",
+      "stderr": ""
+    }
+  ]
+}

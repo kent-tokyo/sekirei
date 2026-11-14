@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from ab_match_supervisor import _inputs
+from run_observed_process import managed_child
 
 
 class EvaluatorPinTest(unittest.TestCase):
@@ -88,7 +89,7 @@ class SupervisorTest(unittest.TestCase):
             except ProcessLookupError:
                 pass
 
-    def _launch(self, complete=False):
+    def _command(self, complete=False):
         argv = [sys.executable, str(ROOT / "run_ab_match.py"), "selfplay",
                 "--engine-a", str(self.engine), "--engine-b", str(self.engine),
                 "--match-binary", str(self.match), "--openings", str(self.openings),
@@ -100,9 +101,37 @@ class SupervisorTest(unittest.TestCase):
             self.match.write_text(FAKE_MATCH.replace('--fixture-complete',
                                                     'FixtureComplete=true'),
                                   encoding="utf-8")
-        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        return argv
+
+    def _launch(self, complete=False):
+        proc = subprocess.Popen(self._command(complete), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.processes.append(proc)
         return proc
+
+    def test_outer_resource_exception_stops_supervisor_and_registered_match(self):
+        failure = FileNotFoundError("archive volume disappeared")
+        with (self.base / "outer.stdout").open("w") as stdout, (self.base / "outer.stderr").open("w") as stderr:
+            with self.assertRaises(FileNotFoundError) as caught:
+                with managed_child(self._command(), stdout=stdout, stderr=stderr,
+                                   stop_grace_seconds=5, kill_grace_seconds=2) as proc:
+                    self.processes.append(proc)
+                    registration = self._wait_for_raw()
+                    raise failure
+        self.assertIs(caught.exception, failure)
+        self.assertFalse(failure.cleanup_incomplete)
+        self.assertIsNotNone(proc.returncode)
+        receipt = json.loads(self.result.read_text())
+        self.assertEqual(receipt["status"], "error")
+        self.assertFalse(receipt["evidence"]["complete"])
+        self.assertEqual(receipt["evidence"]["supervisor_stop_signal"], signal.SIGTERM)
+        self.assertEqual(receipt["evidence"]["last_durable_game_count"], 1)
+        self.assertIsNone(receipt["result"]["sprt"])
+        self.assertIsNone(receipt["elo"])
+        # An orphan may briefly remain a zombie on Linux; it must not still run.
+        observed = subprocess.run(["ps", "-p", str(registration["pid"]), "-o", "stat="],
+                                  capture_output=True, text=True, timeout=5)
+        self.assertTrue(not observed.stdout.strip() or observed.stdout.strip().startswith("Z"),
+                        observed.stdout)
 
     def _wait_for_raw(self):
         deadline = time.monotonic() + 12

@@ -1,0 +1,7 @@
+{
+  "schema": "sekirei.pt17-legal-validation.v1",
+  "receipt_sha256": "c57a98d0c22c7facc251c4b64e09f0854b6e61df278716e88b27d81da52027d7",
+  "legal_binary_sha256": "96416d90698ac29e36209db7cfb5f4795a56c75916473897c6e85e5a75ab4b3c",
+  "checked_moves": 24,
+  "illegal": []
+}

@@ -1,0 +1,40 @@
+{
+  "schema": "sekirei.public-tsume-pt41-original-csa.v1",
+  "selected_corpus_sha256": "868a22e09ae9ca258e66e984b819735c87a448bce8957dde1ac4ea7f34a4545c",
+  "parquet_sha256": "7aa1b3b426f927b94a69efa4b6ec1e387d7fc1f66b24c13827e0a7dc875763bd",
+  "replay_binary_sha256": "870051373e790fb76f230d82ed96d69def6db892887948a3348fbcabb3b3a704",
+  "cases": [
+    {
+      "id": "fgv4-4f8f519d92bd",
+      "dataset_id": "4f8f519d92bd11bf19bf8e302b6d3b46af66ce4a7fb758e0cbe606b69e6d3c61",
+      "dataset_row_index": 955867,
+      "dataset_mate_ply": 13,
+      "mate_ply": 13,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2009/05/08/wdoor+floodgate-900-0+Blunder+YSS+20090508083007.csa",
+      "source_file": "wdoor2009.7z!wdoor+floodgate-900-0+Blunder+YSS+20090508083007.csa",
+      "source_line": 110,
+      "csa_sha256": "cd91f50bc86faf5053aa0bbd412296d7719a0e2aacf40b91eb65be34b731d2ef",
+      "sfen": "1+R7/pS7/2n+Sp1p2/kpp1g2pp/n2pbp3/2P5P/PP1P1P3/LSG6/KNG1+r3L b Pbgsn2l2p 111",
+      "solution_usi": [
+        "8a9b",
+        "9d8e",
+        "8b7c",
+        "6e6f",
+        "7c8d+",
+        "8e7f",
+        "N*6h",
+        "5i6h",
+        "7i6h",
+        "B*3e",
+        "9b9e",
+        "N*7e",
+        "6g6f",
+        "7f6f",
+        "R*6g"
+      ],
+      "dataset_first_move": "8a9b",
+      "next_recorded_move": "8a9b",
+      "dataset_first_matches_game": true
+    }
+  ]
+}

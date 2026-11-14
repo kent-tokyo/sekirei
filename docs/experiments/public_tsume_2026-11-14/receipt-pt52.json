@@ -1,0 +1,65 @@
+{
+  "schema": "sekirei.public-tsume-pt52-r6-search.v1",
+  "source_ref": "1e963743",
+  "binary_sha256": "3819b63e0bd119f903aa6354bab8a9d05293ba6ee0a4a28ee3aa3fc37bdb4a79",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "corpus_sha256": "5316cbb80c1ada445009345d828af6c2bab1353c67b61308356dfcfa3557a3a7",
+  "proof_sha256": "e7c19e40ef0dac0a086ceca812344f4d5317b2b5c64f82da893db3f40d9deb66",
+  "limits": {
+    "threads": 1,
+    "hash_mib": 64,
+    "nodes": 1000000,
+    "movetime_ms": 1000,
+    "wall_s": 4
+  },
+  "case": {
+    "id": "fgv4-ea673a5450f2",
+    "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2021/05/07/wdoor+floodgate-300-10F+cobra_RTX2080Ti+Krist_483_473stb_1000k+20210507100010.csa",
+    "proved_first": "9f9e",
+    "r6_bestmove": "9f9e",
+    "matches_proof": true,
+    "depth": 14,
+    "nodes": 496652,
+    "score_pv": {
+      "score": [
+        "mate",
+        "13"
+      ],
+      "pv": [
+        "9f9e",
+        "9d9e",
+        "9g9f",
+        "9e8e",
+        "8g8f",
+        "8e8f",
+        "8h7g",
+        "8f7f",
+        "N*8h",
+        "7f8e",
+        "P*8f",
+        "8e9d",
+        "9f9e"
+      ]
+    },
+    "elapsed_s": 0.397,
+    "ready": [
+      "info string NNUE output mode absolute",
+      "info string FV_SCALE 24",
+      "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+      "info string evaluator format HalfKP 256x2-32-32",
+      "readyok"
+    ],
+    "search": [
+      "info string root_mate_safety mate1_cache_hits 13 blunder_cache_hits 1 mate1_nodes 64 blunder_nodes 964",
+      "info depth 14 score mate 13 nodes 496652 nps 1266969 time 392 hashfull 26 pv 9f9e 9d9e 9g9f 9e8e 8g8f 8e8f 8h7g 8f7f N*8h 7f8e P*8f 8e9d 9f9e",
+      "bestmove 9f9e ponder 9d9e"
+    ],
+    "termination": {
+      "exitcode": 0,
+      "killed": false,
+      "reaped": true
+    }
+  },
+  "strength_claim": false,
+  "adoption": false
+}

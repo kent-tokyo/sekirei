@@ -1,0 +1,193 @@
+# Project: Rust-based Speculative Shogi AI (Codename: "Paradigm")
+## Goal: To surpass the world's top Shogi AIs (Suisho, Hisui) by implementing hyper-aggressive speculative parallel search and dynamic task control that are practically impossible to implement safely in C++.
+
+---
+
+@README.md
+
+## 🛑 Fundamental Principle: Strict "Pure & Safe Rust"
+* **Zero `unsafe` in core logic:** All data racing and memory safety issues must be handled by Rust's type system, ownership, lifetimes, and safe concurrency primitives.
+* **No external C++ wrappers:** The engine must be written in 100% Pure Rust.
+
+---
+
+## 👥 Agent Roles & Definitions
+
+You (the AI) will act as a multi-agent team collaborating on this codebase. Switch personas or spin up sub-tasks based on these definitions:
+
+### 1. Lead Architect Agent (The Visionary)
+* **Role:** Designs the high-level system, module boundaries, and trait abstractions.
+* **Focus:** Ensuring zero-cost abstractions, data layouts friendly to CPU caches, and designing the communication channels between speculative threads.
+* **Output Criteria:** Robust API design, Type-level state machines.
+
+### 2. Concurrency & Rayon Expert Agent (The Synchronization Master)
+* **Role:** Implements the dynamic, speculative parallel search tree.
+* **Focus:** Managing the Lock-Free Transposition Table (置換表) using `std::sync::atomic`, handling work-stealing scheduling with `rayon`/`tokio`, and implementing the instant-abort mechanism for wrong speculative branches using `AtomicBool` or channels without causing deadlocks or memory leaks.
+
+### 3. Bitboard & MoveGen Optimizer Agent (The Bit-Twiddler)
+* **Role:** Writes the foundational Shogi rule engine and NNUE accumulator differential update (Do/Undo Move).
+* **Focus:** Utilizing `const fn` and `const generics` to remove all bounds checks (`assert!`) at compile time. Ensuring AVX2/AVX-512 auto-vectorization friendly loops.
+
+### 4. Paranoia QA & Benchmarker Agent (The Guardian)
+* **Role:** Attempts to break the code, find bottlenecks, and verify the AI's logic.
+* **Focus:** Writing rigorous property-based tests (e.g., using `proftest`), verifying Perft counts, and profiling cache-misses/thread contention.
+
+---
+
+## 🏗️ Core Architectural Requirements for Agents
+
+### A. Speculative Search Architecture
+1.  **Policy-Driven Spawning:** The engine must not wait for the Alpha-Beta evaluation of the current depth to finish before exploring deeper. Based on a lightweight policy function, it must preemptively spawn asynchronous tasks for the top $N$ plausible moves.
+2.  **Instant-Kill Chain (Cancellation):** If a parent node determines a branch is a "Cut-off" ($\beta$-cut), it must instantly signal all speculative sub-threads via an atomic broadcast flag. Due to Rust's RAII (`Drop` trait), aborted tasks must clean up their local memory immediately and return to the thread pool.
+
+### B. Lock-Free Transposition Table (TT)
+1.  **Strictly Lock-Free:** No `Mutex`, no `RwLock` in the search loop.
+2.  **Structure:** A fixed-size array of Atomic primitives supporting generational writing, handled via Compare-And-Swap (`compare_exchange`).
+3.  **No Race Conditions:** Rust's `Sync` trait must be properly implemented and validated by the compiler.
+
+### C. Type-Level Board State
+1.  Use Rust's ownership system to prevent "Illegal Move Undo" bugs.
+2.  The board representation should ideally look like:
+    ```rust
+    // Concept example for MoveGen
+    pub struct Board { ... }
+    pub struct Move { ... }
+    
+    impl Board {
+        // Returns an updated board and the NNUE difference token, 
+        // ensuring the old state cannot be corrupted.
+        pub fn do_move(&mut self, m: Move) -> MoveToken;
+        pub fn undo_move(&mut self, token: MoveToken);
+    }
+    ```
+
+---
+
+## 🚀 Iterative Development Phases (Agent Workflow)
+
+### Phase 1: Foundation (Bitboard & Safe MoveGen)
+* **Task:** Implement standard Shogi rules using Bitboards ($9 \times 9$ layout mapped to `u128` or structural arrays).
+* **Target:** Outperform standard `shogi_core` benchmarks using compile-time constants.
+
+### Phase 2: The Lock-Free TT & Basic Parallel Search
+* **Task:** Implement a safe, atomic Transposition Table. Build a standard PVS (Principal Variation Search) / YBW (Young Brothers Wait) parallel search using `rayon`.
+* **Target:** Zero data races, 100% thread utilization across high-core CPUs.
+
+### Phase 3: Speculative Engine Implementation (The Core Breakthrough)
+* **Task:** Rewrite the search controller to support *Speculative/Preemptive* node exploration based on move probability. Implement the safe cancellation mechanism using Rust's task-dropping features.
+* **Target:** Show an effective "Search Depth Boost" within the same time limit compared to Phase 2.
+
+### Phase 4: NNUE Integration & Tuning
+* **Task:** Implement the CPU-focused NNUE evaluation with SIMD-driven incremental updates synced with the speculative engine.
+
+---
+
+## 📊 Evaluation Matrix (Definition of Done)
+* **Memory Safety:** Compiles successfully without a single `unsafe` block in the parallel search and task-control logic.
+* **Contention Check:** Thread synchronization overhead must remain below 5% even when running on 64+ cores.
+* **Correctness:** Passes 10,000,000 random Perft/Mated-search validations.
+
+---
+
+## User Instruction Record
+
+* 2026-11-12: Analyze M03's failed independent confirmation and apply the findings to subsequent improvements; preserve both verdicts, distinguish measured causes from hypotheses, and prioritize low-resource evidence reuse.
+
+* 2026-11-11: Proceed with M03's independent confirmation after its entry pass; preserve its weights and original unfiltered opening recipe, preregister fresh 500 colour-reversed pairs at one-sided p<=0.05, and keep prior results, publication and default adoption separate.
+
+* 2026-11-11: Continue low-resource NNUE improvement after the completed K08 entry trial, retaining its verdict and using the findings for subsequent development.
+
+* 2026-11-11: Advance the K-series evaluation with prospective, practical development criteria. Separate permission to explore from evidence of strength; do not require H1 or every diagnostic to improve before the next experiment, and preserve prior verdicts.
+
+* 2026-11-11: Create another ten distinct NNUE candidates after the J02 trial, retaining each improvement hypothesis, recipe, weight identity, and result in the low-resource sequential workflow.
+
+* 2026-11-10: Create ten separately identified NNUE candidates from explicit improvement hypotheses using bounded, sequential low-resource runs; preserve each recipe and result, and do not start matches merely because a candidate has lower validation loss.
+
+* 2026-11-10: Before spending games on another NNUE candidate, create one with a credible improvement hypothesis and screen it on frozen, independent development positions for integer correctness, direct move-ranking quality, major errors, and same-time search cost. Do not advance a candidate on validation loss alone; start a preregistered match only after the pre-match criteria pass.
+
+* 2026-11-10: Stop the active native512-vs-r6 NNUE match around 800 completed pairs at the user's revised request; preserve it as a posthoc early stop without H0/H1 or adoption. For later NNUE candidates, start with a preregistered 500-pair screen and any futility stop; use a separate fresh-root confirmation only when its preregistered screen rule warrants it. Do not extend or reinterpret a trial after seeing results.
+
+* 2026-11-09: Research online shogi strategy, map the findings to current implementation, and maintain a source-grounded implementation plan and organized roadmap. Prioritize the greatest verified benefit within this Mac's limited resources: reuse existing work, run small single-thread diagnostics, and defer expensive training and broad parallel trials.
+
+* 2026-10-29: Keep learning data out of GitHub. Store retained but infrequently used data on the external SSD at `/Volumes/ESD-EPA/Projects/sekirei_data`; verify archives and record restoration steps before removing local copies.
+
+* 2026-10-28: Resume the self-NNUE improvement lane in a separately recorded recovery attempt; retain failed evidence and verify resource recovery before starting new generation or games.
+
+* 2026-10-26: Remove the blanket prohibition on automatic NNUE retries. After fixing and verifying a failure cause or resource recovery, resume autonomously in a new recorded attempt; preserve failed evidence and past limits/verdicts, prevent duplicate runs, and never pool failed results or promote unqualified candidates.
+
+* 2026-10-24: Codex owns self-NNUE generation, training code, weights, and candidate evaluation. Earlier Claude ownership assignments are superseded. Preserve active jobs, prior training work, hold-outs, and frozen evidence; qualify each candidate independently before adoption or publication.
+
+* 2026-10-23: Manually continue nn_r8c3 after its observer capacity failure, retaining all 123 completed pairs, the unplayed-root order, 400-pair cap and original deadline; use the validated observer fix and file necessary issues without publishing private trial artifacts.
+
+* 2026-10-22: Manually start the previously unplayed nn_r8c3 formal screen after the user requested resumption; preserve the old c2/c3 stop records, frozen 400-root order, weights, conditions, cap and original deadline. Never automatically retry an engine failure.
+
+* 2026-10-21: While the user sleeps, autonomously revise plans and advance bounded self-NNUE generation, training and fresh-root candidate gates. Preserve registered verdicts and limits, audit failures without automatic trial retries, and keep publication/default changes separate.
+
+* 2026-10-21: Review the nn_r8c1 training recipe using owned-data and exported-parameter diagnostics; isolate a batch-size ablation from existing strength trials, and require independent fresh-root gates before adoption.
+
+* 2026-10-21: Manually continue the interrupted nn_r8c1 screen after auditing all completed pairs; preserve the stop record, original weights, corpus order, SPRT and total deadline. Do not enable automatic trial retries.
+
+* 2026-10-21: Report self-NNUE progress in this thread every30 minutes, including live job state, completed pairs, SPRT status, and resource-wait or termination reasons.
+
+* 2026-10-21: Implement automatic pause and continuation after NNUE output-capacity recovery, preserving completed games and exact active process state. Persist pause/resume and failure evidence; never automatically retry engine failures or statistical gates.
+
+* 2026-10-20: Organize or delete verified-obsolete files and refactor the repository, preserving historical release and measurement evidence, unrelated NNUE work, and observable behavior.
+
+* 2026-10-19: Transfer `nn_r6` evidence production to Codex. Generate and qualify only from an isolated worktree and dedicated evidence output; preserve the candidate identity, use material-only colour-reversed current-source gates, and do not alter unrelated prior training work or hold-outs.
+
+* 2026-10-19: Prepare qualified nn_r6 for the next release as a separate optional native NNUE asset; bind hashes, license and evidence, confirm release-build compatibility, and keep publication and default adoption separate.
+
+* 2026-10-19: Persist NNUE job termination evidence with an independent observer, distinguishing observed exit codes/signals from unknown underlying causes.
+
+* 2026-10-19: Make NNUE qualification progress on the shared Mac despite routine OS activity; separate resource scheduling from game/evaluator integrity and preregister revised trial rules without changing past verdicts.
+
+* 2026-10-15: Implement lower-memory JSONL ingestion, durable audit manifests and optional Pure Rust gzip/zstd input in isolation; preserve sample selection, shuffle, resume and hold-out contracts, and keep ingestion measurements separate from training throughput or strength.
+
+* 2026-10-15: Delete verified-unused, regenerable build caches and temporary files to reclaim space; preserve sources, evaluation/training data, measurement evidence, and active jobs.
+
+* 2026-10-15: Prioritize surpassing YaneuraOu throughput at 8 threads under equal conditions; qualify 8T independently from 4T.
+
+* 2026-10-15: Prioritize surpassing YaneuraOu throughput at 4 threads under equal benchmark conditions.
+
+* 2026-10-15: Keep current documentation concise and synchronized; move older release detail to archives without deleting evidence, and keep diagnostics, gate verdicts, and strength claims distinct.
+* 2026-10-14: Target pgx shogi throughput; pin pgx/JAX/backend and batch conditions, compare matching legal-mask or full-environment work, and keep CPU, accelerator throughput, search NPS, and strength distinct.
+
+* 2026-10-14: Integrate the implemented search experiments and measurement evidence into main; retain disabled defaults for candidates without independent H1.
+
+* 2026-10-14: Fix YaneuraOu as the search-strength target; continue isolated search improvements and equal-condition qualification without NNUE retraining or unqualified default adoption.
+
+* 2026-10-14: Target search strength beyond YaneuraOu; qualify against pinned opponent and equal evaluation/time conditions, and distinguish search diagnostics from playing-strength evidence.
+
+* 2026-10-14: Improve useful Lazy SMP depth without NNUE retraining: validate deferred losing-tactical sort, complete root-hint effectiveness diagnostics, compare helper root LMR with ABBA, and add opt-in dominated-helper retirement, diagnostics-first NMP history, and a two-worker cooperative root split. Keep candidates separate; require independent H1 before adoption.
+
+* 2026-10-14: Commit validated search-speed changes and push them to main.
+* 2026-10-14: For Sinfonietta CPU-throughput comparisons, pin its executable, evaluation architecture and CPU mode, and keep NNUE, PV-MCTS and ensemble measurements distinct.
+* 2026-10-14: Aim to exceed YaneuraOu speed with Pure Safe Rust. Pin the reference build and compare identical hardware, evaluator, thread counts, hash size, and corpus; keep raw NPS, effective search work, and strength distinct.
+* 2026-10-13: When `lineprior`, `shogiesa-core`, or `veridict` has already shipped a needed capability, update Sekirei's dependency and local adapter instead of filing another upstream issue.
+* 2026-10-12: Prepare v0.4.0 as a compatibility and operations milestone with all seven workspace versions, v0.3.73 patch-level public API compatibility, a validated planned manifest, and a reproducible WASM asset; do not bundle or adopt an unqualified self-NNUE candidate.
+* 2026-10-12: Release v0.3.73 after verifying opt-in Lazy SMP useful-work diagnostics, process-lifecycle fixes, bounded WebAssembly evaluator and MultiPV contracts, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; keep the default search and evaluator unchanged and make no playing-strength claim.
+* 2026-10-11: Release v0.3.71 after verifying the behavior-preserving refactors, 98% coverage contract, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; make no playing-strength claim.
+* 2026-10-11: Release v0.3.72 after verifying opt-in Lazy SMP diagnostics, bounded CSA post-game reconnects, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; the default search and evaluator remain unchanged.
+* 2026-10-11: Raise the Codecov-facing Rust engine/library line-coverage contract to 98% through behavioral tests without widening the exclusion list; keep local coverage distinct from hosted Codecov confirmation.
+* 2026-10-11: Release v0.3.70 after verifying absolute USI match deadlines, bounded Fischer-clock accounting, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; make no playing-strength claim.
+* 2026-10-11: Release v0.3.69 after verifying the 95% coverage contract, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; make no playing-strength claim.
+* 2026-10-11: Raise the Codecov-facing Rust engine/library line-coverage contract to 95% through behavioral tests without widening the exclusion list.
+* Record operational instructions explicitly given by the user in this `AGENTS.md`, keeping them concise, scoped, and consistent with higher-priority instructions.
+* 2026-09-27: Release v0.3.52 as a behavior-preserving search refactor after version, test, manifest, registry, and GitHub Release verification.
+* 2026-09-29: Release v0.3.53 after verifying the mate-in-one search change, six-crate publication, manifest, and GitHub Release.
+* 2026-09-29: Release v0.3.54 after verifying the search/tuning changes, six-crate publication, manifest, and GitHub Release; do not use external-evaluator results as its public strength claim.
+* 2026-10-07: Resolve Issues #100 and #101 with a versioned legal-PV WASM contract and a durable one-shot Floodgate supervisor; preserve existing release evidence and unrelated work.
+* 2026-10-07: Release v0.3.62 as an NNUE trainer export-precision fix after full workspace, WebAssembly, manifest, registry, and GitHub Release verification; do not claim a new checkpoint or strength gain.
+* 2026-10-03: Release v0.3.57 after verifying the six workspace crates, WebAssembly package, release manifest, registry publication, and GitHub Release.
+* 2026-10-01: Release v0.3.55 after verifying SearchMode Auto/Lazy SMP, bounded CSA operation, six-crate publication, manifest, and GitHub Release; make no general strength claim.
+* 2026-09-27: Do not use Suisho5 executables, nn.bin files, evaluation outputs, or derived labels for Sekirei training, candidate selection, or public artifacts unless the user later reverses this instruction.
+* 2026-10-07: Tune search constants (SPSA) and screen search changes with material-only evaluation and Sekirei-generated openings; use Suisho5 only to measure Sekirei against YaneuraOu, never to choose constants or defaults.
+* When writing newsletter articles, use natural, concrete prose and avoid formulaic or promotional AI-sounding language. State the actual observations and their limits plainly; avoid stock disclaimer phrasing and abstract caveats.
+* Where practical, support article claims with relevant data and links to their sources. Make clear which statements are verified facts and which are estimates or interpretation.
+* Always fact-check articles before delivery. Verify factual claims, especially figures, dates, quotations, and rules, against reliable sources; correct or remove claims that cannot be verified.
+* For Japan condominium market articles, check public discussion by the condominium community on X and note for topics and questions. Do not cite those posts as data sources in the article; verify factual claims against primary sources.
+* For weekly condominium market articles, lead with information from the current reporting week. Clearly label the observation period and publication date of lagging monthly statistics; do not present a prior month's figures as this week's market conditions.
+* For condominium market analysis, consider current financing costs. Distinguish policy rates from actual mortgage offers and their effective dates; label repayment calculations as hypothetical scenarios, not lender quotes or forecasts.
+* Format Substack articles for easy scanning with restrained headings, emphasis, and lists. Use only formatting the editor reliably supports, and avoid emoji except where genuinely necessary.
+* Write Japan Condo Markets for non-Japanese readers in English. Briefly explain Japan-specific geography, price units, market terms, and financing eligibility where they matter; do not assume readers know the Japanese housing market.
+* Treat Tokyo as a set of distinct condominium submarkets, not one uniform price trend. Separate waterfront areas, central districts, and residential areas such as Setagaya; compare like-for-like properties and do not generalize a small sample across areas, building types, or price bands.

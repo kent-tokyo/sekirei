@@ -4,6 +4,11 @@
 binaries for normal engine operation. Before running a script, inspect
 `--help`, choose a new ignored output directory, and retain its manifest.
 
+Choose the tool that resolves the current question under
+[AGENTS.md](../AGENTS.md) and the current task plan. This index is not a list
+of required steps. A frozen run uses its pinned tool versions and inputs;
+newer tooling does not silently replace them.
+
 The default USI engine does not depend on `lineprior` or `shogiesa-core`.
 The trainer uses both; the optional opening-book feature uses `lineprior`.
 The pinned versions are in the workspace manifests. External
@@ -40,6 +45,10 @@ workspace versions, the manifest, and WASM metadata.
 | `launch_floodgate_once.py` | Starts one rendered bounded Floodgate LaunchAgent without combining `RunAtLoad=true` and `kickstart`; refuses registered labels and records the single-run acceptance receipt. |
 | `nps_threads.py` | Thread-scaling diagnostic for NPS, completed depth, move stability, and opt-in parallel counters. Counter-enabled runs are separate from speed runs; neither establishes Elo. |
 | `paired_search_diagnostics.py` | Fresh-process A/B/B/A comparison for one search factor. Separates deterministic signatures, counter-free timing and opt-in parallel diagnostics; it does not estimate Elo. |
+| `compare_selected_nnue_moves.py` | Compares depth-one and timed choices using a fresh teacher process for every selected move. Requires repeated scores at a common depth, retains unfinished calls, and never authorizes matches or adoption. |
+| `classify_selected_move_outcomes.py` | Classifies saved selected-move evidence as ordinary CP, bounded opponent-mate exposure, or unresolved. Keeps mate proofs out of CP averages and permits only prospectively defined screen planning, never adoption. |
+| `nnue_screen_robustness.py` | Reads saved per-position comparisons and reports median, gain/loss counts, 100/200/300cp tails, leave-one-out means, and the mean without the largest gain. Keeps unresolved roots and pool coverage explicit; never changes an old verdict or authorizes a match. |
+| `stream_opening_exclusions.py` | Optional streaming exclusion-manifest loader with exact SHA/provenance and identity-set semantics. Callers must explicitly pin its use; existing frozen replay drivers remain unchanged. |
 | `build_pgo_lane.py` | Builds native, instrumented, and profile-use binaries from one clean source and frozen corpus. Optional own-HalfKP profiling needs a verified public card and exact load identity. Qualify speed, strength, and default adoption in separate gates. |
 | `generate_search_diagnostic.py` | Creates new seeded, score-blind quiet/tactical diagnostic positions from Sekirei legal playouts and rule probes, with complete replay and executable-hash provenance. Reads no training corpus or external evaluator. Diagnostic-only; do not reuse as an independent gate. |
 | `validate_paired_pv.py` | Freezes the Rust legal-move tool and replays every recorded PV, checking its bestmove prefix and each legal transition. Fails on incomplete runs or illegal PVs. This is a same-rules contract check, not an independent oracle or a proof of mate scores. |
@@ -59,11 +68,153 @@ terminal result is `error` with null Elo/SPRT verdict and separate observed and
 verified game counts; raw match artifacts are retained. SIGTERM to the outer
 supervisor is handled, while its own SIGKILL requires an OS-level observer.
 
+`analyze_paired_openings.py --trial-dir DIR --output REPORT.json` describes a
+completed, finalized colour-reversed trial. It checks frozen plan/root/event
+hashes and each kifu's identity, opening history, colours and outcome before
+grouping pair results by static starting material. It rejects ongoing trials.
+The output is posthoc diagnostic evidence: candidate closeness can also cause
+split pairs, and these groups must not relabel past verdicts or select a subset
+of an active match. Material uses the documented piece inventory values, not
+an NNUE/search score. Keep generated reports out of Git.
+
+`freeze_balanced_gate_openings.py` is an opt-in, separately versioned corpus
+generator. Pass an explicit `--max-abs-material-cp 300` to retain the first
+eligible unique samples in generation order, with inclusive absolute static
+board-and-hand material limits. It uses the same generator/match binaries and
+three complete exclusion scopes as `freeze_material_gate_openings.py`.
+Its selection plan, code, exclusions, seed and generation cap are frozen before
+generation. Full histories and every rejection (including samples after the
+requested count) are retained. An exhausted cap leaves an incomplete attempt;
+it does not silently relax the threshold or generate more trajectories.
+The streaming exclusion loader limits transient JSON memory; the final identity
+set still grows with the exclusion corpus.
+
+`run_ab_match.py --openings-manifest` dispatches the original and balanced
+schemas to their own validators. The balanced validator replays the selection
+plan and checks frozen sources, binaries, exclusions, material scores and full
+histories. Old corpus contracts are unchanged. Exclude all reserved roots of
+earlier trials, including unplayed roots of an active trial, before generating
+a new corpus. This filter changes the sampled population; improved statistical
+power or fewer required games has not been established. Preregister each new
+trial independently and keep its data out of Git.
+
+`export_opening_identity_exclusions.py --input opening-manifest MANIFEST`
+accepts both original and balanced corpus schemas. It verifies each SFEN/ID pair
+and exports every reserved identity, regardless of how many games were played.
+This conservative exclusion export does not qualify the source corpus or infer
+scope completeness; owner attestation remains explicit.
+
 `validate_nnue_cpu_pilot.py /path/to/frozen-pilot.json` checks a bounded CPU
 pilot plan against prior material-gate, data, hold-out, resume, and bottleneck
 evidence. A valid plan neither provisions resources nor approves a candidate.
 
 ## Measurement and rules diagnostics
+
+`classify_selected_move_outcomes.py` is a library for a separately registered
+typed diagnostic. Its caller must pin the input roots, source, engine and proof
+adapter, check their identities, and enforce resource limits. Each mode cancels
+shared move frequencies before comparing repeated common-depth teacher scores.
+For eligible incomplete teachers, repeated bounded mate probes can separately
+measure how often a selected child board permits an opponent checking mate.
+`NoMate` means no such mate within the fixed bound; it is not a game result or
+a substitute CP value. Equal bounded exposure leaves quality unresolved.
+Freeze root count and advancement conditions before new outputs; the library
+does not revise an old diagnostic verdict or establish strength.
+
+`compare_selected_nnue_moves.py --plan PLAN.json --output NEW_DIRECTORY` accepts
+`sekirei.selected-move-diagnostic-plan.v2`, with `status=FROZEN_BEFORE_RUN` and
+`purpose=development_diagnostic_only`. Pin absolute paths and SHA-256 values for
+`engine`, `baseline`, `candidate`, `teacher`, `roots`, `runner`, `helper`
+(`run_core_floodgate_diagnostic.py`), and `sfen_codec`
+(`generate_search_diagnostic.py`). The roots file contains a `positions` array
+with `identity_sha256`, complete `position` history (`startpos moves ...`), and
+expected `sfen`; an optional `pool` identifies strata. State whether roots were
+previously used. The tool checks hashes before and after execution; it does not
+certify an independently generated corpus or select a candidate.
+
+The plan's `config` sets `time_ms`, `nodes_per_teacher_call`, `max_roots` (up to
+32), `wall_seconds` (up to 600), `call_seconds`, descending `teacher_depths`
+(at most three), `threads=1`, `repeats=2`, `fv_scale` (1..=128), and
+`allowed_node_overrun` (0 or 1). Every call passes `--fv-scale` and requires
+the engine to acknowledge the registered value. Use 24 for the r6 recipe;
+the diagnostic's legacy default is 16. Frozen v1 runs retain their original
+results and sources; do not relabel or pool them with scale-corrected runs.
+The optional single counted node beyond the cap is accepted only with a budget
+stop, for the search's stopping-accounting tail. Larger overruns are rejected.
+
+The diagnostic binary can write `--qsearch-samples NEW.tsv`: at most 256 actual
+raw stand-pat evaluations before correction history or TT replacement, with
+their SFEN and a legally reconstructed path from the search root. Check
+`path_valid` before using a path; null-move paths are rejected. This is an
+optional provenance diagnostic, excludes TT-only/cap/in-check returns, and
+does not identify final-PV leaves or attribute root scores. Sampling perturbs
+timing. It cannot be combined with warmup, root-candidates, or teacher-search.
+With `--qsearch-samples`, optional `--qsearch-sample-min-main-ply 0..=256`
+retains only nodes whose `ply - qply` reaches the threshold before consuming
+one of the 256 slots. This is the distance from the root to entry into
+quiescence, including null moves, not iterative-deepening depth. It remains
+the first eligible samples, not a uniform sample. Zero keeps the original
+sampling policy. Check the acknowledged threshold and `path_valid`; null-move
+paths can still be rejected during replay.
+
+`--disable-nmp` and `--disable-lmr` control their respective pruning switches
+in both search implementations. LMR opt-out also covers root probes and
+cooperative helpers; other pruning and extension heuristics remain enabled.
+These are diagnostic controls, not stronger-teacher guarantees. Older V2
+binaries ignored these switches, so an old command line alone does not prove
+that the requested ablation occurred. Pin the fixed binary and check actual
+search behavior before using ablation results.
+
+Timed choices use A/B/B/A order.
+The runner requires the diagnostic binary to support `--node-cap`: legacy
+`--max-depth` disables `--nodes`. Depth-one and teacher calls add an explicit
+cap and verify its acknowledgment and observed node count. The teacher examines
+only moves whose selection frequencies differ between models, for depth-one
+and timed choices separately. Shared frequencies cancel algebraically, so no
+absolute score is invented for skipped moves. Each required move starts a
+fresh process, then the same moves repeat in reverse order. Only reproducible budget
+exhaustion allows the next registered depth; disagreement and unexpected stops
+remain unresolved. The reported difference favors the candidate when positive.
+It is a comparison of selected moves, not loss against the best legal move.
+
+On a budget stop, the engine can return a move from the interrupted iteration
+while `score_cp`, depth and PV still describe the last completed iteration.
+New diagnostic builds expose `bestmove_legal` and `pv_starts_with_bestmove`.
+The timed-choice comparison keeps the actually returned move when its legality
+is explicitly verified and scores it with the separate teacher; it never uses
+the timed score as that move's quality. Direct and forced-root teacher results
+require the PV to start with their returned move. Legacy output can establish
+returned-move legality through its legal PV only when the first move agrees.
+No batch average is reported when any root is unresolved. `calls.jsonl` retains
+started and completed subprocesses, including partial attempts. Child peak RSS
+is measured rather than enforced; elapsed cost is not a speed benchmark.
+
+Use `nnue_screen_robustness.py --progress RUN/progress.jsonl --expected-roots N
+--candidate ID --reference ID --output NEW.json` to inspect sensitivity before
+spending more games. It accepts both two-arm records and shared-teacher-table
+screens. A single favorable root can reverse a small panel's mean; the report
+keeps that root in the original result and shows the omission only as a
+sensitivity check. Its descriptive averages cover resolved roots only; it
+reports unresolved roots and incomplete coverage explicitly without scoring
+them as zero. It does not add a pass threshold or weaken a registered gate.
+When forced-move attempts are present, `teacher_depth_sensitivity` also compares
+move pairs completed at two or more requested depths, requiring two legal,
+non-aborted repeats with equal scores at each depth and verified history/PV
+replay. A third move hitting its budget does
+not hide the completed pair. A reversal is reported separately; pairwise
+scores never replace the registered common-depth average or resolve a missing
+root. An empty list means no usable depth comparison, not proven stability.
+
+`stream_opening_exclusions.load_exclusions(paths)` returns the same identity
+union and provenance records for normal manifests as the existing loader,
+without retaining whole-file bytes, text, and a list of all identities at once.
+The final set still uses memory proportional to the number of identities.
+This alternative accepts UTF-8 JSON and rejects duplicate object keys,
+non-finite constants, or oversized metadata/tokens; ceilings are documented in
+the module. An explicitly recorded wrapper may substitute it for
+`freeze_material_gate_openings.load_exclusions` before full corpus replay.
+That wrapper and this loader must be pinned; no older plan should be silently
+changed to use it.
 
 YaneuraOu match comparisons request `MinimumThinkingTime=1`, the valid
 lower bound in the pinned reference. Zero is silently rejected there. Equal
@@ -171,9 +322,15 @@ each candidate run. Finalize only complete artifacts; keep `PASS`, `FAIL`,
 `INCONCLUSIVE`, and resource-censored outcomes distinct. The
 [weight contract](../docs/nnue_weights.md) covers release eligibility.
 
+The one-shot tools below do not retry terminal failures. Under the current
+instructions, a separately recorded new attempt may follow a verified fix or
+resource recovery, after checking that the prior child has stopped. This does
+not replay a statistical rejection, change an old verdict, or bypass a frozen
+trial's continuation contract.
+
 | Tool | Role |
 |---|---|
-| `run_observed_process.py` | Launch one child and record fsynced start/exit events, output, status, and resource samples. No automatic retry. |
+| `run_observed_process.py` | Launch one child and record fsynced start/exit events, output, status, and resource samples. Its `managed_child` context bounds cleanup when an outer resource monitor raises. No automatic retry. |
 | `nnue_gate_host.py` | Admit the next colour-reversed strength pair after the preregistered shared-host resource checks. |
 | `gate_orchestrator.py`, `*_strength_gate_*` | Freeze declarations and terminal gate evidence. |
 | `record_resume_run.py`, `attach_resume_manifest.py` | Preserve checkpoint and resume lineage. |
@@ -191,6 +348,15 @@ may still be alive. It reserves 8 MiB for a journal retry and another 8 MiB
 for terminal records. A second persistence failure stops the owned child,
 never a statistical trial.
 Keep the OS job's exit status as a second observation layer.
+
+For custom resource-monitor loops, `run_observed_process.managed_child(command,
+...)` owns one new POSIX process group. Leaving its `with` block stops a live
+child with bounded TERM/KILL waits, including when disk probes or telemetry
+writes raise. The original exception retains cleanup errors and an explicit
+`cleanup_incomplete` flag. Already exited children are not signalled; work is
+never retried. Pass files or `DEVNULL`, not `PIPE`. Use a structured child such
+as `run_ab_match.py --supervised` to clean up descendants in separate sessions.
+Freeze the imported cleanup module's path and hash in each new trial plan.
 
 For the preregistered 10-core shared-host policy, three samples with at most
 300% foreign CPU and at least 512 MiB free admit the next colour-reversed
@@ -299,14 +465,25 @@ reuse these primitives; historical one-off experiment scripts remain frozen
 until their archived evidence no longer depends on their exact behavior.
 
 Most Python tools use only the standard library and have a focused
-`test_<tool>.py`. After an edit, run that focused test, then:
+`test_<tool>.py`. For a behavior change, run the relevant focused tests.
+For documentation changes, check the edited links and public/private boundary:
 
 ```bash
 python3 scripts/check_documentation_references.py
 python3 scripts/check_public_surface.py
+```
+
+The reference checker covers the public READMEs; inspect links in other edited
+documents separately. For release/version/manifest changes, also run:
+
+```bash
 python3 scripts/check_release_metadata.py
 python3 scripts/check_release_manifest_layout.py
 ```
+
+Required CI and release checks still apply at their respective integration
+and publication stages; this selection avoids repeating unrelated work during
+small local edits.
 
 Prefer one parameterized tool over near-duplicate wrappers. Retire one-off
 instrumentation only after its evidence is retained and no live workflow or

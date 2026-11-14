@@ -20,11 +20,14 @@ use sekirei_core::{
     board::Board,
     color::Color,
     search::{SearchConfig, Searcher},
-    sfen::board_to_sfen,
+    sfen::{PositionHistory, board_to_sfen},
     tt::Tt,
 };
 
-use crate::moves::{board_from_csa_position, csa_to_move, is_csa_move_token, move_to_csa};
+use crate::moves::{
+    csa_to_move, do_move_with_history, is_csa_move_token, move_to_csa,
+    position_with_history_from_csa_position,
+};
 
 mod framing;
 mod time_control;
@@ -138,6 +141,8 @@ pub struct Config {
     pub weights_path: Option<PathBuf>,
     /// HalfKP output divisor, validated against the USI `FV_SCALE` range.
     pub fv_scale: i32,
+    /// Explicit Rayon worker count for a reproducible CSA search profile.
+    pub threads: Option<usize>,
     /// Optional startup manifest containing the active run contract.
     pub run_manifest: Option<PathBuf>,
     /// Optional atomic runtime status snapshot for an external supervisor.
@@ -187,6 +192,7 @@ impl Default for Config {
             evaluation: EvaluationMode::Material,
             weights_path: None,
             fv_scale: sekirei_core::halfkp::DEFAULT_FV_SCALE,
+            threads: None,
             run_manifest: None,
             status_file: None,
             status_journal: None,
@@ -1150,19 +1156,17 @@ impl CsaClient {
             }
         }
 
-        let mut board = match board_from_csa_position(&position_lines) {
-            Ok(board) => board,
-            Err(error) => {
-                eprintln!("[csa] invalid server position ({error}); refusing game");
-                self.set_status("client_error", Some("invalid_initial_position"));
-                return Ok(GameResult::Aborted);
-            }
-        };
+        let (mut board, mut position_history) =
+            match position_with_history_from_csa_position(&position_lines) {
+                Ok(position) => position,
+                Err(error) => {
+                    eprintln!("[csa] invalid server position ({error}); refusing game");
+                    self.set_status("client_error", Some("invalid_initial_position"));
+                    return Ok(GameResult::Aborted);
+                }
+            };
         board.refresh_acc();
-        let mut ply_count = position_lines
-            .iter()
-            .filter(|line| bare_server_move(line).is_some())
-            .count();
+        let mut ply_count = position_history.entries().len() - 1;
         if ply_count > TOURNAMENT_MAX_PLIES {
             eprintln!("[csa] initial position exceeds the 512-ply boundary");
             self.stop_for_protocol_error("initial_position_past_max_ply");
@@ -1227,6 +1231,7 @@ impl CsaClient {
                 let analysis_board = self.config.analysis_dir.as_ref().map(|_| board.clone());
                 let result = self.think_and_send(
                     &mut board,
+                    &mut position_history,
                     our_color,
                     time_left_ms,
                     increment_or_byoyomi_ms,
@@ -1428,7 +1433,7 @@ impl CsaClient {
                                     return Ok(GameResult::Aborted);
                                 }
                             }
-                            board.do_move(m);
+                            do_move_with_history(&mut board, &mut position_history, m);
                             if let Some(used_units) = parse_time_from_echo(&line) {
                                 let Some((remaining_ms, _)) = clock_after_echo(
                                     opponent_time_left_ms,
@@ -1468,7 +1473,11 @@ impl CsaClient {
         }
     }
 
-    fn collect_root_candidates(&self, board: &mut Board) -> Option<Vec<RootCandidateRecord>> {
+    fn collect_root_candidates(
+        &self,
+        board: &mut Board,
+        position_history: &PositionHistory,
+    ) -> Option<Vec<RootCandidateRecord>> {
         if self.config.root_candidates.is_empty() {
             return None;
         }
@@ -1481,7 +1490,7 @@ impl CsaClient {
         if candidates.is_empty() {
             return Some(Vec::new());
         }
-        let results = self.searcher.search_root_candidates(
+        let results = self.searcher.search_root_candidates_with_history(
             board,
             SearchConfig {
                 max_depth: self.config.max_depth.min(4),
@@ -1491,6 +1500,7 @@ impl CsaClient {
                 multi_pv: 1,
             },
             &candidates,
+            position_history,
         );
         Some(
             results
@@ -1513,6 +1523,7 @@ impl CsaClient {
     fn think_and_send(
         &mut self,
         board: &mut Board,
+        position_history: &mut PositionHistory,
         our_color: Color,
         time_left_ms: u64,
         byoyomi_ms: u64,
@@ -1526,7 +1537,7 @@ impl CsaClient {
         )));
         let budget_ms = time_limit.map_or(0, |limit| limit.as_millis());
 
-        let info = self.searcher.search(
+        let info = self.searcher.search_with_history(
             board,
             SearchConfig {
                 max_depth: self.config.max_depth,
@@ -1535,8 +1546,9 @@ impl CsaClient {
                 soft_limit: None,
                 multi_pv: 1,
             },
+            position_history,
         );
-        let root_candidates = self.collect_root_candidates(board);
+        let root_candidates = self.collect_root_candidates(board, position_history);
 
         // A budget-aborted iteration reports an unknown current bound. Its
         // score is still from the last completed iteration, but resignation
@@ -1580,7 +1592,7 @@ impl CsaClient {
 
         if let Some(m) = info.best_move {
             let csa_move = move_to_csa(m, our_color);
-            board.do_move(m);
+            do_move_with_history(board, position_history, m);
             self.send(&csa_move)?;
             self.status_details.last_our_move_sent_ms = Some(current_timestamp_ms());
             self.emit_status(Some("our_move"));
@@ -2199,7 +2211,7 @@ mod tests {
     use sekirei_core::board::Board;
     use sekirei_core::color::Color as CoreColor;
     use sekirei_core::movegen::generate_legal_moves;
-    use sekirei_core::sfen::move_to_usi;
+    use sekirei_core::sfen::{PositionHistory, move_to_usi};
     use std::collections::VecDeque;
     use std::fs;
     use std::io::{self, BufRead, BufReader, Cursor, Read, Write};
@@ -2505,16 +2517,25 @@ mod tests {
         };
 
         let mut start = Board::startpos();
+        let mut start_history = PositionHistory::initial(start.hash());
         let ordinary = client
-            .think_and_send(&mut start, Color::Black, 60_000, 0, false)
+            .think_and_send(
+                &mut start,
+                &mut start_history,
+                Color::Black,
+                60_000,
+                0,
+                false,
+            )
             .unwrap();
         assert_eq!(ordinary.decision, "ordinary_cp_resign");
         assert!(ordinary.root_candidates.as_ref().is_some_and(Vec::is_empty));
 
         client.config.resign_score = -sekirei_core::search::MATE_SCORE;
         let mut mated = Board::from_sfen("k8/1R7/1K7/9/9/9/9/9/9 w - 1").unwrap();
+        let mut mated_history = PositionHistory::initial(mated.hash());
         let terminal = client
-            .think_and_send(&mut mated, Color::White, 0, 0, false)
+            .think_and_send(&mut mated, &mut mated_history, Color::White, 0, 0, false)
             .unwrap();
         assert_eq!(terminal.decision, "no_legal_move_resign");
         assert_eq!(terminal.abort_reason, "no_legal_move");
@@ -2525,6 +2546,49 @@ mod tests {
             .read_to_string(&mut received)
             .unwrap();
         assert_eq!(received.lines().filter(|line| *line == "%TORYO").count(), 2);
+    }
+
+    #[test]
+    fn direct_think_move_updates_game_history_once() {
+        use sekirei_core::search::Searcher;
+        use sekirei_core::tt::Tt;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client_stream = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server_stream, _) = listener.accept().unwrap();
+        server_stream
+            .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
+            .unwrap();
+        let mut client = CsaClient {
+            reader: CsaLineReader::new(client_stream.try_clone().unwrap()),
+            writer: client_stream,
+            searcher: Searcher::new(Tt::new(1)),
+            config: Config {
+                max_depth: 1,
+                ..Config::default()
+            },
+            status_state: "connected",
+            status_event: None,
+            status_details: RuntimeStatusDetails::default(),
+            awaiting_aborted_game_result: false,
+        };
+        let mut board = Board::startpos();
+        let mut history = PositionHistory::initial(board.hash());
+        let result = client
+            .think_and_send(&mut board, &mut history, Color::Black, 60_000, 0, false)
+            .unwrap();
+        assert!(result.move_made.is_some());
+        assert_eq!(history.entries().len(), 2);
+        assert_eq!(history.entries().last().unwrap().hash, board.hash());
+        assert_eq!(history.entries().last().unwrap().mover, Some(Color::Black));
+
+        drop(client);
+        let mut received = String::new();
+        BufReader::new(server_stream)
+            .read_to_string(&mut received)
+            .unwrap();
+        assert_eq!(received.lines().count(), 1);
+        assert_eq!(received.trim(), result.csa_move.as_deref().unwrap());
     }
 
     #[test]

@@ -40,6 +40,10 @@ def _inputs(args) -> dict[str, object]:
         "runner_shim": Path(__file__).with_name("ab_match_runner_shim.py"),
         "supervisor": Path(__file__),
         "opening_validator": Path(__file__).with_name("freeze_material_gate_openings.py"),
+        "opening_schema_dispatch": Path(__file__).with_name("validate_opening_corpus.py"),
+        "balanced_opening_validator": Path(__file__).with_name("freeze_balanced_gate_openings.py"),
+        "opening_material_values": Path(__file__).with_name("analyze_paired_openings.py"),
+        "opening_exclusion_loader": Path(__file__).with_name("stream_opening_exclusions.py"),
         "comparison_options": Path(__file__).with_name("nps_threads.py"),
         "artifact_writer": Path(__file__).parent / "sekirei_tools/artifacts.py",
     }

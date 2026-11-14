@@ -23,3 +23,49 @@
 4. 各回、残る経路を期待効果・証拠・費用で再順位付けする。入力不足か資源上限で止まる場合は理由と再開条件を記録する。
 
 計算診断は原則逐次1T・各60秒以内、RSS目安512MiB、出力32MiB以内。PGOのコンパイルは別の事前登録された資源工程として扱い、実行前にこのMacで許容できる所要時間・容量の上限を定める。実行済みのS00～S09と次の判定は[試行記録](../experiments/strength_first_progress_2026-11-14/README.md)を参照。r6と材料評価の1T速度改善を別局面で確認し、共通r6の対局証拠契約も実装した。対局棋力と既定採用は未判定。
+
+## 公開詰将棋からの新しい探索課題（2026-11-14）
+
+ユーザーの公開上級詰将棋を使う指示に従い、[PT01～PT07](../experiments/public_tsume_2026-11-14/PLAN.md)で江戸期36題と全分岐証明済み生成作10題を固定し、1Tで逐次試した。詰将棋APIは生成作10題中5題を資料と同じ手数で完了証明。通常探索はそのうち2題で証明済み初手を選ばず、攻方玉を加えて再証明した二玉局面では1題が再現したため[issue #277](https://github.com/kent-tokyo/sekirei/issues/277)に条件を記録した。使用USIバイナリはv0.5.2表示の既存releaseで、現行ソースと同一では未確認。人工局面での探索課題は、実戦分布での頻度や強さの改善をまだ示さない。
+
+次に探索変更を検討する際は、この具体的機構が現行ソースの隔離ビルドでも再現するかを確認し、実戦型局面で回避可能な失着があるかを先に見る。公開人工問題の件数を増やすだけでは採用根拠にならないため、この局面源の計算を停止した。PGO・時間配分・r6設定の既存判定は変更しない。
+
+後続の[PT08～PT14](../experiments/public_tsume_2026-11-14/PLAN.md)では、公開Floodgateの元CSAを合法再生した二玉の13手詰み2局面を取得。隔離したローカルHEAD `f550760`の詰将棋APIは両方を完了証明したが、同一sourceの通常探索は各100万節点で証明初手を選ばなかった。強制rootなら同じ探索でそれぞれ196,932・2,735節点でmate-scoreへ到達する。[issue #280](https://github.com/kent-tokyo/sekirei/issues/280)に再現条件を登録。これは実戦局面での有界な探索課題で、棋力差・修正案は未判定。既知2例で探索定数を選ばず、V2の候補は容量回復後の隔離実装と独立した実戦局面・同時間品質の評価契約を先に要する。
+
+## GitHub issue 対応（2026-11-14）
+
+未解決の #275～#277 を再確認し、既存の完全詰み解析を利用できる #275 を最初に選んだ。[防御候補診断の記録](../experiments/issue275-defense-threat-2026-11-14.md)に、候補・上限・機能テストを保存した。公開 `main` 基点の隔離checkoutで全coreテスト、Clippy、整形を通し、[PR #278](https://github.com/kent-tokyo/sekirei/pull/278) を作成。初回CIの公開API互換性失敗と既存lint失敗を修正。必須チェック設定がないため `--auto` 指定で待機せず `57f8513` にマージされ、issue #275 は完了として閉鎖された。PRの全テストと公開API互換性、マージ後mainのCIは通過。mainのcoverageは51,666/52,704行（98.0305%）で98%ゲート成功。PR側coverageも通過。#276 は高速solverの表から候補木を作り、全応手を別予算で再生検証する隔離実装（`/private/tmp/sekirei-issue276-20261114` の `cda4b98`）を作成し、[PR #279](https://github.com/kent-tokyo/sekirei/pull/279) を公開。対象28件と統合後の焦点4件、core Clippyは通過。標準2MiB stackで既存 `solve_mate` 単独もoverflowする制約を記録した。#276 はcore全テスト476件成功・10件無視、workspace Clippy、整形を通過。局所coverageは追加実装265行中253行。PR #279の全チェックは通過し、全workspace coverageは52,132/53,185行（98.0201%）。`2ea5108`へマージされ、issue #276 は完了として閉鎖。#277 の旧人工局面は既登録の[S06](../experiments/strength_first_progress_2026-11-14/README.md)で現行ソース非再現と判定済み。[結果をissueに記録](https://github.com/kent-tokyo/sekirei/issues/277#issuecomment-6868493380)して非再現として閉じた。同例の追加試験は行わず、新しい実戦型反例が再開条件。通常探索や NNUE の棋力判定は変更しない。
+
+追加issue #281 はV2とrootで診断スイッチを実効化し、[PR #282](https://github.com/kent-tokyo/sekirei/pull/282) はhead `39f87a5` からマージされ、全報告CI成功とissue閉鎖を確認した。#280 は[PT15～PT17](../experiments/public_tsume_2026-11-14/PLAN.md)で、LMR全停止と王手減少上限1が既知2局面の証明初手を回復した。Sekirei生成の固定12局面を1秒同時間で24回調べ、6局面で返却手が変化、全24手合法。変更6局面の強制root探索も全件200万節点で打切り、良否と独立対局H1は未判定。候補は隔離ブランチ `codex/issue-280-check-lmr` の `fd2e446` に保存し、既定値は変更しない。[途中結果をissueに記録](https://github.com/kent-tokyo/sekirei/issues/280#issuecomment-6871644942)した。
+
+この時点の待機条件は `EXTERNAL_CI_WAIT` だった。#275 のPR #278とmainのCIは成功。#276 はPR #279の全チェック成功後にマージ・issue閉鎖を確認済み。#281 は後にPR #282のマージとissue閉鎖を確認した。#280 はPT15～PT17の有界診断から候補値1を確認したが、独立対局H1と既定採用は未判定。実行中のローカル監視jobは置かない。
+
+2026-11-14 追加監査: #281 のPR #282初回coverageは、別領域のCSA受信期限テストが150 msで第1局を完了できず失敗した。期限を1秒にした局所通常テストと計測付きテストは各1件通過し、修正 `39f87a5` をPRへ追加。更新後の全CI/coverageを待つ。#283は公開CSA 10局433手の時計とハッシュを再確認し、既定を維持する明示的なFischer配分候補 `bank-reserve` を公開main `2ea5108` 基点の[PR #285](https://github.com/kent-tokyo/sekirei/pull/285)に登録。初手の300+10F探索要求は旧18秒、候補20秒。通信予備を増分から2秒確保し、残り60秒超だけ20手で使う。局所の対象3テスト・Clippy・整形が通過し、全CIは待機中。実通信、指し手品質、棋力は未判定で、既定変更・issue閉鎖には進めない。#280の除外範囲監査では11月12日の歴史的83 manifestが全て現存し、11月13～14日に追加された可能性のある入力68ファイルをパス・SHAで列挙した。新規正式棋力対局/NNUE holdoutは確認した台帳には見つからず、3範囲の網羅性の所有者確認と診断局面IDへの変換が残る。独立対局H1を始めない停止理由は `QUALIFICATION_INPUT_AND_RESOURCE_LIMIT`。実行中のローカル対局・監視jobはない。
+
+#283 D01は指定の3敗局中game 6に適格局面がなく、探索前に入力不成立で停止した。別ID D02として選択条件を事前固定し、AobaZero・Panda・Gokaku戦の合法再生済み3局面とSHAをPR #285の `55bd7ef` に保存した。最大6回の同ソース1T時間探索、手が変わった場合だけ最大6回・合計600万節点の強制root比較、総270秒の契約を記録。実行直前に空き容量699 MiB、別プロジェクトの`cargo/rustc`実行を確認したため、`RESOURCE_WAIT_DISK_AND_ACTIVE_BUILD`で探索を開始しない。自分の未使用・再生成可能な一時coverage target約263 MiBと通常target約621 MiBを削除したが、並行する書き込みがあり、後者の削除前後の空き容量増加は約137 MiB。再開条件は他ジョブ終了後に十分な空き容量とメモリを確認できること。CI以外のローカル監視・探索jobはない。
+
+新規 #284 の凍結r6 raw manifest SHAは `e9167684...` で一致し、32 shardの所定Mac保存先と既監査のSSD通常archiveに原本は見つからなかった。旧cloudセッションのID/URLは凍結記録と関連するローカルセッション索引にも無い。接続済みDrive検索も該当なし。[監査結果](https://github.com/kent-tokyo/sekirei/issues/284#issuecomment-6872041961)をissueに記録した。判定は `BLOCKED_EXTERNAL_WORKSPACE_ROUTE` で、原本削除や恒久的なunavailableは未証明。旧session URL/IDまたは別の認可済み保管先が得られれば、最小shardのサイズ・SHA・row schemaを非公開復元してから全量へ進む。得られなければ別identityの自己生成teacher corpusを今後登録する。rawデータや私有パスはGit・issueへ出さない。
+
+#284 についてユーザーは旧session/別保管先を把握していないと回答し、見つからない場合はcloseしてよいと明示。現在利用可能な経路では原本は新規実験に使えないとし、消失は断定しない。[PR #286](https://github.com/kent-tokyo/sekirei/pull/286) で公開NNUE文書に原本32 shardの利用不可状態、将来用の独立ID `sekirei-selfplay-teacher-20261114-v1`（未生成）、今後の凍結corpusに復元検証receiptまたは`not retained`を必須とする条件を追加。文書差分チェック後、`46609cf`へマージされ、[issue #284](https://github.com/kent-tokyo/sekirei/issues/284)はCLOSED。既存r6重みの資格は変更しない。
+
+#283 D02は容量回復後、空き・メモリ・競合プロセスを再確認して実行。公開敗局3局面に対する旧/候補予算の計6回を逐次1T、総100.504秒で完了し、6/6合法、旧/候補の返却手は3/3で同一。変更手だけを評価するD02aは規則上実行せず、品質・棋力の良否は未判定。[PR #285](https://github.com/kent-tokyo/sekirei/pull/285) にraw receipt SHA `10f27b97...` と実行スクリプトを追加した。候補は明示opt-inのみ、既定は従来配分。現行head `98813f3` のCIとcoverage待ち。旧headの重複CI runは現行headを照合して停止した。追加候補やD02予算の拡張はしない。
+
+#280 除外準備の次の低負荷作業では、11月13～14日の候補68ファイル1.072MiBのうち、直接SFEN 22件から1,406一意identityの私有候補manifest（SHA `ac510a14...`）を作成した。`complete_for_scope=false`を保持。入れ子JSON42件とUSI履歴4件は未変換で、所有者の3範囲網羅性確認も未了。[進捗をissueへ記録](https://github.com/kent-tokyo/sekirei/issues/280#issuecomment-6872219182)し、正式対局・既定変更はしない。過去83 manifestは不変更。
+
+#280 既知68入力の残りを私有候補へ変換した。入れ子JSON42件から365一意identity（直接SFENとの重複228）、USI4件の314合法履歴から295一意identity（前二者との重複0）を得て、既知和集合1,838一意ID。[issue追記](https://github.com/kent-tokyo/sekirei/issues/280#issuecomment-6872278378)。3候補とも`complete_for_scope=false`で、所有者の私有/外部台帳を含む診断・過去棋力・NNUE holdout全範囲の網羅性確認とfresh開幕/H1資源枠が残る。これ以上の既知入力変換はなく、停止理由は`QUALIFICATION_INPUT_AND_RESOURCE_LIMIT`。正式対局・既定採用は未実施。
+
+#283 の最新PR head `98813f3` は全CI成功、coverage 52,269/53,329行（98.0123%）。[PR #285](https://github.com/kent-tokyo/sekirei/pull/285)は `0ee9d00` にマージし、[issue #283](https://github.com/kent-tokyo/sekirei/issues/283#issuecomment-6872687794)は調査範囲完了としてCLOSED。既定 `legacy` は不変で、`bank-reserve` は明示opt-in。D02の3局面は手が同じで、実通信・棋力・既定変更の資格は未判定。現時点のopen issueは #280 のみ。#280 の独立H1入力・資源条件が整うまで、既定設定の採用判断を停止する。
+
+公開詰将棋の次の有界診断[PT19～PT22](../experiments/public_tsume_2026-11-14/PLAN.md)では、別shardの先頭適格4件を元Floodgate CSAから合法復元し、全件の詰みを完了証明した（元局面13手が3件、7手が1件）。13手3件の通常探索では王手減少上限の既定64と候補1がともに2件で証明初手を選び、2014年の1件は両者とも100万節点で別手を選んだ。候補1の普遍的な修正効果は否定され、既定変更はしない。2014年局面の証明初手を強制しても通常探索は100万節点でmate scoreに届かず、原因は未確定。[issue #280に出典と結果を追記](https://github.com/kent-tokyo/sekirei/issues/280#issuecomment-6872986181)した。次の独立H1は除外範囲の網羅性確認とfresh開幕・資源契約待ちで`QUALIFICATION_INPUT_AND_RESOURCE_LIMIT`。実行中の対局・監視jobはない。
+
+2026-11-14 公開実戦詰みの全区画監査: [PT43の一覧](../experiments/public_tsume_2026-11-14/RESULTS-PT43.md)でGenerated Tsume-Shogi v4 `floodgate/train`の適格19行すべてを元公開CSAへ遡り、18棋譜から19の二玉局面を合法復元した。元局面で13手詰み14件・15手詰み1件を詰みAPIで完了証明。r6通常探索の証明初手は15件中12件一致、1件は別手でmate15表示と合法PV詰み終局、2件は別手・非mate表示だった。後二件の再現と、王手減少上限1が2023年だけを救い2012年には転移しない事実を[issue #280](https://github.com/kent-tokyo/sekirei/issues/280#issuecomment-6873416285)へ追記した。異なるsource binaryの結果を合算した棋力率ではない。適格区画は処理済みで`PUBLIC_FLOODGATE_ADVANCED_CORPUS_EXHAUSTED`。既定値は維持し、独立H1の除外範囲確認・fresh開幕・資源契約、または別出典の元実戦難詰めが次の再開条件。背景の対局・監視jobは起動していない。
+
+同日の[PT44～PT52追加監査](../experiments/public_tsume_2026-11-14/RESULTS-PT52.md): `yozume/defect`図は出典索引だけに用い、適格7行から別々の元Floodgate棋譜7局面を合法復元、全件の13手詰みを独立に完了証明した。同一r6設定で証明初手4件一致、別手・mate13表示2件（うち1件はPV終局、1件は未確認）、別手・非mate表示1件。後者の2017年局面は証明初手`3a2a`に対し100万節点で`4c4a+`/cp -456となり[既存issue #280](https://github.com/kent-tokyo/sekirei/issues/280#issuecomment-6873538580)に出典と再現を追記した。両系列を合算した棋力率・原因特定・既定変更はしない。この公開データの適格行は全件処理済みで`PUBLIC_FLOODGATE_FLAWED_SOURCE_INDEX_EXHAUSTED`。次の有益な一手は#280の独立H1に必要な除外範囲網羅性・fresh開幕・資源契約の確定、または別出典の事前固定。起動中の対局・監視jobなし。
+
+[PT53～PT55](../experiments/public_tsume_2026-11-14/RESULTS-PT55.md)では別出典ShogiBoardQの公開13手詰1000題から先頭12題を事前固定。1玉創作図で参考手順全件が合法詰み、詰みAPIは11題を13手詰と完了証明、1題は100万節点で未解決。r6通常探索は証明済み11題で初手7件一致、別手4件はすべて合法非王手。通常探索には創作詰将棋の連続王手制約がないため、実戦探索の欠陥としてissue化しない。残り988題は実戦棋力への情報量が低く`ONE_KING_NORMAL_SEARCH_SCOPE_LIMIT`で停止。#280の独立H1入力・資源条件は依然未充足。既定変更・棋力向上の確認なし。
+
+[PT56～PT63](../experiments/public_tsume_2026-11-14/RESULTS-PT63.md)は別サイトの双玉投稿4題を先着固定し、2題を完了証明・2題を100万節点で未解決とした。証明済み2題はr6も初手一致。#280の既知二玉実戦2局面の材料評価対照では2012年は別手のまま、2017年は証明初手を選んだ。2012年のr6尺度24診断では証明初手の強制枝もLMRあり100万節点でmate未到達、LMR全offなら120,365節点でmate到達。一方、全rootのLMR全offはなお別手を選び、100万節点で中断した。異なる機構が関わる可能性を[issue #280](https://github.com/kent-tokyo/sekirei/issues/280#issuecomment-6874811389)に記録した。既知例でのノブ診断は終了。正式候補には除外範囲網羅性・fresh開幕・独立H1資源契約が未充足で`QUALIFICATION_INPUT_AND_RESOURCE_LIMIT`。既定変更・棋力向上の確認なし。
+
+[PT64追跡](../experiments/public_tsume_2026-11-14/RESULTS-PT63.md)で2012年のLMR全off全root結果`2e2d`を再現し、証明初手`4a3b`は初期143合法手中49番目と確認。完了深さ6～12の最善手は`2e2d`で、初期順位だけから動的順序や枝の節点数は確定しない。H1の3除外範囲は候補1,838一意IDを持つが`complete_for_scope=false`で、入力検証器はfail closed。fresh開幕/契約も未固定。既知例の追加ノブ診断を行わず、網羅性の確認または別由来の未使用二玉実戦局面を再開条件とする。既定変更・棋力向上の確認なし。
+
+#287 証明表の残り手数混同は、隔離チェックアウトで最新公開main `86a9fb9`へ修正を統合し、[PR #288](https://github.com/kent-tokyo/sekirei/pull/288)を `94e5c9b` にマージ、issue CLOSEDを確認した。深さ別の未完了表、完了結果の単調な再利用範囲、反復依存の伝播、検索・初手・証明木抽出の参照条件を揃えた。既存3手詰めの事前探索対照と1/2/3手境界を含む詰み関連36件が局所成功し、写真⑧の固定25手以内証明木を別検証器で再生した。PRの全テスト、明示的な写真⑧テスト、Python、CodeQLなどcoverage以外の全チェックは成功。PR coverageは約50分でも計測継続中だったためユーザーの時間指摘を受けて停止し、98%ゲートのPR結果は未確認。停止ログでは単一の停止箇所はなく、同じmainのcoverage成功実績は27分。マージ後のmain CI/coverageは自動起動を確認したが、この時点で結果未確認。#280の通常探索には別経路なので解決とみなさず、独立H1の入力・資源条件が揃うまで既定の探索変更はしない。実行中のローカル対局・監視jobは置いていない。

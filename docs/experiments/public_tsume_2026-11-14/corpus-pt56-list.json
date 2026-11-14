@@ -1,0 +1,33 @@
+{
+  "schema": "sekirei.public-tsume-pt56-sougyoku-list.v1",
+  "list_url": "https://tsumeshogi.com/tags/%E5%8F%8C%E7%8E%89?page=1",
+  "list_html_sha256": "d895c0c8255c8201f7c539a2be48504a6dcec52cecdb7627d81249534d94ae5e",
+  "listed_items": 24,
+  "rule": "first four listed 13/15/17/19/21 ply",
+  "cases": [
+    {
+      "list_index": 4,
+      "title": "(^O^)／15手詰だよ　#2285",
+      "listed_ply": 15,
+      "source_url": "https://tsumeshogi.com/problems/pxmboxlphx"
+    },
+    {
+      "list_index": 16,
+      "title": "(^O^)／19手詰だよ　#2280",
+      "listed_ply": 19,
+      "source_url": "https://tsumeshogi.com/problems/_s7sdncxcu"
+    },
+    {
+      "list_index": 23,
+      "title": "実戦詰将棋",
+      "listed_ply": 13,
+      "source_url": "https://tsumeshogi.com/problems/jvsq3wb3fv"
+    },
+    {
+      "list_index": 24,
+      "title": "双玉詰将棋",
+      "listed_ply": 13,
+      "source_url": "https://tsumeshogi.com/problems/n0i1vnpzl1"
+    }
+  ]
+}

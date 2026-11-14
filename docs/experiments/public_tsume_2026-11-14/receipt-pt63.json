@@ -1,0 +1,31 @@
+{
+  "schema": "sekirei.public-tsume-pt63-scale24-no-lmr-unrestricted.v1",
+  "pt61_sha256": "aac56352b32561f4fe6539e3a8e8520f075a39aa8f29308a97f5af42bf3aefb2",
+  "pt62_sha256": "b6554f50b5e0fc8b2182e5be2a0908b2e51551100e148443ec99c9a6866ca2bd",
+  "binary_sha256": "61d762ade21cbcf0c2596d4162913061351d2d8ae2ee7018e264d3d32b1b161a",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "case_id": "fgv4-664b2c354ebe",
+  "limits": {
+    "nodes": 1000000,
+    "wall_s": 4,
+    "output_bytes": 1000000
+  },
+  "command_args": [
+    "--nodes",
+    "1000000",
+    "--sfen",
+    "lnSB1+B1nl/3+P2gk1/p1p1pPspp/3r1pp2/7P1/1pPpSGP2/PGN+n4P/4P1R2/L3K3L b GSp 89",
+    "--weights",
+    "/Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+    "--fv-scale",
+    "24",
+    "--nnue-output",
+    "absolute",
+    "--disable-lmr"
+  ],
+  "exit_code": 0,
+  "stdout": "bestmove=2e2d\tdepth=12\tscore_cp=929\tnodes=1000000\telapsed_ms=2128\telapsed_ns=2128179042\tbound=unknown\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=true\tabort_reason=budget\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=0\teval_cache_probes=0\teval_cache_hits=0\ttt_probes=0\ttt_hits=0\ttt_stores=0\torder_tt=0\torder_killer=0\torder_countermove=0\torder_history=0\troot_mate_in_one_nodes=0\troot_mate_blunder_nodes=0\troot_mate_in_one_cache_hits=0\troot_mate_blunder_cache_hits=0\talpha_beta_calls=0\tquiescence_calls=0\tqsearch_top_level_calls=0\tqsearch_in_check=0\tqsearch_tt_cutoffs=0\tqsearch_stand_pat_cutoffs=0\tqsearch_terminal_nodes=0\tqsearch_searched_moves=0\tqsearch_beta_cutoffs=0\tqsearch_depth_cap_exits=0\tqsearch_mate_in_one_exits=0\tqsearch_delta_pruning_exits=0\tstatic_evaluation_ns=0\ttt_probe_ns=0\ttt_store_ns=0\tmovegen_order_ns=0\tmovegen_generate_ns=0\tmove_order_ns=0\tmove_order_score_ns=0\tmove_order_sort_ns=0\tquiescence_inclusive_ns=0\troot_mate_safety_ns=0\tpv_usi=2e2d,6g5h,5i5h,1c1d,S*3a,2b1c,4a3b,6f6g+,5h4h,1c2d,3h2h\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=b62fbdd6bac83429\thistory_final_hash=b62fbdd6bac83429\thistory_matches_expected=true\troot_candidates=\troot_initial_order=\titeration_trace=\n",
+  "stderr": "",
+  "strength_claim": false,
+  "adoption": false
+}

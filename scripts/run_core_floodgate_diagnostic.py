@@ -178,7 +178,7 @@ def parse_result(stdout: str) -> dict:
         raise ValueError("core diagnostic output lacks bestmove or depth")
     if "completed_bound" not in values or "completed_iteration_valid" not in values:
         raise ValueError("core diagnostic output lacks completed-iteration evidence")
-    for field in ("pv_legal", "pv_replay_preserves_input"):
+    for field in ("pv_legal", "pv_replay_preserves_input", "bestmove_legal", "pv_starts_with_bestmove"):
         if field in values:
             if values[field] not in {"true", "false"}:
                 raise ValueError(f"invalid {field}")
