@@ -39,6 +39,30 @@ decision, or a WebAssembly/mobile qualification. Verify the release-asset
 checksum and the CC BY 4.0 terms before use. The [weight card](../weights/sekirei-halfkp-r6-v0.5.0.json)
 names both v0.5.0 release assets and their checksums.
 
+### Original r6 training rows
+
+The frozen private manifest for the original r6 self-play rows has SHA-256
+`e916768450de96e6562a691e08cb4a5278de76ec1b8ab38d0bf243ec4e0661a6`
+and identifies 32 raw shards. As of 2026-11-14, those shards are **unavailable
+for new experiments**: the checked Mac and SSD locations contain no verified
+copy, and the older cloud workspace has no known session locator ([recovery
+audit](https://github.com/kent-tokyo/sekirei/issues/284#issuecomment-6872041961)). This is an
+access result, not evidence that the original bytes were deleted. It does not
+revise the r6 weight's completed qualification. Do not describe a regenerated
+set as the original r6 training corpus.
+
+`sekirei-selfplay-teacher-20261114-v1` is reserved as a **new, not yet
+generated** self-play teacher corpus for future work. Before use, record its
+own engine/source identity, generation recipe and seeds, shard hashes, row
+schema, and independent split; do not inherit any r6 raw-shard identity or
+claim that the data are equivalent. Any later recovery of the original r6
+shards must use their frozen hashes and a separate restoration receipt.
+
+For every future frozen training corpus, record either a tested restoration
+receipt with an access-controlled archive locator and verified hashes, or an
+explicit `not retained` status. A manifest that only names an old workspace
+path does not make its raw inputs reusable.
+
 ## Historical `nn_r3` candidate
 
 `nn_r3` is a historical in-house HalfKP 256x2-32-32 candidate used with

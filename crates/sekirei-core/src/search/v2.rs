@@ -1510,6 +1510,8 @@ fn materialize_pending(board: &mut Board, pending: Option<&mut QuietHalfKpToken>
 thread_local! {
     // Test-only mechanism proof; absent from normal native timing binaries.
     static LMR_STAT_OBSERVER: std::cell::Cell<Option<[u64; 3]>> = const { std::cell::Cell::new(None) };
+    // Fallback probes and those searched below the full child depth.
+    static FALLBACK_DEPTH_OBSERVER: std::cell::Cell<Option<[u64; 2]>> = const { std::cell::Cell::new(None) };
 }
 
 /// Keep history reads at their original pre-move point, but skip unused work.
@@ -1856,7 +1858,8 @@ fn node(
         }
 
         // Null move at expected cut nodes (V2_NMP 1: at every non-PV node).
-        if (cut_node || (p::V2_NMP() == 1 && !pv))
+        if state.pruning.null_move
+            && (cut_node || (p::V2_NMP() == 1 && !pv))
             && prior.mv.is_some()
             && eval >= beta
             && static_eval >= beta - p::V2_NMP_EV_PER() * depth + p::V2_NMP_EV_BASE()
@@ -2602,7 +2605,7 @@ fn node(
         d.ss[i + 1].excluded = None;
 
         let mut value;
-        if depth >= 2 && move_count > 1 {
+        if state.pruning.late_move_reduction && depth >= 2 && move_count > 1 {
             let all_node = !pv && !cut_node;
             // Nodes on (or once on) a principal variation are reduced much
             // less, expected cut nodes much more.
@@ -2728,12 +2731,26 @@ fn node(
                 }
             }
         } else if !pv || move_count > 1 {
-            if tt_move.is_none() {
-                r += p::V2_FULL_NOTT();
-            }
-            let nd = new_depth
-                - i32::from(r > p::V2_FULL_R1())
-                - i32::from(r > p::V2_FULL_R2() && new_depth > 2);
+            // The diagnostic opt-out also covers this fallback reduced probe.
+            // Reduction-derived shallow pruning above retains its own rules.
+            let nd = if state.pruning.late_move_reduction {
+                if tt_move.is_none() {
+                    r += p::V2_FULL_NOTT();
+                }
+                new_depth
+                    - i32::from(r > p::V2_FULL_R1())
+                    - i32::from(r > p::V2_FULL_R2() && new_depth > 2)
+            } else {
+                new_depth
+            };
+            #[cfg(test)]
+            FALLBACK_DEPTH_OBSERVER.with(|observer| {
+                if let Some(mut counts) = observer.get() {
+                    counts[0] += 1;
+                    counts[1] += u64::from(nd < new_depth);
+                    observer.set(Some(counts));
+                }
+            });
             value = -search_with_pending(
                 d,
                 state,
@@ -4498,8 +4515,16 @@ mod tests {
     }
 
     fn forced_null_probe(ancestor_signal: bool) -> NmpSnapshot {
+        forced_null_probe_with_pruning(ancestor_signal, super::super::PruningConfig::default())
+    }
+
+    fn forced_null_probe_with_pruning(
+        ancestor_signal: bool,
+        pruning: super::super::PruningConfig,
+    ) -> NmpSnapshot {
         use crate::sfen::PositionHistory;
-        let (state, diagnostics) = diagnostic_state();
+        let (mut state, diagnostics) = diagnostic_state();
+        Arc::get_mut(&mut state).unwrap().pruning = pruning;
         let mut board = Board::startpos();
         let previous = generate_legal_moves(&mut board)[0];
         let _ = board.do_move(previous);
@@ -4533,6 +4558,95 @@ mod tests {
         assert_eq!(board.hash(), hash);
         assert_eq!(board.acc, accumulator);
         diagnostics.nmp_snapshot()
+    }
+
+    #[test]
+    fn diagnostic_null_move_switch_controls_real_v2_probe() {
+        assert_eq!(p::SEARCH_V2(), 1);
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                for late_move_reduction in [true, false] {
+                    for null_move in [true, false] {
+                        let nmp = forced_null_probe_with_pruning(
+                            false,
+                            super::super::PruningConfig {
+                                null_move,
+                                late_move_reduction,
+                                ybw_split: false,
+                            },
+                        );
+                        assert_eq!(nmp.attempts, u64::from(null_move));
+                        assert_eq!(nmp.verification_attempts, u64::from(null_move));
+                    }
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn diagnostic_lmr_switch_controls_real_v2_search_and_fallback() {
+        assert_eq!(p::SEARCH_V2(), 1);
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                use super::super::Budget;
+                use crate::sfen::PositionHistory;
+                use std::sync::atomic::AtomicBool;
+
+                for late_move_reduction in [true, false] {
+                    let (mut state, diagnostics) = diagnostic_state();
+                    let inner = Arc::get_mut(&mut state).unwrap();
+                    inner.pruning = super::super::PruningConfig {
+                        null_move: false,
+                        late_move_reduction,
+                        ybw_split: false,
+                    };
+                    inner.budget = Arc::new(Budget::new(
+                        None,
+                        Some(100_000),
+                        Arc::new(AtomicBool::new(false)),
+                    ));
+                    let mut board =
+                        Board::from_sfen("4k4/9/ppppppppp/9/9/9/PPPPPPPPP/9/4K4 b - 1").unwrap();
+                    let hash = board.hash();
+                    let accumulator = board.acc.clone();
+                    let history = PositionHistory::initial(hash);
+                    let mut data = Data::new();
+                    data.red = reduction_table(p::V2_RED_SCALE());
+                    FALLBACK_DEPTH_OBSERVER.with(|observer| observer.set(Some([0; 2])));
+                    let score = search(
+                        &mut data,
+                        &state,
+                        &mut board,
+                        200,
+                        201,
+                        6,
+                        1,
+                        true,
+                        false,
+                        &SearchHistory::root(&history),
+                    );
+                    let fallback =
+                        FALLBACK_DEPTH_OBSERVER.with(|observer| observer.replace(None).unwrap());
+                    assert!(!state.budget.should_abort());
+                    assert!(!is_decisive(score));
+                    if late_move_reduction {
+                        assert!(diagnostics.research_counts()[0] > 0);
+                    } else {
+                        assert_eq!(diagnostics.research_counts()[0], 0);
+                        assert!(fallback[0] > 0);
+                        assert_eq!(fallback[1], 0);
+                    }
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, accumulator);
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]

@@ -2052,7 +2052,6 @@ impl Trainer {
     /// `position_teacher_components`'s doc comment). Free to compute: both
     /// raw components are already produced by the single cached lookup.
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     pub fn eval_game(
         &mut self,
         game: &CsaGame,

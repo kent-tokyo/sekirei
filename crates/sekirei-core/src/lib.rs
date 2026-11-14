@@ -7,6 +7,7 @@ pub mod bitboard;
 pub mod board;
 mod budget;
 pub mod color;
+pub mod defense;
 pub mod dfpn;
 pub mod eval;
 pub mod external_eval;

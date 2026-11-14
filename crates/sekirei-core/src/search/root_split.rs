@@ -1747,7 +1747,7 @@ fn run_helper_with_lease(mut work: HelperWork, counters: &Counters, finished: He
         };
         let before_nodes = work.state.budget.nodes();
         let mv = work.ordered[task.move_index];
-        let reduction = if work.helper_lmr {
+        let reduction = if work.helper_lmr && work.state.pruning.late_move_reduction {
             helper_root_reduction(&mut work.board, mv, work.depth, task.move_index)
         } else {
             0
@@ -2257,7 +2257,11 @@ fn run_main(
         counters.main_tasks.fetch_add(1, Ordering::Relaxed);
         let mv = ordered[task.move_index];
         let quiet = p::ROOT_LMR() != 0 || (board.piece_at(mv.to).is_none() && !mv.promote);
-        let reduction = root_lmr_reduction(depth, task.move_index, quiet, false);
+        let reduction = if state.pruning.late_move_reduction {
+            root_lmr_reduction(depth, task.move_index, quiet, false)
+        } else {
+            0
+        };
         // Preserve worker 0's established root-LMR policy, including
         // the check exception, while confirmations use full depth.
         let reduction = if reduction > 0 && p::ROOT_LMR() == 0 {
@@ -3123,8 +3127,19 @@ mod tests {
     #[test]
     fn helper_lmr_publishes_only_completed_full_depth_advice_and_keeps_legacy_counts() {
         on_search_stack(|| {
-            for (score, node_limit) in [(10, None), (-10, None), (10, Some(1)), (10, Some(2))] {
+            for (score, node_limit, lmr_enabled) in [
+                (10, None, true),
+                (-10, None, true),
+                (10, Some(1), true),
+                (10, Some(2), true),
+                (10, None, false),
+                (-10, None, false),
+            ] {
                 let mut state = test_state();
+                Arc::get_mut(&mut state)
+                    .unwrap()
+                    .pruning
+                    .late_move_reduction = lmr_enabled;
                 Arc::get_mut(&mut state).unwrap().budget = Arc::new(Budget::new(
                     None,
                     node_limit,
@@ -3173,7 +3188,7 @@ mod tests {
                 );
                 let stats = counters.snapshot();
                 let lmr = counters.helper_lmr.get().unwrap().snapshot();
-                assert_eq!(lmr.reduced_probes, 1);
+                assert_eq!(lmr.reduced_probes, u64::from(lmr_enabled));
                 assert_eq!(generation.participants.load(Ordering::Acquire), 0);
                 assert!(generation.helper_finished.load(Ordering::Acquire));
                 assert_eq!(
@@ -3193,12 +3208,12 @@ mod tests {
                     assert_eq!(candidate.score, score);
                     assert_eq!(stats.helper_probes, 1);
                     assert_eq!(stats.helper_fail_highs, 1);
-                    assert_eq!(lmr.full_depth_rechecks, 1);
-                    assert_eq!(lmr.full_depth_fail_highs, 1);
+                    assert_eq!(lmr.full_depth_rechecks, u64::from(lmr_enabled));
+                    assert_eq!(lmr.full_depth_fail_highs, u64::from(lmr_enabled));
                 } else {
                     assert!(generation.take(index).is_none());
-                    assert_eq!(stats.helper_probes, 0);
-                    assert_eq!(lmr.completed_reduced_fail_lows, 1);
+                    assert_eq!(stats.helper_probes, u64::from(!lmr_enabled));
+                    assert_eq!(lmr.completed_reduced_fail_lows, u64::from(lmr_enabled));
                     assert_eq!(lmr.full_depth_rechecks, 0);
                     assert!(stats.helper_completed_nodes > 0);
                 }
