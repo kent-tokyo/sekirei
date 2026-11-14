@@ -182,7 +182,7 @@ class IndependentOpeningsTest(unittest.TestCase):
                       ["--result-json", "result.json", "--option-a", "EvalFile=weights.bin"],
                       ["--result-json", "result.json", "--option-b", "EvalFile = weights.bin"],
                       ["--result-json", "result.json", "--option-a", "other=x\nsetoption name EvalFile value weights.bin"]]:
-            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 match_args(base + extra)
 
 
