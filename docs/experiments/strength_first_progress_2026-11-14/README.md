@@ -269,3 +269,21 @@ S18後の入力監査で、既存の別バージョンのanalysis sidecarは現�
 別作業のコンパイルとSpotlight負荷が終わるのを待ち、空き約11GiB・メモリ空き約67%で開始。清潔な`bf21db6`の同じcoreでadapterを1 job・14.13秒でビルドし、source SHA-256 `71c28c5dec2406e8bbee0c1435fdfe2ac5507681fa7a3cc317a1e1e956b92a6d`、binary SHA-256 `59f50d5d77c2a35ebd5de93aee8e03fe3edb562d3145cce2ea53c54b4434b5b4`を固定。4直前局面SHA-256 `f59ba78cae2570291ff3786a110fc38166d26287b99f2f50afdf481035df2a99`。全合法手を0.23秒で検査したところ、game 5/6/7/8のいずれも合法手は実戦の玉移動1手だけで、S19の相手1手詰めを再現した。代替手0、Unknown0、abort0。raw SHA-256 `d94e1f9cb9ba2dbf699ec8952719e6c70bebb3b4f9a671f8398ec139c6c27e6b`、結果SHA-256 `e26f35448567d75adb17f42e219e344e5e4ea08182258820e2a5418bad65cbf6`。
 
 **判定 `NO_ONE_PLY_ESCAPE_S20`。** S19の4件は最後の1手で避けられる失着ではない。この4局面を「救済可能な探索失敗例」に使わず、元の敗局を深さ・節点だけ増やして追わない。S15の4T PGO不進行、S18の時計感度2/8だが品質未判定、NNUEの旧不進行結果も保持する。現在、既存証拠から新しい低費用の強化候補に進める具体的な別由来失着・独立した救済手はないため`NO_QUALIFIED_LOW_COST_STRENGTH_ACTION_S20`で停止する。再開条件は別由来の実戦局面で、元の探索条件と合法な救済手を再現できる記録、または独立した品質評価を伴う時間配分例である。背景対局・探索・監視は起動しない。
+
+## S21: 別Floodgate実戦局面でr6も詰み初手を見落とすか（実行前登録）
+
+S20の4敗局とは別の公開Floodgate元CSAから、[PT19～PT20](../public_tsume_2026-11-14/PLAN.md)が合法再生と全応手13手詰みを確認した3局面を使う。入力は`corpus-pt19-original.json` SHA-256 `480881fe697ac4dd129c18502027faf47edbed66ab49e295aeb3fd76162049fc`の先頭3件。詰み解析の報告初手は順に`6c7b`、`G*8b`、`2d2c+`で、PT20は全件`Mate`かつ`aborted=false`。PT21の材料評価候補試験と混ぜない。
+
+**問い・最小検査:** r6重みを明示ロードした通常探索も、この3件の証明初手を選べるか。清潔なsource `bf21db6`からのS13通常binary SHA-256 `0aaf9cb72b9b85a6b4d9f424c5da5355181d3b206854b52b44cd2e2f9f03f8a4`、公開r6重みSHA-256 `634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469`を固定。各冷起動で`EvalFile`のロード応答、`FV_SCALE=24`、absolute出力を確認し、材料評価へのfallbackを拒否する。`Threads=1`、`Hash=64`、`SpecTopN=0`、`SearchMode=Speculative`、`UseBook=false`、各`go nodes 1000000 movetime 1000`、外側4秒、逐次3回・全体15秒、各出力1MiB以内。
+
+**判定・停止:** 3件の返却手と完了深さ、score、節点、終了を記録。1件以上不一致なら`R6_MATE_MISS_REPRODUCED_S21`としてその局面を別の実戦由来の探索課題とする。全件一致なら`NO_R6_MATE_MISS_IN_SAMPLE_S21`。技術異常は別の停止。詰み初手は合法な救済手だが、元の対局者はSekireiではなく、元の対局検索状態の再現、棋力差、候補値1の採用は主張しない。結果後に3件の上限・局面を変えない。
+
+**S21結果:** 3件すべてr6明示ロードに成功し、証明初手`6c7b`、`G*8b`、`2d2c+`を通常探索も選んだ。節点は順に105,525、33,752、130,643。3/3正常終了、約0.60秒、raw SHA `2f34f41a7bdaf9026390db9ef117570a1b5a8ecd2624d93b34b24af8de282862`。私有`tasks/strength-progress-20261114/private/s21/result.json`に入力・binary・重みのSHAと全応答を保持する。判定`NO_R6_MATE_MISS_IN_SAMPLE_S21`。PT21の材料評価では2014年の1局面を両設定とも見逃したが、S21はsourceも異なるため評価器だけに原因を帰属しない。
+
+## S22: 2014年の見逃しは同一sourceでr6評価へ切り替えると変わるか（実行前登録）
+
+**入力・仮説:** PT21が材料評価で既定64・候補1とも`5b6a`を返した2014年の元実戦局面1件（詰み証明初手`G*8b`）だけを機構診断に使う。PT21と同じ隔離source `1e963743`・tune USI binary SHA `3819b63e0bd119f903aa6354bab8a9d05293ba6ee0a4a28ee3aa3fc37bdb4a79`、`T_V2_CHECK_R=64`を固定し、評価器だけ公開r6重みSHA `634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469`へ変える。PT21の材料評価1呼出しを対照とし、再実行しない。
+
+**最小検査・停止:** r6ロード・`FV_SCALE=24`・absolute ACKを要求。材料評価側と同じ1T、Hash64、Speculative、SpecTopN0、book無効、`T_SEARCH_V2=1`、`go nodes 1000000 movetime 1000`、冷起動1回、外側4秒・出力1MiB以内、全体8秒。返却が`G*8b`ならこのsource/1局面で評価器切替と選択の変化を観測したとする。別手ならr6も同sourceでは見逃す。どちらも因果の一般化や棋力差、既定採用に使わず、この既知局面の追加反復・閾値変更をしない。
+
+**S22結果:** source `1e963743`の同じtune binaryでr6を明示ロードすると、`G*8b`を33,752節点・完了深さ11・mate 13 scoreで返した。PT21の材料評価・既定64は同じ局面で`5b6a`、100万節点打切りだった。r6ロード・尺度・absolute応答、正常終了を確認。私有`tasks/strength-progress-20261114/private/s22/result.json` SHA `f45fc7d0defd3133b197bf066f81b793effceccebce30e681e2310dc92ec5651`。**判定 `EVALUATOR_SWITCH_CHANGES_KNOWN_CASE_S22`。** この1既知局面では評価器の切替と証明初手の選択が対応した。探索途中の経路や他局面へ一般化する因果は未確定。PT21で候補値1が別棋譜に転移しなかった事実、PT22の材料評価・強制root未到達、既定採用停止を維持する。次の優先はr6使用条件で再現する未解決の実戦反例を別源から得ることか、既存#280の候補を正式対局に進める独立入力・資源条件の整備である。今回の3件を追加反復しない。
