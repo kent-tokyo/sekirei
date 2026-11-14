@@ -3,7 +3,7 @@
   "release": "v0.5.3",
   "commit": "d0fb54096fb98c211ba0e6a057da963d9a225e66",
   "branch_at_release": "main",
-  "candidate_state": "planned from the verified release-preparation commit",
+  "candidate_state": "released from the verified release-preparation commit",
   "packages": {
     "sekirei": "0.5.3",
     "sekirei-core": "0.5.3",
@@ -23,9 +23,9 @@
     "sha256": "5559011835e204942e9584821b75f190bbf7d43fb29084b5f4ec7782025792e2"
   },
   "publish": {
-    "workflow_run": null,
+    "workflow_run": "43605594990",
     "registry": "crates.io",
-    "status": "planned",
+    "status": "verified",
     "crates": [
       "sekirei",
       "sekirei-core",
@@ -41,8 +41,10 @@
     "registry": "github-release",
     "asset": "sekirei-wasm-0.5.3.tgz",
     "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.5.3/sekirei-wasm-0.5.3.tgz",
-    "status": "planned",
-    "npm_registry_status": "not_published"
+    "status": "verified",
+    "npm_registry_status": "not_published",
+    "sha256": "dbe993e228061c3b5e027f1faf3892a9a194376cab8facd5829ca3389cabbd7b",
+    "size": 570952
   },
   "internal_measurement": {
     "spec_top_n": 0,
@@ -58,7 +60,7 @@
     "configuration": "No external opponent, evaluator, weights, labels, or derived positions were used to qualify this release."
   },
   "known_limitations": [
-    "Publication, hosted CI, GitHub Release assets, and npm registry parity are not verified by this planned manifest.",
+    "npm registry publication and package-file parity are not yet verified.",
     "Source commit and binary checksum identify this local preparation build, not distributed byte identity or playing strength.",
     "Optional nn_r6 weights remain a separate v0.5.0 artifact; this release does not select or change a checkpoint.",
     "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0."
