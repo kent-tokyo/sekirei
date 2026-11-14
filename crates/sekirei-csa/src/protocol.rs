@@ -3961,6 +3961,9 @@ mod tests {
 
     #[test]
     fn active_receive_deadline_preserves_bounded_progress_and_partial_line() {
+        // Coverage instrumentation and a busy hosted runner can delay the
+        // first game's result processing beyond a 150 ms test deadline.
+        const ACTIVE_DEADLINE: Duration = Duration::from_secs(1);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = thread::spawn(move || {
@@ -3980,7 +3983,7 @@ mod tests {
                 assert!(line.starts_with("%%GAME active-stall"));
                 if game == 2 {
                     // A healthy between-game pause may exceed the active deadline.
-                    thread::sleep(Duration::from_millis(300));
+                    thread::sleep(ACTIVE_DEADLINE + Duration::from_millis(200));
                 }
                 let summary = format!(
                     "Game_ID:active-stall-{game}\nYour_Turn:+\nTotal_Time:1\nByoyomi:1\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:active-stall-{game}\n"
@@ -4027,7 +4030,7 @@ mod tests {
             record_dir: record_dir.clone(),
             status_file: Some(status_file.clone()),
             run_manifest: Some(run_manifest.clone()),
-            active_receive_deadline_override: Some(Duration::from_millis(150)),
+            active_receive_deadline_override: Some(ACTIVE_DEADLINE),
             active_receive_poll: Duration::from_millis(30),
             ..Config::default()
         };
@@ -4044,8 +4047,14 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(status_file).unwrap()).unwrap();
         assert_eq!(status["terminal_stop_reason"], "active_receive_deadline");
         assert_eq!(status["active_receive_phase"], "opponent_move_or_result");
-        assert_eq!(status["active_receive_deadline_ms"], 150);
-        assert!(status["active_receive_idle_ms"].as_u64().unwrap() >= 150);
+        assert_eq!(
+            status["active_receive_deadline_ms"],
+            ACTIVE_DEADLINE.as_millis() as u64
+        );
+        assert!(
+            status["active_receive_idle_ms"].as_u64().unwrap()
+                >= ACTIVE_DEADLINE.as_millis() as u64
+        );
         assert!(status["active_receive_wait_started_ms"].as_u64().is_some());
         assert_eq!(status["active_receive_partial_line_bytes"], 5);
         assert_eq!(status["completed_attempts"], 1);
