@@ -176,13 +176,12 @@ class IndependentOpeningsTest(unittest.TestCase):
                 popen.assert_not_called()
                 self.assertFalse((root / "match").exists())
 
-    def test_wrapper_requires_material_selfplay_and_machine_readable_result(self):
+    def test_wrapper_requires_machine_readable_result_and_protects_evaluator_options(self):
         base = ["selfplay", "--engine-a", "a", "--engine-b", "b", "--openings-manifest", "manifest.json"]
-        for extra in [[], ["--result-json", "result.json", "--evalfile", "weights.bin"],
-                      ["--result-json", "result.json", "--option-a", "EvalFile=weights.bin"],
+        for extra in [[], ["--result-json", "result.json", "--option-a", "EvalFile=weights.bin"],
                       ["--result-json", "result.json", "--option-b", "EvalFile = weights.bin"],
                       ["--result-json", "result.json", "--option-a", "other=x\nsetoption name EvalFile value weights.bin"]]:
-            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            with self.subTest(extra=extra), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 match_args(base + extra)
 
 

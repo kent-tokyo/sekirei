@@ -157,6 +157,8 @@ jobs:
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
       - name: test
         run: cargo test --release
+      - name: Fixed-budget mate proof regression
+        run: cargo test --release -p sekirei-core --lib mate::tests::existence_proof_handles_fourth_public_diagram_within_fixed_budget -- --ignored --exact --test-threads=1
       - name: Material gate opening generator tests
         run: RUST_MIN_STACK=16777216 cargo test --release -p sekirei-core --example gate_openings
       - name: Optional opening-book contract
