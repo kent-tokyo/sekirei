@@ -26,6 +26,15 @@ from sekirei_tools.artifacts import atomic_write_json
 
 ROOT = Path(__file__).resolve().parents[1]
 TRAINING_OPTIONS = ("SearchMode=Auto", "SpecTopN=0", "LazyFlags=15", "LazyDiagnostics=false", "MoveOverhead=0")
+R6_RELEASE_ARTIFACT = {
+    "format": "HalfKP(Friend) 256x2-32-32",
+    "version_word": "0x7AF32F16",
+    "sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+    "bytes": 64216957,
+    "architecture_descriptor": "Sekirei HalfKP 256x2-32-32 own training (19804530 positions, lam 1.0)",
+    "fv_scale": 24,
+    "nnue_output": "absolute",
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -235,7 +244,7 @@ def stable_stat_identity(status) -> tuple:
 
 
 def load_training_evaluator(evalfile: Path | None, card_path: Path | None, source: dict) -> dict:
-    """Bind one public own-HalfKP card and read-only artifact, never an external model."""
+    """Bind a tracked own-HalfKP candidate or r6 release card and read-only artifact."""
     if (evalfile is None) != (card_path is None):
         raise ValueError("--training-evalfile and --training-eval-card must be supplied together")
     if evalfile is None:
@@ -248,10 +257,10 @@ def load_training_evaluator(evalfile: Path | None, card_path: Path | None, sourc
     try:
         relative_card = str(card_path.relative_to(ROOT))
     except ValueError as error:
-        raise ValueError("training candidate card must be public and tracked in this checkout") from error
+        raise ValueError("training card must be public and tracked in this checkout") from error
     card_identity = file_identity(card_path)
     if source["tracked_inputs"].get(relative_card) != card_identity:
-        raise ValueError("training candidate card must match the clean tracked source snapshot")
+        raise ValueError("training card must match the clean tracked source snapshot")
 
     def unique_object(pairs):
         result = {}
@@ -276,17 +285,39 @@ def load_training_evaluator(evalfile: Path | None, card_path: Path | None, sourc
     card = json.loads(card_bytes.decode("utf-8"), object_pairs_hook=unique_object,
                       parse_float=finite_float, parse_constant=reject_constant)
     if not isinstance(card, dict):
-        raise ValueError("training candidate card must be a JSON object")
-    try:
-        errors = validate(card)
-    except (TypeError, KeyError, AttributeError) as error:
-        raise ValueError("malformed own-HalfKP candidate card") from error
-    if errors:
-        raise ValueError("invalid own-HalfKP candidate card: " + ", ".join(errors))
-    artifact = card["artifact"]
-    if not isinstance(artifact.get("architecture_descriptor"), str) or type(artifact["bytes"]) is not int:
+        raise ValueError("training card must be a JSON object")
+    release_card = card.get("schema") == "sekirei.nnue-release-card.v2"
+    if release_card:
+        # This path is the project's tracked, already published own-r6 card.
+        # Do not accept a generic release-card-shaped claim for compiler input.
+        if relative_card != "weights/sekirei-halfkp-r6-v0.5.0.json":
+            raise ValueError("unsupported HalfKP release card path")
+        artifact = card.get("artifact")
+        license_info = card.get("license")
+        if (card.get("model_id") != "sekirei-halfkp-nn-r6"
+                or card.get("release_version") != "0.5.0"
+                or not isinstance(artifact, dict)
+                or any(artifact.get(key) != value for key, value in R6_RELEASE_ARTIFACT.items())
+                or not isinstance(license_info, dict)
+                or license_info.get("spdx") != "CC-BY-4.0"):
+            raise ValueError("invalid own-r6 release card")
+        identity = card["model_id"]
+    else:
+        try:
+            errors = validate(card)
+        except (TypeError, KeyError, AttributeError) as error:
+            raise ValueError("malformed own-HalfKP candidate card") from error
+        if errors:
+            raise ValueError("invalid own-HalfKP candidate card: " + ", ".join(errors))
+        artifact = card["artifact"]
+        identity = card["candidate_id"]
+    if not isinstance(artifact.get("architecture_descriptor"), str) or type(artifact.get("bytes")) is not int:
         raise ValueError("invalid own-HalfKP architecture descriptor or byte length")
-    if type(artifact["fv_scale"]) is not int or card["training"]["external_teacher_used"] is not False:
+    if type(artifact.get("fv_scale")) is not int or not 1 <= artifact["fv_scale"] <= 128:
+        raise ValueError("compiler profiles require own HalfKP weights and an integer FV_SCALE")
+    if not isinstance(artifact.get("sha256"), str) or len(artifact["sha256"]) != 64:
+        raise ValueError("compiler profiles require a SHA-256 weight identity")
+    if not release_card and card["training"]["external_teacher_used"] is not False:
         raise ValueError("compiler profiles require own HalfKP weights and an integer FV_SCALE")
     # Bind the resolved regular file; aliases are intentionally allowed.
     if not evalfile.is_file():
@@ -315,8 +346,8 @@ def load_training_evaluator(evalfile: Path | None, card_path: Path | None, sourc
     return {
         "kind": "halfkp", "path": str(evalfile), "sha256": digest.hexdigest(),
         "size_bytes": total_bytes, "format": EXPECTED_FORMAT,
-        "fv_scale": artifact["fv_scale"], "candidate_id": card["candidate_id"],
-        "candidate_card": {"path": str(card_path), **card_identity},
+        "fv_scale": artifact["fv_scale"], "candidate_id": identity,
+        ("release_card" if release_card else "candidate_card"): {"path": str(card_path), **card_identity},
         "scope": "read-only compiler-profile workload; no model training or adoption",
     }
 
@@ -431,7 +462,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True, help="new output directory")
     parser.add_argument("--training-positions", type=Path, required=True)
     parser.add_argument("--training-evalfile", type=Path, help="optional read-only own HalfKP model, requires --training-eval-card")
-    parser.add_argument("--training-eval-card", type=Path, help="public tracked own-HalfKP candidate card, requires --training-evalfile")
+    parser.add_argument("--training-eval-card", type=Path, help="tracked own-HalfKP candidate or r6 release card; requires --training-evalfile")
     parser.add_argument("--threads", type=parse_threads, default=[4, 8])
     parser.add_argument("--count", type=int, default=64)
     parser.add_argument("--movetime", type=int, default=1000)
@@ -528,9 +559,10 @@ def main() -> int:
 
     try:
         if evaluator["kind"] == "halfkp":
+            training_card = evaluator.get("release_card", evaluator.get("candidate_card"))
             for name, path, identity in (
                 ("training_evalfile", evaluator["path"], {"sha256": evaluator["sha256"], "size_bytes": evaluator["size_bytes"]}),
-                ("training_eval_card", evaluator["candidate_card"]["path"], {key: evaluator["candidate_card"][key] for key in ("sha256", "size_bytes")}),
+                ("training_eval_card", training_card["path"], {key: training_card[key] for key in ("sha256", "size_bytes")}),
             ):
                 manifest["bound_inputs"][name] = {"path": path, "identity": identity}
         bind_input(manifest, "training_positions", positions)

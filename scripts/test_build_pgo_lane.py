@@ -228,6 +228,58 @@ class OwnHalfKpProfileTests(unittest.TestCase):
         source = {"commit": "test", "tracked_inputs": {"weights/candidates/own.json": lane.file_identity(path)}}
         return model, path, card, source
 
+    def release_fixture(self, root):
+        card = json.loads((lane.ROOT / "weights/sekirei-halfkp-r6-v0.5.0.json").read_text())
+        descriptor = "Sekirei own synthetic release unit-test fixture"
+        contents = (0x7AF32F16).to_bytes(4, "little") + b"hash" + len(descriptor).to_bytes(4, "little") + descriptor.encode() + b"test parameters"
+        model = root / "release-model.bin"
+        model.write_bytes(contents)
+        card["artifact"].update(sha256=hashlib.sha256(contents).hexdigest(), bytes=len(contents), architecture_descriptor=descriptor)
+        card_path = root / "weights/sekirei-halfkp-r6-v0.5.0.json"
+        card_path.parent.mkdir(parents=True)
+        card_path.write_text(json.dumps(card))
+        source = {"commit": "test", "tracked_inputs": {"weights/sekirei-halfkp-r6-v0.5.0.json": lane.file_identity(card_path)}}
+        return model, card_path, card, source
+
+    def test_tracked_r6_release_card_matches_pinned_identity(self):
+        card = json.loads((lane.ROOT / "weights/sekirei-halfkp-r6-v0.5.0.json").read_text())
+        self.assertEqual({key: card["artifact"][key] for key in lane.R6_RELEASE_ARTIFACT}, lane.R6_RELEASE_ARTIFACT)
+
+    def test_release_card_binds_model_and_rejects_mutations(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            model, card_path, card, source = self.release_fixture(root)
+            expected = {key: card["artifact"][key] for key in lane.R6_RELEASE_ARTIFACT}
+            with patch.object(lane, "ROOT", root), patch.object(lane, "R6_RELEASE_ARTIFACT", expected):
+                selected = lane.load_training_evaluator(model, card_path, source)
+            self.assertEqual(selected["candidate_id"], "sekirei-halfkp-nn-r6")
+            self.assertEqual(selected["release_card"]["sha256"], lane.sha256_file(card_path))
+            self.assertNotIn("candidate_card", selected)
+            self.assertEqual(selected["sha256"], card["artifact"]["sha256"])
+            variants = [
+                {**card, "model_id": "another-model"},
+                {**card, "license": {"spdx": "unknown"}},
+                {**card, "artifact": {**card["artifact"], "fv_scale": 16}},
+                {**card, "artifact": {**card["artifact"], "sha256": "0" * 64}},
+                {**card, "artifact": {**card["artifact"], "bytes": len(model.read_bytes()) + 1}},
+                {**card, "artifact": {key: value for key, value in card["artifact"].items() if key != "sha256"}},
+            ]
+            for variant in variants:
+                card_path.write_text(json.dumps(variant))
+                source["tracked_inputs"]["weights/sekirei-halfkp-r6-v0.5.0.json"] = lane.file_identity(card_path)
+                with self.subTest(variant=variant), patch.object(lane, "ROOT", root), patch.object(lane, "R6_RELEASE_ARTIFACT", expected), self.assertRaises(ValueError):
+                    lane.load_training_evaluator(model, card_path, source)
+            card_path.write_text(json.dumps(card))
+            source["tracked_inputs"]["weights/sekirei-halfkp-r6-v0.5.0.json"] = lane.file_identity(card_path)
+            model.write_bytes(model.read_bytes() + b"changed")
+            with patch.object(lane, "ROOT", root), patch.object(lane, "R6_RELEASE_ARTIFACT", expected), self.assertRaisesRegex(ValueError, "size/SHA"):
+                lane.load_training_evaluator(model, card_path, source)
+            wrong_path = root / "weights/other-r6.json"
+            wrong_path.write_text(json.dumps(card))
+            source["tracked_inputs"]["weights/other-r6.json"] = lane.file_identity(wrong_path)
+            with patch.object(lane, "ROOT", root), patch.object(lane, "R6_RELEASE_ARTIFACT", expected), self.assertRaisesRegex(ValueError, "unsupported HalfKP release card path"):
+                lane.load_training_evaluator(model, wrong_path, source)
+
     def test_material_default_and_paired_cli_contract(self):
         self.assertEqual(lane.load_training_evaluator(None, None, {}), {"kind": "material-only", "path": None, "sha256": None})
         for model, card in ((Path("model"), None), (None, Path("card"))):

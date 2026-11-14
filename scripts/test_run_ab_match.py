@@ -428,6 +428,102 @@ class SprtTest(unittest.TestCase):
             self.assertIsNone(result)
             popen.assert_not_called()
 
+    def run_shared_gate_fixture(self, directory, *, corrupt=None, mutate_weight=False):
+        root = Path(directory)
+        weight, engine_a, engine_b, runner = [root / name for name in
+                                              ("nn_r6.bin", "native", "pgo", "match")]
+        for path, content in ((weight, b"r6 weights"), (engine_a, b"native"),
+                              (engine_b, b"pgo"), (runner, b"match")):
+            path.write_bytes(content)
+        openings = root / "openings.usi"
+        openings.write_text("startpos\n", encoding="utf-8")
+        out = root / "output"
+        out.mkdir()
+        raw = {}
+        for side, engine in ((1, engine_a), (2, engine_b)):
+            raw[f"engine{side}_options"] = {"EvalFile": str(weight.resolve()),
+                                             "FV_SCALE": "24", "NnueOutput": "absolute"}
+            raw[f"engine{side}_eval_file_acknowledgement"] = (
+                f"info string NNUE weights loaded from {weight.resolve()}")
+            raw[f"engine{side}_command"] = str(engine)
+        if corrupt is not None:
+            corrupt(raw)
+        (out / "ab.json").write_text(json.dumps(raw), encoding="utf-8")
+        process = _FakeMatchProcess(["→ Draw\n"] * 2,
+                                    before_yield=(lambda *_: weight.write_bytes(b"mutated")) if mutate_weight else None)
+        snapshot = {"sha256": "1" * 64,
+                    "match_binary_sha256": hashlib.sha256(runner.read_bytes()).hexdigest()}
+        argv = ["run_ab_match.py", "selfplay", "--engine-a", str(engine_a),
+                "--engine-b", str(engine_b), "--match-binary", str(runner),
+                "--evalfile", str(weight), "--fv-scale", "24", "--openings", str(openings),
+                "--openings-manifest", str(root / "manifest.json"), "--games", "2",
+                "--games-per-position", "2", "--out-dir", str(out),
+                "--result-json", str(root / "result.json")]
+        with patch.object(sys, "argv", argv), patch("run_ab_match.validate_corpus", return_value=snapshot), \
+             patch("run_ab_match.subprocess.Popen", return_value=process) as popen, \
+             patch("run_ab_match.runner_identity", return_value={}), \
+             patch("sys.stdout", new_callable=io.StringIO), patch("sys.stderr", new_callable=io.StringIO):
+            code = main()
+        return code, json.loads((root / "result.json").read_text()), popen, weight
+
+    def test_shared_halfkp_gate_pins_both_engines_weight_and_load_ack(self):
+        with tempfile.TemporaryDirectory() as directory:
+            code, result, popen, weight = self.run_shared_gate_fixture(directory)
+            self.assertEqual(code, 0)
+            command = popen.call_args.args[0]
+            for side in (1, 2):
+                options = [command[i + 1] for i, value in enumerate(command[:-1])
+                           if value == f"--engine-option{side}"]
+                self.assertIn(f"EvalFile={weight.resolve()}", options)
+                self.assertIn("FV_SCALE=24", options)
+                self.assertIn("NnueOutput=absolute", options)
+            evidence = result["evidence"]
+            self.assertEqual(evidence["evaluation"]["mode"], "shared-halfkp")
+            self.assertTrue(evidence["evaluation"]["both_load_acknowledgements_verified"])
+            self.assertIn(evidence["evaluation"]["file"], evidence["pinned_inputs_before_match"])
+
+    def test_shared_halfkp_gate_rejects_wrong_arm_proof_and_weight_mutation(self):
+        for side in (1, 2):
+            for field, wrong in (("EvalFile", "/wrong.bin"), ("FV_SCALE", "16"),
+                                 ("NnueOutput", "residual-material")):
+                with self.subTest(side=side, field=field), tempfile.TemporaryDirectory() as directory:
+                    def corrupt(raw):
+                        raw[f"engine{side}_options"][field] = wrong
+                    code, result, _, _ = self.run_shared_gate_fixture(directory, corrupt=corrupt)
+                    self.assertNotEqual(code, 0)
+                    self.assertEqual(result["status"], "error")
+                    self.assertIn("EvidenceError", result["evidence"]["process_error"])
+            for key in (f"engine{side}_eval_file_acknowledgement", f"engine{side}_command"):
+                with self.subTest(side=side, key=key), tempfile.TemporaryDirectory() as directory:
+                    code, result, _, _ = self.run_shared_gate_fixture(
+                        directory, corrupt=lambda raw: raw.update({key: None}))
+                    self.assertNotEqual(code, 0)
+                    self.assertEqual(result["status"], "error")
+        with tempfile.TemporaryDirectory() as directory:
+            code, result, _, _ = self.run_shared_gate_fixture(directory, mutate_weight=True)
+            self.assertNotEqual(code, 0)
+            self.assertEqual(result["status"], "error")
+            self.assertIn("inputs changed", result["evidence"]["process_error"])
+
+    def test_shared_halfkp_gate_rejects_missing_weight_and_side_overrides(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            weight = root / "nn_r6.bin"
+            weight.write_bytes(b"r6")
+            required = ["selfplay", "--engine-a", "native", "--engine-b", "pgo",
+                        "--evalfile", str(weight), "--openings-manifest", "manifest",
+                        "--result-json", str(root / "result.json")]
+            cases = [required[:required.index("--evalfile")] + ["--evalfile", str(root / "missing.bin"),
+                                                                  *required[required.index("--openings-manifest"):]]]
+            for side in ("a", "b"):
+                for option in ("EvalFile=other", "FV_SCALE=16", "NnueOutput=residual-material"):
+                    cases.append(required + [f"--option-{side}", option])
+            for argv in cases:
+                with self.subTest(argv=argv), patch("sys.stderr", new_callable=io.StringIO), \
+                     self.assertRaises(SystemExit) as stopped:
+                    parse_args(argv)
+                self.assertEqual(stopped.exception.code, 2)
+
     def test_evaluator_gates_also_replay_durable_paired_sprt(self):
         self.replay.side_effect = replay_durable_sprt
         for material in (False, True):
