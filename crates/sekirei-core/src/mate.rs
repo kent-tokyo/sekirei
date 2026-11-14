@@ -1259,9 +1259,6 @@ mod tests {
     use super::*;
     use crate::sfen::{move_from_usi, move_to_usi};
 
-    // Insert these items inside mate.rs's existing #[cfg(test)] mod tests.
-    // They use its SHORTEST_THREE_SFEN and proof_limits helpers.
-
     #[test]
     fn proof_table_preserves_three_ply_mate_after_shallow_prewarm() {
         let original = Board::from_sfen(SHORTEST_THREE_SFEN).unwrap();
@@ -1437,8 +1434,8 @@ mod tests {
             .unwrap();
     }
 
-    // Insert inside mate.rs's existing tests module. These tests exercise the
-    // direction and provenance of shared conclusions, not performance qualification.
+    // These tests exercise the direction and provenance of shared conclusions,
+    // not performance qualification.
     fn bounds_test_solver(max_ply: u32) -> Solver {
         Solver {
             table: HashMap::new(),
