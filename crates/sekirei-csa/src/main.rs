@@ -10,6 +10,7 @@
 //!   --port <port>      (default: 4081)
 //!   --game <id>        (default: floodgate-300-10F)
 //!   --hash <MB>        hash table size (default: 256)
+//!   --fischer-time-policy <legacy|bank-reserve>  opt-in Fischer clock policy
 //!   --weights <file>   NNUE weight file
 //!   --fv-scale <n>     HalfKP output divisor (1..=128, default: 16)
 //!   --record-dir <dir> local CSA record directory (default: data/floodgate)
@@ -32,7 +33,7 @@ mod protocol;
 use std::time::Duration;
 
 use protocol::{
-    Config, CsaClient, EvaluationMode, write_reconnect_exhausted_progress,
+    Config, CsaClient, EvaluationMode, FischerTimePolicy, write_reconnect_exhausted_progress,
     write_runtime_status_progress,
 };
 
@@ -261,6 +262,16 @@ fn parse_args_with_args(argv: Vec<String>) -> Result<Config, String> {
                 i += 1;
                 cfg.hash_mb = arg(&argv, i)?.parse().map_err(|e| format!("--hash: {e}"))?;
             }
+            "--fischer-time-policy" => {
+                i += 1;
+                cfg.fischer_time_policy = match arg(&argv, i)?.as_str() {
+                    "legacy" => FischerTimePolicy::Legacy,
+                    "bank-reserve" => FischerTimePolicy::BankReserve,
+                    value => {
+                        return Err(format!("--fischer-time-policy: unsupported mode {value}"));
+                    }
+                };
+            }
             "--resign" => {
                 i += 1;
                 cfg.resign_score = -(arg(&argv, i)?
@@ -453,6 +464,7 @@ impl RunManifest<'_> {
             },
             "search_backend": "alpha_beta",
             "hash_mb": config.hash_mb,
+            "fischer_time_policy": config.fischer_time_policy.as_str(),
             "max_depth": config.max_depth,
             "resign_score_cp": config.resign_score,
             "ponder": "disabled",
@@ -516,6 +528,7 @@ fn print_usage() {
     eprintln!("  --port <port>      TCP port (default: 4081)");
     eprintln!("  --game <id>        game ID (default: floodgate-300-10F)");
     eprintln!("  --hash <MB>        hash table MB (default: 256)");
+    eprintln!("  --fischer-time-policy <legacy|bank-reserve>  Fischer budget (default: legacy)");
     eprintln!("  --weights <file>   NNUE weight file");
     eprintln!("  --fv-scale <n>     HalfKP output divisor (1..=128, default: 16)");
     eprintln!("  --eval <mode>      material or nnue (default: material)");
@@ -537,7 +550,10 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, EvaluationMode, next_post_game_reconnect_attempt, write_run_manifest};
+    use super::{
+        Config, EvaluationMode, FischerTimePolicy, next_post_game_reconnect_attempt,
+        write_run_manifest,
+    };
     use std::fs;
 
     #[test]
@@ -559,6 +575,7 @@ mod tests {
         assert!(text.contains("sekirei.csa-run-manifest.v1"));
         assert!(text.contains("\"status\": \"active\""));
         assert!(text.contains("\"hash_mb\": 64"));
+        assert!(text.contains("\"fischer_time_policy\": \"legacy\""));
         assert!(text.contains("\"max_depth\": 7"));
         assert!(text.contains("\"resign_score_cp\": -1234"));
         assert!(text.contains("\"fv_scale\": 16"));
@@ -592,6 +609,17 @@ mod tests {
         let config = parse_args_from(["--loop", "--eval", "material"]).unwrap();
         assert!(config.keep_alive);
         assert_eq!(config.evaluation, EvaluationMode::Material);
+    }
+
+    #[test]
+    fn fischer_budget_policy_is_explicit_and_validated() {
+        assert_eq!(
+            Config::default().fischer_time_policy,
+            FischerTimePolicy::Legacy
+        );
+        let selected = parse_args_from(["--fischer-time-policy", "bank-reserve"]).unwrap();
+        assert_eq!(selected.fischer_time_policy, FischerTimePolicy::BankReserve);
+        assert!(parse_args_from(["--fischer-time-policy", "other"]).is_err());
     }
 
     #[test]
