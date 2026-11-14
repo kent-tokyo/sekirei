@@ -1,0 +1,28 @@
+{
+  "schema": "sekirei.public-tsume-pt38-mate.v1",
+  "corpus_sha256": "9bde0ba7aba552aa8b7f84d3572535ff1c28d1176b6bfd7728ec861980c99c45",
+  "source_commit": "f5507603a59d19f1d258246e7a2ed3569d7bf0dc",
+  "binary_sha256": "ae346ae724eaf2cc9256b0748725b79c18aaa0e793995829eff90603a4ca7a91",
+  "limits": {
+    "max_ply_each": 13,
+    "nodes_each": 1000000,
+    "wall_s_each": 4,
+    "calls": 2
+  },
+  "cases": [
+    {
+      "id": "fgv4-f66b24492c26",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2008/03/30/wdoor+floodgate-900-0+YSS+garyu+20080330080007.csa",
+      "exit_code": 0,
+      "stdout": "outcome=Mate valid=true distance=Some(13) nodes=10386 aborted=false solutions=G*2e\n",
+      "stderr": ""
+    },
+    {
+      "id": "fgv4-f9f2dff5b629",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/05/wdoor+floodgate-900-0+gps_normal+disney+20120305043007.csa",
+      "exit_code": 0,
+      "stdout": "outcome=Mate valid=true distance=Some(9) nodes=266 aborted=false solutions=S*2c\n",
+      "stderr": ""
+    }
+  ]
+}

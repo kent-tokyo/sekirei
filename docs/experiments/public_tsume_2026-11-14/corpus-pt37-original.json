@@ -1,0 +1,62 @@
+{
+  "schema": "sekirei.public-tsume-pt37-original-csa.v1",
+  "selected_corpus_sha256": "9e0b541e0dff79b43a739e03c25e1ec60c36fa27db7abd3a30a397f3f24c72c6",
+  "parquet_sha256_by_shard": {
+    "4": "3dfc4f33f68a9cae21587b59b1fc63db515809adf130983ab3c33cd4b083ca7a",
+    "5": "fc30747f6e21c942268bb77be997f3968b822e8345c81ebf4737d2d2a09416ad",
+    "6": "4f5f758dd2e33bfd761663ce9d705d9a3f782c8885c7b77b7c34cdfd85b95843"
+  },
+  "replay_binary_sha256": "870051373e790fb76f230d82ed96d69def6db892887948a3348fbcabb3b3a704",
+  "cases": [
+    {
+      "id": "fgv4-f66b24492c26",
+      "dataset_id": "f66b24492c2611b0f99c308039ed7aa885c2e3ece152c2ee5b15f701643c9cb1",
+      "dataset_row_index": 2962210,
+      "dataset_mate_ply": 13,
+      "mate_ply": 13,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2008/03/30/wdoor+floodgate-900-0+YSS+garyu+20080330080007.csa",
+      "source_file": "wdoor2008.7z!wdoor+floodgate-900-0+YSS+garyu+20080330080007.csa",
+      "source_line": 62,
+      "csa_sha256": "b88ea06561a95a77c9fee27ba8c2d058a47fe4e76f283e63cd02fb80f07fa9c6",
+      "sfen": "ln6l/1r2sS3/p1sg1p1p1/2p1p1Nkp/1p7/2P2PpPP/PP2P4/2RS3K1/LN3G1NL b 2G2b3p 63",
+      "solution_usi": [
+        "G*2e",
+        "2d1c",
+        "2e1d",
+        "1c1d",
+        "1f1e",
+        "1d1c",
+        "1e1d"
+      ],
+      "dataset_first_move": "G*2e",
+      "next_recorded_move": "G*2e",
+      "dataset_first_matches_game": true
+    },
+    {
+      "id": "fgv4-f9f2dff5b629",
+      "dataset_id": "f9f2dff5b6294692f0075499b9b48a69c41a395b07ae83b92c86650b3fa30a54",
+      "dataset_row_index": 3004407,
+      "dataset_mate_ply": 13,
+      "mate_ply": 13,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/05/wdoor+floodgate-900-0+gps_normal+disney+20120305043007.csa",
+      "source_file": "wdoor2012.7z!wdoor+floodgate-900-0+gps_normal+disney+20120305043007.csa",
+      "source_line": 102,
+      "csa_sha256": "d0d5cb0508c07cc402fcb21870f982aea2f533f47cf632ecb37ddfa39b640874",
+      "sfen": "1+L6l/3G1+N3/6G1p/3ppS2k/5p3/2P1P1NP1/1P1P1PP1P/5GK2/1+r1G2SNL b S5Pr2bsnlp 103",
+      "solution_usi": [
+        "S*2c",
+        "1d1e",
+        "1g1f",
+        "1e2f",
+        "P*2g",
+        "2f2e",
+        "2c3d",
+        "2e1d",
+        "1f1e"
+      ],
+      "dataset_first_move": "S*2c",
+      "next_recorded_move": "S*2c",
+      "dataset_first_matches_game": true
+    }
+  ]
+}

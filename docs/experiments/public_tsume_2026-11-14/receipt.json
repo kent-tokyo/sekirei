@@ -1,0 +1,463 @@
+{
+  "schema": "sekirei.public-tsume-probe.v1",
+  "source_archive_sha256": "e902e81bdd1ef0e688c57ccafd5a2b638c05befdc47c5ee991480fecfc777c6b",
+  "binary_sha256": "272b88abd9726572ecc43587f15e67f731b1605cd697be1ea93b7b3a23ef12f6",
+  "limits": {
+    "nodes": 50000,
+    "movetime_ms": 1000,
+    "wall_s": 4.0,
+    "threads": 1
+  },
+  "cases": [
+    {
+      "id": "musou-004",
+      "sfen": "l2sk4/2p1l4/sl1p5/4p+R3/L1+B3+r2/9/1pP6/9/9 b B3NP4g2sn12p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/musou/problems/004.json",
+      "verified_line": [
+        "4d4b",
+        "5a6b",
+        "4b5a",
+        "6b5a",
+        "B*2d",
+        "R*3c",
+        "N*4c",
+        "5a6b",
+        "2d3e",
+        "3c3e",
+        "N*7d",
+        "6b7c",
+        "N*8e",
+        "8c8e",
+        "R*8c",
+        "7c8c",
+        "9e9c+",
+        "9a9c",
+        "S*8d",
+        "8c9d",
+        "8d9c+",
+        "9d9e",
+        "P*9f",
+        "9e9f",
+        "L*9g"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.036,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 25 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2500000 time 20 hashfull 0",
+          "bestmove 7g7f"
+        ]
+      }
+    },
+    {
+      "id": "musou-007",
+      "sfen": "n3p4/3k+b4/3g1B3/9/pn+rRN4/5P3/3P5/9/9 b 3g4sn4l14p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/musou/problems/007.json",
+      "verified_line": [
+        "4c5b+",
+        "5a5b",
+        "B*5c",
+        "6b7c",
+        "6e6c",
+        "7c8b",
+        "G*9c",
+        "8b8a",
+        "6c6a",
+        "P*7a",
+        "5c7a+",
+        "7e7a",
+        "P*8b",
+        "8a7b",
+        "6a6c+"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.032,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 15 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2631578 time 19 hashfull 0",
+          "bestmove 6g6f"
+        ]
+      }
+    },
+    {
+      "id": "musou-010",
+      "sfen": "5B2g/5s1kl/5g3/9/8P/6N2/9/9/7+r1 b R2SNb2gs2n3l17p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/musou/problems/010.json",
+      "verified_line": [
+        "S*1c",
+        "2b1c",
+        "1e1d",
+        "1c2b",
+        "1d1c+",
+        "2b1c",
+        "R*1i",
+        "N*1g",
+        "S*1d",
+        "1c2b",
+        "1i2i",
+        "2b3a",
+        "R*2a",
+        "1a2a",
+        "2i2a+",
+        "3a2a",
+        "G*3b",
+        "2a1a",
+        "N*2c"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.034,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 19 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2380952 time 21 hashfull 0",
+          "bestmove 1e1d"
+        ]
+      }
+    },
+    {
+      "id": "musou-017",
+      "sfen": "1kSb3R1/L3g4/R1g6/1b1pN4/2pn1P3/P8/+pP7/2+p1N4/2NP5 b 2g3s3l10p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/musou/problems/017.json",
+      "verified_line": [
+        "9b9a+",
+        "8a7a",
+        "9a8a",
+        "7a7b",
+        "9c9b+",
+        "7b6c",
+        "2a6a+",
+        "6c7d",
+        "6a6c",
+        "7d8e",
+        "6c7d",
+        "8e7f",
+        "7d8e",
+        "7f8e",
+        "B*9d",
+        "8e7d",
+        "5h6f",
+        "7d6c",
+        "9b5b",
+        "6c5b",
+        "9d6a+",
+        "5b6a",
+        "G*6b"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.032,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 23 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2631578 time 19 hashfull 0",
+          "bestmove 9f9e"
+        ]
+      }
+    },
+    {
+      "id": "musou-021",
+      "sfen": "s2k3r1/1B2p+R3/1n7/2Pg5/p1S+b5/2p6/1+p7/9/9 b S3gs3n4l13p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/musou/problems/021.json",
+      "verified_line": [
+        "S*7b",
+        "6a7b",
+        "4b5b",
+        "P*6b",
+        "7d7c",
+        "7b8a",
+        "8b9a+",
+        "8a9a",
+        "S*8b",
+        "9a9b",
+        "P*9c",
+        "9b8b",
+        "5b6b",
+        "8b9c",
+        "P*9d",
+        "9c9d",
+        "6b6d",
+        "9d9c",
+        "6d9d",
+        "9c9d",
+        "G*8d"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.032,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 21 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2500000 time 20 hashfull 0",
+          "bestmove 7d7c+"
+        ]
+      }
+    },
+    {
+      "id": "musou-023",
+      "sfen": "3n1s1S1/1n2k1P2/2bP1N+R2/3s1p3/6R2/4P4/9/6+B2/9 b GLP3gsn3l13p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/musou/problems/023.json",
+      "verified_line": [
+        "4c5a+",
+        "5b5a",
+        "L*5b",
+        "5a5b",
+        "3h1f",
+        "5b5a",
+        "3e5e",
+        "6d5e",
+        "6c6b+",
+        "7c6b",
+        "3c4b",
+        "5a4b",
+        "G*4c",
+        "4b5a",
+        "1f1e",
+        "N*4b",
+        "1e4b",
+        "4a4b",
+        "N*6c",
+        "5a4a",
+        "3b3a+",
+        "4b3a",
+        "P*4b",
+        "3a4b",
+        "2a3b+"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.032,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 25 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2500000 time 20 hashfull 0",
+          "bestmove 6c6b+"
+        ]
+      }
+    },
+    {
+      "id": "zukou-002",
+      "sfen": "9/9/3B3G1/6+p1n/7+p1/7k1/5BL1p/7G1/7+R+r b N2P2g4s2n3l13p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/zukou/problems/002.json",
+      "verified_line": [
+        "2h2g",
+        "2f1e",
+        "2g1f",
+        "2e1f",
+        "N*2g",
+        "1f2g",
+        "P*1f",
+        "1e1f",
+        "4g2e",
+        "1f2e",
+        "6c3f+",
+        "2e1e",
+        "P*1f",
+        "1e1f",
+        "2i2g",
+        "1f1e",
+        "3f2e",
+        "3d2e",
+        "P*1f",
+        "2e1f",
+        "2g2d"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.032,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 21 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2500000 time 20 hashfull 0",
+          "bestmove 3g3d"
+        ]
+      }
+    },
+    {
+      "id": "zukou-005",
+      "sfen": "n+B1sS4/1R1g5/1Ls6/2k6/2n6/3L5/R8/9/9 b B2P3gs2n2l16p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/zukou/problems/005.json",
+      "verified_line": [
+        "B*6c",
+        "7d8d",
+        "9g9c+",
+        "8d9c",
+        "8b9b",
+        "9c8c",
+        "P*8d",
+        "8c8d",
+        "P*8e",
+        "8d8c",
+        "8a8b",
+        "7c8b",
+        "6c7d+",
+        "8c7d",
+        "9b9d+",
+        "7d7c",
+        "5a6b",
+        "6a6b",
+        "9d7d",
+        "7c7d",
+        "G*8d"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.034,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 21 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2380952 time 21 hashfull 0",
+          "bestmove 6f6b+"
+        ]
+      }
+    },
+    {
+      "id": "zukou-007",
+      "sfen": "1nkg5/2s6/3rp4/1B7/r8/1PN6/9/9/9 b BG3SN2gn4l16p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/zukou/problems/007.json",
+      "verified_line": [
+        "S*8b",
+        "7a8b",
+        "N*7d",
+        "8b8c",
+        "S*9d",
+        "9e9d",
+        "S*9b",
+        "9d9b",
+        "8d9c+",
+        "9b9c",
+        "B*9b",
+        "9c9b",
+        "G*8d"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.034,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 13 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2380952 time 21 hashfull 0",
+          "bestmove 8f8e"
+        ]
+      }
+    },
+    {
+      "id": "zukou-012",
+      "sfen": "5+rl1s/7k1/8n/6p1+B/9/9/9/9/9 b R2NPb4g3sn3l16p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/zukou/problems/012.json",
+      "verified_line": [
+        "R*2c",
+        "2b3b",
+        "2c1c",
+        "3b2a",
+        "1c2c",
+        "1a2b",
+        "N*1c",
+        "2a1a",
+        "P*1b",
+        "1a1b",
+        "N*2d",
+        "1b1a",
+        "1c2a+",
+        "1a2a",
+        "N*3c",
+        "2a1a",
+        "2d1b+",
+        "1a1b",
+        "1d1c",
+        "2b1c",
+        "2c2a+"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.034,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 21 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2380952 time 21 hashfull 0",
+          "bestmove 1d4a"
+        ]
+      }
+    },
+    {
+      "id": "zukou-013",
+      "sfen": "2lS5/1kgp5/pB3+r3/3+b+P4/PlpgS4/9/9/9/9 b R2SP2g4n2l12p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/zukou/problems/013.json",
+      "verified_line": [
+        "R*8a",
+        "8b8a",
+        "S*9b",
+        "8a8b",
+        "6a7b+",
+        "7a7b",
+        "S*7c",
+        "8b7c",
+        "5e6d",
+        "6e6d",
+        "P*7d",
+        "6d7d",
+        "B*8d",
+        "7d8d",
+        "8c7d+",
+        "8d7d",
+        "G*8c"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.033,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 17 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2500000 time 20 hashfull 0",
+          "bestmove 9e9d"
+        ]
+      }
+    },
+    {
+      "id": "zukou-014",
+      "sfen": "5+B1R1/5pP1k/6+b1p/9/4+p1p2/7N1/7+R1/9/9 b S3N4g3s4l13p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "record_url": "https://github.com/tokoroten/edo_era_tsume_shogi/blob/6231b40e6630259d09034be9c28646b5069337fc/collections/edo/zukou/problems/014.json",
+      "verified_line": [
+        "2a2b+",
+        "1b2b",
+        "2f3d",
+        "2b1b",
+        "2g2a",
+        "1b2a",
+        "3b3a+",
+        "2a1a",
+        "S*2b",
+        "1a1b",
+        "N*2d",
+        "3c2d",
+        "2b2a",
+        "1b1a",
+        "3d2b+",
+        "1a2b",
+        "4a3b",
+        "2b1a",
+        "N*2c",
+        "2d2c",
+        "2a1b",
+        "2c1b",
+        "N*2c",
+        "1b2c",
+        "3b2a"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.032,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 25 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 50000 nps 2777777 time 18 hashfull 0",
+          "bestmove 3b3a+"
+        ]
+      }
+    }
+  ]
+}

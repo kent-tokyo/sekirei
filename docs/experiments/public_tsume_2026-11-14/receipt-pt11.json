@@ -1,0 +1,69 @@
+{
+  "schema": "sekirei.public-tsume-core-probe.v1",
+  "source_input_sha256": "2bd5b15f88bb77ed4774ae9eaab2557d823235d6132e82604a59bbe2dba4934b",
+  "binary_sha256": "ae346ae724eaf2cc9256b0748725b79c18aaa0e793995829eff90603a4ca7a91",
+  "rlib_sha256": "92fda913a5cfe307e23fbedba7bfcf989c9643923ac865117fb83b67f52a833e",
+  "limits": {
+    "nodes": 1000000,
+    "wall_s": 4.0,
+    "threads": 1
+  },
+  "cases": [
+    {
+      "id": "fg-20230118-p96",
+      "sfen": "l5snk/5BgLp/p2pp1gpP/2p2p1nN/4P1S2/2sB1Pl2/P2P2RP1/3S5/L+rG2K3 b G2Pn3p 97",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2023/01/18/wdoor+floodgate-300-10F+Krist_483_473stb_1000k+AI_Ari_Shogi_Super_torch_test2+20230118230001.csa",
+      "mate_ply": 13,
+      "searched_max_ply": 13,
+      "verified_line": [
+        "2b2a+",
+        "1a2a",
+        "1c1b+",
+        "2a1b",
+        "P*1c",
+        "1b1c",
+        "N*2e",
+        "1c1d",
+        "P*1e",
+        "1d1e",
+        "3e2f",
+        "1e1d",
+        "G*1c"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.235,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=5734 aborted=false solutions=2b2a+",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "fg-20171030-p156",
+      "sfen": "1n7/l1S1+P4/k1p4p1/ppsN1bp1p/7N1/P1PLp1gP1/1P1P1+p2P/1K1S5/LN1S2+r2 b 2Grbgl3p 157",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2017/10/30/wdoor+floodgate-300-10F+gps_l+Sunfish4-AWS09+20171030130000.csa",
+      "mate_ply": 13,
+      "searched_max_ply": 13,
+      "verified_line": [
+        "G*8c",
+        "7d8c",
+        "7b8c+",
+        "9c8c",
+        "S*7b",
+        "8c8b",
+        "G*8c",
+        "8b9a",
+        "7b8a+",
+        "9a8a",
+        "6d7b+",
+        "8a9a",
+        "7b8b"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.009,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=940 aborted=false solutions=G*8c",
+        "stderr": ""
+      }
+    }
+  ]
+}

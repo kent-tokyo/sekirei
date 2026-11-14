@@ -1,0 +1,72 @@
+{
+  "schema": "sekirei.public-tsume-probe.v1",
+  "source_input_sha256": "a49a0fc7194580460b2791507fadf3205da421643eb0bee3f200e4c4332fc670",
+  "binary_sha256": "272b88abd9726572ecc43587f15e67f731b1605cd697be1ea93b7b3a23ef12f6",
+  "limits": {
+    "nodes": 1000000,
+    "movetime_ms": 1000,
+    "wall_s": 4.0,
+    "threads": 1,
+    "mode": "Speculative"
+  },
+  "cases": [
+    {
+      "id": "0037aed341ef5fe21ec338a06a55e199aeff21861bec150db8bb769952287c1e",
+      "sfen": "9/9/9/9/9/2R6/4kg+S2/2R+sB4/K7+B b 3g2s4n4l18p 1",
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "record_url": null,
+      "verified_line": [
+        "3g4g",
+        "5g5h",
+        "7h6h",
+        "5h6h",
+        "1i4f",
+        "6h6g",
+        "G*6f",
+        "6g5h",
+        "4f5g",
+        "5h5i",
+        "S*6h",
+        "5i4i",
+        "5g4h"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.977,
+        "transcript": [
+          "info depth 16 score cp -5275 nodes 733184 nps 769343 time 953 hashfull 54 pv 7f5f 5g5f 3g4g 5f4e 1i4f 4e4d G*5e 4d3d 7h7d 3d3c 7d7c+ R*4c 7c4c 3c4c R*7c N*5c",
+          "bestmove 7f5f ponder 5g5f"
+        ]
+      }
+    },
+    {
+      "id": "00abc536c99e87690c198dc92ccd6858dd870ad9e95bc9f1297489cd23950b40",
+      "sfen": "9/9/9/9/9/6s+L1/5BR1G/7k1/K8 b rb3g3s4n3l18p 1",
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "record_url": null,
+      "verified_line": [
+        "2f2g",
+        "3f2g",
+        "1g2g",
+        "2h1h",
+        "S*2i",
+        "1h1i",
+        "2i2h",
+        "1i1h",
+        "4g2i",
+        "1h2i",
+        "3g3i",
+        "2i1h",
+        "3i1i"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.063,
+        "transcript": [
+          "info depth 10 score mate 13 nodes 33884 nps 891684 time 38 hashfull 4 pv 2f2g 3f2g+ 1g2g 2h1h S*2i 1h1i 2i2h",
+          "bestmove 2f2g ponder 3f2g+"
+        ]
+      }
+    }
+  ]
+}

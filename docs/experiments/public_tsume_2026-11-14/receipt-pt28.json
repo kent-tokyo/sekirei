@@ -1,0 +1,89 @@
+{
+  "schema": "sekirei.public-tsume-pt28-scale16-root.v1",
+  "status": "SCALE16_MISS_ROOT_DIAG_PT28",
+  "source_ref": "1e963743",
+  "binary_sha256": "3819b63e0bd119f903aa6354bab8a9d05293ba6ee0a4a28ee3aa3fc37bdb4a79",
+  "corpus_sha256": "a44e6eeba687f328f08cbd1e95d79b65e293014ef96f5e7ac0bed8b603ef7b66",
+  "proof_sha256": "3ad3c373cb87f8015c59a37703d2db2daa3b08a7f558c9d7685cbc8ee6dcd43c",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "diagnostic_sha256": "feca39fd6edbf61a108b72a8b0a8b1d0bdc7010189e4643b52f11b4e2fcbb8b3",
+  "limits": {
+    "threads": 1,
+    "hash_mib": 64,
+    "nodes_each": 1000000,
+    "movetime_ms_each": 1000,
+    "wall_s_each": 4,
+    "total_wall_s": 15
+  },
+  "elapsed_s": 2.195,
+  "cases": [
+    {
+      "id": "fgv4-664b2c354ebe",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/03/wdoor+floodgate-900-0+gps_l+NanohaWCSC21USI+20120303233003.csa",
+      "proved_first": "4a3b",
+      "r6_bestmove": "2e2d",
+      "matches_proof": false,
+      "depth": 17,
+      "nodes": 1000000,
+      "score_pv": {
+        "score": [
+          "cp",
+          "1471"
+        ],
+        "pv": [
+          "2e2d",
+          "6g6h",
+          "5i6h",
+          "6f6g+",
+          "5f6g",
+          "6d6g+",
+          "6h6g",
+          "P*6f",
+          "6g6f",
+          "S*7e",
+          "6f7e",
+          "1a1b",
+          "4a3b",
+          "2b3b",
+          "R*5b",
+          "3b4c",
+          "7e8f"
+        ]
+      },
+      "elapsed_s": 0.646,
+      "ready": [
+        "info string NNUE output mode absolute",
+        "info string FV_SCALE 16",
+        "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+        "info string evaluator format HalfKP 256x2-32-32",
+        "readyok"
+      ],
+      "search": [
+        "info string root_mate_safety mate1_cache_hits 17 blunder_cache_hits 1 mate1_nodes 143 blunder_nodes 419",
+        "info depth 17 score cp 1471 nodes 1000000 nps 1560062 time 641 hashfull 29 pv 2e2d 6g6h 5i6h 6f6g+ 5f6g 6d6g+ 6h6g P*6f 6g6f S*7e 6f7e 1a1b 4a3b 2b3b R*5b 3b4c 7e8f",
+        "bestmove 2e2d ponder 6g6h"
+      ],
+      "termination": {
+        "exitcode": 0,
+        "killed": false,
+        "reaped": true
+      }
+    }
+  ],
+  "forced_roots": [
+    {
+      "root_move": "4a3b",
+      "exit_code": 0,
+      "stdout": "bestmove=4a3b\tdepth=17\tscore_cp=1196\tnodes=1000000\telapsed_ms=744\telapsed_ns=744409875\tbound=unknown\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=true\tabort_reason=budget\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=0\teval_cache_probes=0\teval_cache_hits=0\ttt_probes=0\ttt_hits=0\ttt_stores=0\torder_tt=0\torder_killer=0\torder_countermove=0\torder_history=0\troot_mate_in_one_nodes=0\troot_mate_blunder_nodes=0\troot_mate_in_one_cache_hits=0\troot_mate_blunder_cache_hits=0\talpha_beta_calls=0\tquiescence_calls=0\tqsearch_top_level_calls=0\tqsearch_in_check=0\tqsearch_tt_cutoffs=0\tqsearch_stand_pat_cutoffs=0\tqsearch_terminal_nodes=0\tqsearch_searched_moves=0\tqsearch_beta_cutoffs=0\tqsearch_depth_cap_exits=0\tqsearch_mate_in_one_exits=0\tqsearch_delta_pruning_exits=0\tstatic_evaluation_ns=0\ttt_probe_ns=0\ttt_store_ns=0\tmovegen_order_ns=0\tmovegen_generate_ns=0\tmove_order_ns=0\tmove_order_score_ns=0\tmove_order_sort_ns=0\tquiescence_inclusive_ns=0\troot_mate_safety_ns=0\tpv_usi=4a3b,2b3b,4f5e,6d8d,G*7e,8f8g+,7e8d,2c2d\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=b62fbdd6bac83429\thistory_final_hash=b62fbdd6bac83429\thistory_matches_expected=true\troot_candidates=\troot_initial_order=\titeration_trace=\n",
+      "stderr": ""
+    },
+    {
+      "root_move": "2e2d",
+      "exit_code": 0,
+      "stdout": "bestmove=2e2d\tdepth=16\tscore_cp=1465\tnodes=1000000\telapsed_ms=644\telapsed_ns=644690250\tbound=unknown\tcompleted_bound=exact\tcompleted_iteration_valid=true\taborted=true\tabort_reason=budget\tteacher_search=false\tprofile_cost=false\tstatic_evaluations=0\teval_cache_probes=0\teval_cache_hits=0\ttt_probes=0\ttt_hits=0\ttt_stores=0\torder_tt=0\torder_killer=0\torder_countermove=0\torder_history=0\troot_mate_in_one_nodes=0\troot_mate_blunder_nodes=0\troot_mate_in_one_cache_hits=0\troot_mate_blunder_cache_hits=0\talpha_beta_calls=0\tquiescence_calls=0\tqsearch_top_level_calls=0\tqsearch_in_check=0\tqsearch_tt_cutoffs=0\tqsearch_stand_pat_cutoffs=0\tqsearch_terminal_nodes=0\tqsearch_searched_moves=0\tqsearch_beta_cutoffs=0\tqsearch_depth_cap_exits=0\tqsearch_mate_in_one_exits=0\tqsearch_delta_pruning_exits=0\tstatic_evaluation_ns=0\ttt_probe_ns=0\ttt_store_ns=0\tmovegen_order_ns=0\tmovegen_generate_ns=0\tmove_order_ns=0\tmove_order_score_ns=0\tmove_order_sort_ns=0\tquiescence_inclusive_ns=0\troot_mate_safety_ns=0\tpv_usi=2e2d,1a1b,G*3a,6g6h,5i6h,6f6g+,5f6g,6d6g+,6h6g,3b3a,2d2c+,2b1a,4a3a\tpv_legal=true\tpv_replay_preserves_input=true\thistory_moves=0\thistory_replayed=false\thistory_initial_hash=b62fbdd6bac83429\thistory_final_hash=b62fbdd6bac83429\thistory_matches_expected=true\troot_candidates=\troot_initial_order=\titeration_trace=\n",
+      "stderr": ""
+    }
+  ],
+  "strength_claim": false,
+  "adoption": false
+}

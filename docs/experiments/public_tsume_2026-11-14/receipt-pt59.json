@@ -1,0 +1,135 @@
+{
+  "schema": "sekirei.public-tsume-pt59-sougyoku-r6-search.v1",
+  "source_ref": "1e963743",
+  "binary_sha256": "3819b63e0bd119f903aa6354bab8a9d05293ba6ee0a4a28ee3aa3fc37bdb4a79",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "corpus_sha256": "b399fc4179f539cb4a2891f337711348dee7e21f80dcef109932b3c03cb0760a",
+  "proof_sha256": "887bf2e8da28efb4964042588ccde142ae89f1d81be63a3c3bcdd938894d28fa",
+  "limits": {
+    "threads": 1,
+    "hash_mib": 64,
+    "nodes_each": 1000000,
+    "movetime_ms_each": 1000,
+    "wall_s_each": 4,
+    "total_wall_s": 12
+  },
+  "cases": [
+    {
+      "id": "tm-pxmboxlphx",
+      "source_url": "https://tsumeshogi.com/problems/pxmboxlphx",
+      "proved_first": "7b8c",
+      "r6_bestmove": "7b8c",
+      "matches_proof": true,
+      "depth": 14,
+      "nodes": 200442,
+      "score_pv": {
+        "score": [
+          "mate",
+          "15"
+        ],
+        "pv": [
+          "7b8c",
+          "9d8e",
+          "8c7d",
+          "8e7e",
+          "7g7f",
+          "7e7f",
+          "7d8e",
+          "7f7e",
+          "8e7f",
+          "7e7f",
+          "B*6g",
+          "7f7e",
+          "7c7d",
+          "7e6e"
+        ]
+      },
+      "elapsed_s": 0.189,
+      "ready": [
+        "info string NNUE output mode absolute",
+        "info string FV_SCALE 24",
+        "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+        "info string evaluator format HalfKP 256x2-32-32",
+        "readyok"
+      ],
+      "search": [
+        "info string root_mate_safety mate1_cache_hits 13 blunder_cache_hits 1 mate1_nodes 43 blunder_nodes 720",
+        "info depth 14 score mate 15 nodes 200442 nps 1089358 time 184 hashfull 21 pv 7b8c 9d8e 8c7d 8e7e 7g7f 7e7f 7d8e 7f7e 8e7f 7e7f B*6g 7f7e 7c7d 7e6e",
+        "bestmove 7b8c ponder 9d8e"
+      ],
+      "termination": {
+        "exitcode": 0,
+        "killed": false,
+        "reaped": true
+      },
+      "pv_replay": {
+        "exit_code": 0,
+        "stdout": "plies=14 terminal_check=false legal_replies=45 final_sfen=l8/9/9/1pGp1B3/3k5/P2N5/1P1B5/2S2r3/LNK6 b r3g3s2n2l14p 15\n",
+        "stderr": ""
+      },
+      "first_check": {
+        "exit_code": 0,
+        "stdout": "first_move_legal=true gives_check=true legal_replies=2\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "tm-jvsq3wb3fv",
+      "source_url": "https://tsumeshogi.com/problems/jvsq3wb3fv",
+      "proved_first": "5b6b",
+      "r6_bestmove": "5b6b",
+      "matches_proof": true,
+      "depth": 10,
+      "nodes": 20273,
+      "score_pv": {
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "5b6b",
+          "6c6d",
+          "8h7f",
+          "6d5e",
+          "3e4e",
+          "5e5f",
+          "4e4f",
+          "5f5g",
+          "4f4g",
+          "5g5h"
+        ]
+      },
+      "elapsed_s": 0.022,
+      "ready": [
+        "info string NNUE output mode absolute",
+        "info string FV_SCALE 24",
+        "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+        "info string evaluator format HalfKP 256x2-32-32",
+        "readyok"
+      ],
+      "search": [
+        "info string root_mate_safety mate1_cache_hits 9 blunder_cache_hits 1 mate1_nodes 44 blunder_nodes 704",
+        "info depth 10 score mate 13 nodes 20273 nps 1192529 time 17 hashfull 2 pv 5b6b 6c6d 8h7f 6d5e 3e4e 5e5f 4e4f 5f5g 4f4g 5g5h",
+        "bestmove 5b6b ponder 6c6d"
+      ],
+      "termination": {
+        "exitcode": 0,
+        "killed": false,
+        "reaped": true
+      },
+      "pv_replay": {
+        "exit_code": 0,
+        "stdout": "plies=10 terminal_check=false legal_replies=35 final_sfen=4l4/3G2+R2/2n1p1p2/2p1l4/3p5/2N6/1NSP1G3/2K1k4/5L3 b r2b2g3snl13p 11\n",
+        "stderr": ""
+      },
+      "first_check": {
+        "exit_code": 0,
+        "stdout": "first_move_legal=true gives_check=true legal_replies=1\n",
+        "stderr": ""
+      }
+    }
+  ],
+  "strength_claim": false,
+  "adoption": false,
+  "elapsed_s": 0.459
+}

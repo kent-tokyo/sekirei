@@ -1,0 +1,61 @@
+{
+  "schema": "sekirei.public-tsume-pt19-source-selection.v1",
+  "source_parquet_sha256": "7aa1b3b426f927b94a69efa4b6ec1e387d7fc1f66b24c13827e0a7dc875763bd",
+  "rows_scanned": 500000,
+  "eligible_rows": 5,
+  "selection_limit": 4,
+  "cases": [
+    {
+      "id": "fgv4-3289cadb780b",
+      "dataset_id": "3289cadb780b7a06a9574b7fabd454d149b1e0580e35a47f2a8ac2617f8c594b",
+      "row_index": 607685,
+      "mate_ply": 13,
+      "dataset_sfen": "l8/1ksG5/1gp+B5/ps5r1/3P5/2P6/2NS5/9/9 b Prb2gs3n3l13p 1",
+      "dataset_main_line": "6c7b 8b9b 7b8c 9b8c S*7b 8c7d 7f7e 7d7e G*7f 7e7d P*7e 8d7e 7f8e",
+      "source_file": "wdoor2020.7z!wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20200128023006.csa",
+      "source_line": 102,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2020/01/28/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20200128023006.csa",
+      "source_archive_sha256": "50ca62725bf7ad96349705c33459929f8602d22d47bcc115d6c3e2dc93a5e3dd",
+      "unique_first_move": true
+    },
+    {
+      "id": "fgv4-398d95eb7dce",
+      "dataset_id": "398d95eb7dce8a1b94b05e882a2059c7062e6b57ef2f21696831566a67b88c30",
+      "row_index": 691616,
+      "mate_ply": 13,
+      "dataset_sfen": "lng6/k3+B4/pLpS5/+bp7/2N6/9/9/9/9 b G2r2g3s2n2l15p 1",
+      "dataset_main_line": "G*8b 7a8b 8c8b+ 9b8b G*8c 9d8c 7e8c+ 8b8c 5b6a 8c8b 6a7b 8b9b B*8c",
+      "source_file": "wdoor2014.7z!wdoor+floodgate-900-0+Poseidon+sakurapyon_4G+20140228160003.csa",
+      "source_line": 90,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2014/02/28/wdoor+floodgate-900-0+Poseidon+sakurapyon_4G+20140228160003.csa",
+      "source_archive_sha256": "a49392b373ffc2809246f5e6319baeb4d9ee36995d7eb68d462ddd0e00cfcfac",
+      "unique_first_move": true
+    },
+    {
+      "id": "fgv4-3beeeb068548",
+      "dataset_id": "3beeeb068548e1e3ad86c8e0867a1f604f9b30b94e094c758e8e7be64d5407e2",
+      "row_index": 720213,
+      "mate_ply": 13,
+      "dataset_sfen": "3+B5/6G1k/5+N1s1/6pPp/9/6P2/8P/9/9 b 2rb3g3s3n4l13p 1",
+      "dataset_main_line": "2d2c+ 1b2c 4c3c 2c2d 6a3d 2d1e 3d1f 1e2d P*2e 2d1c S*2d 1c1b 3b2b",
+      "source_file": "wdoor2012.7z!wdoor+floodgate-900-0+gps500+Gasyou_Atom-D510_1c2t+20120527233003.csa",
+      "source_line": 78,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/05/27/wdoor+floodgate-900-0+gps500+Gasyou_Atom-D510_1c2t+20120527233003.csa",
+      "source_archive_sha256": "8fbc7cafbad92539bc2a0fb22733e461e1e22aa4f64c3771c765aeaf270558be",
+      "unique_first_move": true
+    },
+    {
+      "id": "fgv4-4bd360a34f3e",
+      "dataset_id": "4bd360a34f3e37f58396a11f5b5e9ee163e3806301e572932898c8e5bf9ae7ff",
+      "row_index": 911415,
+      "mate_ply": 13,
+      "dataset_sfen": "9/9/6+N1+P/5g3/9/5Spk1/5G3/r5S2/6P1L b Pr2b2g2s3n3l14p 1",
+      "dataset_main_line": "3h3g 2f2g P*2h 9h2h+ 3g3f 2g2f P*2g 2h2g 3f2g 2f2g R*2i B*2h 4g3g",
+      "source_file": "wdoor2012.7z!wdoor+floodgate-900-0+kakusan_hadouhou+sakurapyon-2012-0.015kpp+20120624030005.csa",
+      "source_line": 122,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/06/24/wdoor+floodgate-900-0+kakusan_hadouhou+sakurapyon-2012-0.015kpp+20120624030005.csa",
+      "source_archive_sha256": "8fbc7cafbad92539bc2a0fb22733e461e1e22aa4f64c3771c765aeaf270558be",
+      "unique_first_move": true
+    }
+  ]
+}

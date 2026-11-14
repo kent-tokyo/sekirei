@@ -1,0 +1,817 @@
+{
+  "schema": "sekirei.public-tsume-pt43-audit.v1",
+  "input_sha256": {
+    "corpus-pt08.json": "2bd5b15f88bb77ed4774ae9eaab2557d823235d6132e82604a59bbe2dba4934b",
+    "receipt-pt11.json": "c384c9a0813d7ad4c4e205f74dfb4f51b88a6c546a2fbf36a16cd6959920b253",
+    "corpus-pt19-original.json": "480881fe697ac4dd129c18502027faf47edbed66ab49e295aeb3fd76162049fc",
+    "receipt-pt20.json": "b30d6f0fe9d523626497868748ed68253b8e57efbb6bd362429adf7d6b99feb5",
+    "corpus-pt23-original.json": "a44e6eeba687f328f08cbd1e95d79b65e293014ef96f5e7ac0bed8b603ef7b66",
+    "receipt-pt24.json": "3ad3c373cb87f8015c59a37703d2db2daa3b08a7f558c9d7685cbc8ee6dcd43c",
+    "corpus-pt29-original.json": "94fb990ec93a4ce42387004d914a35eb757e625d25828c535665e36346ae7f01",
+    "receipt-pt30.json": "6c8ba58a1964f9f938fa59f742919c5bb6dacc7c1c7c885d350f2d6206e4b14f",
+    "corpus-pt34-original.json": "03df5630d2798c01c58c633f278a3b311213911ba0108345a41a3318d4b63b98",
+    "receipt-pt35.json": "2d94cb4a2c4584a280f0ea02de187d20a348ead372527f7026b7dabc5fbd2721",
+    "corpus-pt37-original.json": "9bde0ba7aba552aa8b7f84d3572535ff1c28d1176b6bfd7728ec861980c99c45",
+    "receipt-pt38.json": "0d3d8398f34f42bb1e7ca3613155ed4cff0a555cd0830a72691e50481717d816",
+    "corpus-pt41-original.json": "4e283ed8d5a6b468339306ad743eb13a2d51ea98df4ad838aaf7b64941f83e7d",
+    "receipt-pt42.json": "0aff58a18a9cec44ded7c9fc1ae877f56d2265a156f34507282d8ec6b5582b1f",
+    "private/s21/raw.jsonl": "2f34f41a7bdaf9026390db9ef117570a1b5a8ecd2624d93b34b24af8de282862",
+    "private/s22/result.json": "f45fc7d0defd3133b197bf066f81b793effceccebce30e681e2310dc92ec5651",
+    "private/s23/result.json": "750d8729ebbc3d81f949e9a3b7a1c1e74e1a00594231083e1067a371314259cc",
+    "receipt-pt25.json": "2854f49ac2ee5e2502b2178e87ba9583dc49ba59de6e1328dabd26b33a2a2b44",
+    "receipt-pt31.json": "7f0239276c0507dceb03b61eefd7681ede2c6229847d361bcca1be034724a9b2",
+    "receipt-pt36.json": "99bd91b1cbcfb21685de58309fa43e379f8248872a65c0bd86f3ce277fceca0c",
+    "receipt-pt39.json": "e3f9dc46d6e2ad820a86494f594ea3e37a0efe09c0a9826116a407d4a6f0f6d0"
+  },
+  "corpus_positions": 19,
+  "unique_games": 18,
+  "advanced_proven_originals": 15,
+  "classification_counts": {
+    "different_first_nonmate_score_within_budget": 2,
+    "first_move_matches_proof": 12,
+    "not_advanced_original_mate": 4,
+    "different_first_with_terminal_mate_pv": 1
+  },
+  "pvcheck_binary_sha256": "371995e35ea80b048e4f4981de8c36e6f3e010528c8ff51b152bae0d62f53bee",
+  "cases": [
+    {
+      "id": "fg-20230118-p96",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2023/01/18/wdoor+floodgate-300-10F+Krist_483_473stb_1000k+AI_Ari_Shogi_Super_torch_test2+20230118230001.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2023/01/18/wdoor+floodgate-300-10F+Krist_483_473stb_1000k+AI_Ari_Shogi_Super_torch_test2+20230118230001.csa",
+      "source_line": 96,
+      "input_corpus": "corpus-pt08.json",
+      "proof_receipt": "receipt-pt11.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 5734,
+      "proved_first_moves": [
+        "2b2a+"
+      ],
+      "r6_primary": {
+        "receipt": "private/s23/result.json",
+        "source_ref": "1e963743",
+        "bestmove": "3e2d",
+        "score": [
+          "cp",
+          "507"
+        ],
+        "pv": [
+          "3e2d",
+          "2c2d",
+          "4b3c+",
+          "8i7i",
+          "6h7i",
+          "S*3h",
+          "4i5i",
+          "3b3c",
+          "3g3f",
+          "3a2b",
+          "G*3b",
+          "L*5f",
+          "L*5g",
+          "5f5g",
+          "6f5g"
+        ],
+        "depth": 15,
+        "nodes": 1000000,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "different_first_nonmate_score_within_budget"
+    },
+    {
+      "id": "fg-20171030-p156",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2017/10/30/wdoor+floodgate-300-10F+gps_l+Sunfish4-AWS09+20171030130000.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2017/10/30/wdoor+floodgate-300-10F+gps_l+Sunfish4-AWS09+20171030130000.csa",
+      "source_line": 156,
+      "input_corpus": "corpus-pt08.json",
+      "proof_receipt": "receipt-pt11.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 940,
+      "proved_first_moves": [
+        "G*8c"
+      ],
+      "r6_primary": {
+        "receipt": "private/s23/result.json",
+        "source_ref": "1e963743",
+        "bestmove": "G*8c",
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "G*8c",
+          "7d8c",
+          "7b8c+",
+          "9c8c",
+          "S*7b",
+          "8c8b",
+          "G*8c",
+          "8b9a",
+          "7b8a+",
+          "9a8a",
+          "8c7b"
+        ],
+        "depth": 11,
+        "nodes": 58103,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-3289cadb780b",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2020/01/28/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20200128023006.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2020/01/28/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20200128023006.csa",
+      "source_line": 102,
+      "input_corpus": "corpus-pt19-original.json",
+      "proof_receipt": "receipt-pt20.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 7833,
+      "proved_first_moves": [
+        "6c7b"
+      ],
+      "r6_primary": {
+        "receipt": "private/s21/raw.jsonl",
+        "source_ref": "bf21db6",
+        "bestmove": "6c7b",
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "6c7b",
+          "8b9b",
+          "7b8c",
+          "9b8c",
+          "S*7b",
+          "8c7d",
+          "7f7e",
+          "7d7e",
+          "G*7f",
+          "7e7d",
+          "P*7e",
+          "8d7e",
+          "7f8e"
+        ],
+        "depth": 13,
+        "nodes": 105525,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-398d95eb7dce",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2014/02/28/wdoor+floodgate-900-0+Poseidon+sakurapyon_4G+20140228160003.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2014/02/28/wdoor+floodgate-900-0+Poseidon+sakurapyon_4G+20140228160003.csa",
+      "source_line": 90,
+      "input_corpus": "corpus-pt19-original.json",
+      "proof_receipt": "receipt-pt20.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 6503,
+      "proved_first_moves": [
+        "G*8b"
+      ],
+      "r6_primary": {
+        "receipt": "private/s22/result.json",
+        "source_ref": "1e963743",
+        "bestmove": "G*8b",
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "G*8b",
+          "7a8b",
+          "8c8b+",
+          "9b8b",
+          "G*8c",
+          "9d8c",
+          "7e8c+",
+          "8b8c",
+          "5b6a",
+          "N*7b",
+          "6a7b"
+        ],
+        "depth": 11,
+        "nodes": 33752,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [
+        "private/s21/raw.jsonl"
+      ],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-3beeeb068548",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/05/27/wdoor+floodgate-900-0+gps500+Gasyou_Atom-D510_1c2t+20120527233003.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/05/27/wdoor+floodgate-900-0+gps500+Gasyou_Atom-D510_1c2t+20120527233003.csa",
+      "source_line": 78,
+      "input_corpus": "corpus-pt19-original.json",
+      "proof_receipt": "receipt-pt20.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 32448,
+      "proved_first_moves": [
+        "2d2c+"
+      ],
+      "r6_primary": {
+        "receipt": "private/s21/raw.jsonl",
+        "source_ref": "bf21db6",
+        "bestmove": "2d2c+",
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "2d2c+",
+          "1b2c",
+          "4c3c",
+          "2c2d",
+          "6a3d",
+          "2d1e",
+          "3d1f",
+          "1e2d",
+          "3c3d",
+          "2d1c",
+          "S*2d",
+          "1c1b",
+          "2d2c+"
+        ],
+        "depth": 13,
+        "nodes": 130643,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-4bd360a34f3e",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/06/24/wdoor+floodgate-900-0+kakusan_hadouhou+sakurapyon-2012-0.015kpp+20120624030005.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/06/24/wdoor+floodgate-900-0+kakusan_hadouhou+sakurapyon-2012-0.015kpp+20120624030005.csa",
+      "source_line": 122,
+      "input_corpus": "corpus-pt19-original.json",
+      "proof_receipt": "receipt-pt20.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 7,
+      "proof_nodes": 1096,
+      "proved_first_moves": [
+        "3h3g"
+      ],
+      "classification": "not_advanced_original_mate"
+    },
+    {
+      "id": "fgv4-664b2c354ebe",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/03/wdoor+floodgate-900-0+gps_l+NanohaWCSC21USI+20120303233003.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/03/wdoor+floodgate-900-0+gps_l+NanohaWCSC21USI+20120303233003.csa",
+      "source_line": 88,
+      "input_corpus": "corpus-pt23-original.json",
+      "proof_receipt": "receipt-pt24.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 31835,
+      "proved_first_moves": [
+        "4a3b"
+      ],
+      "r6_primary": {
+        "receipt": "receipt-pt25.json",
+        "source_ref": "1e963743",
+        "bestmove": "2e2d",
+        "score": [
+          "cp",
+          "985"
+        ],
+        "pv": [
+          "2e2d",
+          "6g6h",
+          "5i6h",
+          "6f6g+",
+          "5f6g",
+          "6d6g+",
+          "6h6g",
+          "S*7h",
+          "6g6h",
+          "7h6g",
+          "6h6g",
+          "P*6f",
+          "6g6f",
+          "1a1b",
+          "2d2c+",
+          "2b1a",
+          "2c1b",
+          "1a1b"
+        ],
+        "depth": 18,
+        "nodes": 1000000,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "different_first_nonmate_score_within_budget"
+    },
+    {
+      "id": "fgv4-6e83e3a0b021",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2019/10/01/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20191001193001.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2019/10/01/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20191001193001.csa",
+      "source_line": 90,
+      "input_corpus": "corpus-pt23-original.json",
+      "proof_receipt": "receipt-pt24.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 19380,
+      "proved_first_moves": [
+        "9f9b+"
+      ],
+      "r6_primary": {
+        "receipt": "receipt-pt25.json",
+        "source_ref": "1e963743",
+        "bestmove": "9f9b+",
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "9f9b+",
+          "8b9b",
+          "P*9c",
+          "9b9c",
+          "P*9d",
+          "9c9d",
+          "P*9e",
+          "9d9c",
+          "7g8e",
+          "9c8b",
+          "G*9c",
+          "8b8a",
+          "G*8b"
+        ],
+        "depth": 13,
+        "nodes": 392529,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-88f7cf8b3b8e",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2021/10/30/wdoor+floodgate-300-10F+CR8+Yss1000k+20211030133003.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2021/10/30/wdoor+floodgate-300-10F+CR8+Yss1000k+20211030133003.csa",
+      "source_line": 132,
+      "input_corpus": "corpus-pt29-original.json",
+      "proof_receipt": "receipt-pt30.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 12525,
+      "proved_first_moves": [
+        "5a8a"
+      ],
+      "r6_primary": {
+        "receipt": "receipt-pt31.json",
+        "source_ref": "1e963743",
+        "bestmove": "G*7a",
+        "score": [
+          "mate",
+          "15"
+        ],
+        "pv": [
+          "G*7a",
+          "6i8i+",
+          "9i8i",
+          "N*9g",
+          "8f9g",
+          "B*6a",
+          "5a6a",
+          "8b7a",
+          "6b7a+",
+          "G*8b",
+          "N*7d",
+          "9c9d",
+          "7a8a",
+          "8b8a",
+          "G*8b"
+        ],
+        "depth": 15,
+        "nodes": 362689,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "different_first_with_terminal_mate_pv",
+      "pv_terminal_validation": "plies=15 terminal_check=true legal_replies=0 final_sfen=kg1+R4l/lGp6/1p5pp/p1N3p2/P2L3P1/2P1p4/SSGp2P1P/L1G1P4/1K6+s w R2BNPs2n3p 148"
+    },
+    {
+      "id": "fgv4-89f5024b081d",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2019/10/01/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20191001193001.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2019/10/01/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20191001193001.csa",
+      "source_line": 88,
+      "input_corpus": "corpus-pt29-original.json",
+      "proof_receipt": "receipt-pt30.json",
+      "dataset_mate_ply": 15,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 15,
+      "proof_nodes": 12500,
+      "proved_first_moves": [
+        "9d8b+"
+      ],
+      "r6_primary": {
+        "receipt": "receipt-pt31.json",
+        "source_ref": "1e963743",
+        "bestmove": "9d8b+",
+        "score": [
+          "cp",
+          "768"
+        ],
+        "pv": [
+          "9d8b+",
+          "7a8b",
+          "2a2b",
+          "3c3b",
+          "2b3b",
+          "3a3b",
+          "G*5b",
+          "S*7a",
+          "5b6a",
+          "8c8d",
+          "R*3a",
+          "N*6e",
+          "9f9b+",
+          "8b9b"
+        ],
+        "depth": 14,
+        "nodes": 1000000,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-96e7bb41abff",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2021/11/20/wdoor+floodgate-300-10F+tanuki2+coduck_oci_1c+20211120190002.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2021/11/20/wdoor+floodgate-300-10F+tanuki2+coduck_oci_1c+20211120190002.csa",
+      "source_line": 86,
+      "input_corpus": "corpus-pt29-original.json",
+      "proof_receipt": "receipt-pt30.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 8854,
+      "proved_first_moves": [
+        "S*7b"
+      ],
+      "r6_primary": {
+        "receipt": "receipt-pt31.json",
+        "source_ref": "1e963743",
+        "bestmove": "S*7b",
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "S*7b",
+          "6a7b",
+          "6c7b",
+          "8a7b",
+          "5c6c",
+          "7b8a",
+          "G*7b",
+          "8a9b",
+          "7d8c",
+          "9b8c"
+        ],
+        "depth": 10,
+        "nodes": 36914,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-a6792e9c7119",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2022/04/05/wdoor+floodgate-300-10F+elmo_WCSC27_479_1000k+nene_20220403_ipad9+20220405060008.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2022/04/05/wdoor+floodgate-300-10F+elmo_WCSC27_479_1000k+nene_20220403_ipad9+20220405060008.csa",
+      "source_line": 142,
+      "input_corpus": "corpus-pt34-original.json",
+      "proof_receipt": "receipt-pt35.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 10278,
+      "proved_first_moves": [
+        "8c8b+"
+      ],
+      "r6_primary": {
+        "receipt": "receipt-pt36.json",
+        "source_ref": "1e963743",
+        "bestmove": "8c8b+",
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "8c8b+",
+          "9b8b",
+          "9e8c+",
+          "8b8a",
+          "8c7b",
+          "8a9b",
+          "7b8b",
+          "9b8b",
+          "7d7c+",
+          "8b9b",
+          "8d8c+"
+        ],
+        "depth": 11,
+        "nodes": 18100,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-bcc4e63ffdeb",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2022/02/19/wdoor+floodgate-300-10F+Krist_483_473stb_1000k+dlshogi_pre17_po10000+20220219050010.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2022/02/19/wdoor+floodgate-300-10F+Krist_483_473stb_1000k+dlshogi_pre17_po10000+20220219050010.csa",
+      "source_line": 80,
+      "input_corpus": "corpus-pt34-original.json",
+      "proof_receipt": "receipt-pt35.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 1824,
+      "proved_first_moves": [
+        "G*2b"
+      ],
+      "r6_primary": {
+        "receipt": "receipt-pt36.json",
+        "source_ref": "1e963743",
+        "bestmove": "G*2b",
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "G*2b",
+          "2c2b",
+          "3a2b+",
+          "1b2b",
+          "G*2c",
+          "2b2c",
+          "2e2d",
+          "2c3b",
+          "2d2c+",
+          "3b4c"
+        ],
+        "depth": 10,
+        "nodes": 33562,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-c447ae92bc1f",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2020/09/21/wdoor+floodgate-300-10F+Ayame_4t+elmo_WCSC27_479_1000k+20200921113006.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2020/09/21/wdoor+floodgate-300-10F+Ayame_4t+elmo_WCSC27_479_1000k+20200921113006.csa",
+      "source_line": 70,
+      "input_corpus": "corpus-pt34-original.json",
+      "proof_receipt": "receipt-pt35.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 8095,
+      "proved_first_moves": [
+        "9f8e"
+      ],
+      "r6_primary": {
+        "receipt": "receipt-pt36.json",
+        "source_ref": "1e963743",
+        "bestmove": "9f8e",
+        "score": [
+          "mate",
+          "15"
+        ],
+        "pv": [
+          "9f8e",
+          "8d9e",
+          "9g9f",
+          "9i9f",
+          "8e9f",
+          "9e9f",
+          "P*9g",
+          "9f9g",
+          "R*9i"
+        ],
+        "depth": 9,
+        "nodes": 14200,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-df42bb7bd6bf",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2010/01/10/wdoor+floodgate-900-0+gps99+gps_l+20100110183004.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2010/01/10/wdoor+floodgate-900-0+gps99+gps_l+20100110183004.csa",
+      "source_line": 134,
+      "input_corpus": "corpus-pt34-original.json",
+      "proof_receipt": "receipt-pt35.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "NoMate",
+      "original_mate_ply": null,
+      "proof_nodes": 7,
+      "proved_first_moves": [],
+      "classification": "not_advanced_original_mate"
+    },
+    {
+      "id": "fgv4-e431511566b5",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2013/06/02/wdoor+floodgate-900-0+gps_normal+sakurapyon_2013+20130602073006.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2013/06/02/wdoor+floodgate-900-0+gps_normal+sakurapyon_2013+20130602073006.csa",
+      "source_line": 168,
+      "input_corpus": "corpus-pt34-original.json",
+      "proof_receipt": "receipt-pt35.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 5838,
+      "proved_first_moves": [
+        "S*8d"
+      ],
+      "r6_primary": {
+        "receipt": "receipt-pt36.json",
+        "source_ref": "1e963743",
+        "bestmove": "S*8d",
+        "score": [
+          "mate",
+          "17"
+        ],
+        "pv": [
+          "S*8d",
+          "8b8d",
+          "7d8d",
+          "9c8b",
+          "N*7d",
+          "8b8a",
+          "7c7b+",
+          "8a7b",
+          "6d6c+",
+          "7b8a",
+          "L*8b",
+          "9b8b",
+          "7d8b+"
+        ],
+        "depth": 13,
+        "nodes": 159282,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-f66b24492c26",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2008/03/30/wdoor+floodgate-900-0+YSS+garyu+20080330080007.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/archive/wdoor2008.7z",
+      "source_line": 62,
+      "input_corpus": "corpus-pt37-original.json",
+      "proof_receipt": "receipt-pt38.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 13,
+      "proof_nodes": 10386,
+      "proved_first_moves": [
+        "G*2e"
+      ],
+      "r6_primary": {
+        "receipt": "receipt-pt39.json",
+        "source_ref": "1e963743",
+        "bestmove": "G*2e",
+        "score": [
+          "mate",
+          "13"
+        ],
+        "pv": [
+          "G*2e",
+          "2d1c",
+          "2e1d",
+          "1c1d",
+          "1f1e",
+          "1d2d",
+          "G*2e",
+          "2d1c",
+          "1e1d",
+          "1c1b",
+          "1d1c+",
+          "1b2a",
+          "3d2b+"
+        ],
+        "depth": 14,
+        "nodes": 271927,
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        }
+      },
+      "r6_other_receipts": [],
+      "classification": "first_move_matches_proof"
+    },
+    {
+      "id": "fgv4-f9f2dff5b629",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/05/wdoor+floodgate-900-0+gps_normal+disney+20120305043007.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/05/wdoor+floodgate-900-0+gps_normal+disney+20120305043007.csa",
+      "source_line": 102,
+      "input_corpus": "corpus-pt37-original.json",
+      "proof_receipt": "receipt-pt38.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "Mate",
+      "original_mate_ply": 9,
+      "proof_nodes": 266,
+      "proved_first_moves": [
+        "S*2c"
+      ],
+      "classification": "not_advanced_original_mate"
+    },
+    {
+      "id": "fgv4-4f8f519d92bd",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2009/05/08/wdoor+floodgate-900-0+Blunder+YSS+20090508083007.csa",
+      "source_access_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/archive/wdoor2009.7z",
+      "source_line": 110,
+      "input_corpus": "corpus-pt41-original.json",
+      "proof_receipt": "receipt-pt42.json",
+      "dataset_mate_ply": 13,
+      "proof_outcome": "NoMate",
+      "original_mate_ply": null,
+      "proof_nodes": 7101,
+      "proved_first_moves": [],
+      "classification": "not_advanced_original_mate"
+    }
+  ],
+  "strength_claim": false,
+  "adoption": false
+}

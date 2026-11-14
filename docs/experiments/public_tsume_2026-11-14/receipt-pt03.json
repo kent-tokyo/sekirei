@@ -1,0 +1,359 @@
+{
+  "schema": "sekirei.public-tsume-core-probe.v1",
+  "source_archive_sha256": "e902e81bdd1ef0e688c57ccafd5a2b638c05befdc47c5ee991480fecfc777c6b",
+  "binary_sha256": "214e8c8db1b6f40953e7c56803deef03104c7b501a6ba54ab1aa92326a240172",
+  "rlib_sha256": "12a03246d32d4480ef8379e58ef179b1538939bac3690d2d199b66ed48999588",
+  "limits": {
+    "nodes": 1000000,
+    "wall_s": 4.0,
+    "threads": 1
+  },
+  "cases": [
+    {
+      "id": "musou-038",
+      "sfen": "2B3l2/5lg2/5p1n1/6k1g/5P2+B/5Sg1N/6N+l1/9/9 b SN2rg2sl16p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "verified_line": [
+        "S*2e",
+        "1d2e",
+        "4f3e",
+        "3f3e",
+        "N*4f",
+        "3e4f",
+        "7a3e+",
+        "2c3e",
+        "1e2e",
+        "3d2c",
+        "2e3d",
+        "2c3d",
+        "G*2d"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.5,
+        "stdout": "outcome=NoMate valid=true distance=None nodes=158762 aborted=false solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "musou-047",
+      "sfen": "3l5/9/2+bl2S2/1+R3+R3/+p8/1+p1kl1g2/1NN6/2G1pL3/3+p5 b BS2g2s2n14p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "verified_line": [
+        "S*5e",
+        "7c5e",
+        "8d6d",
+        "5e6d",
+        "4d5e",
+        "6f5e",
+        "3c4d",
+        "5e6f",
+        "4d5e",
+        "6f5e",
+        "B*3c",
+        "5e5d",
+        "3c4d+"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.438,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "musou-050",
+      "sfen": "9/4nR2g/9/7P+b/4p1s1P/6Bk1/6L+l1/9/6P1+R b 3S3g3n2l14p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "verified_line": [
+        "S*1g",
+        "2f1e",
+        "1g2f",
+        "1e2f",
+        "S*1e",
+        "1d1e",
+        "1i1e",
+        "2f1e",
+        "4b1b+",
+        "1e2f",
+        "S*1g",
+        "2g1g",
+        "1b1f",
+        "1g1f",
+        "B*1e",
+        "1f1e",
+        "G*2g"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.35,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "musou-054",
+      "sfen": "5p3/9/7+PL/8P/7+p1/5P2k/5b1np/6PG1/5+p3 b B3GNP2r4s2n3l9p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "verified_line": [
+        "G*2f",
+        "1f2f",
+        "2h3g",
+        "2f1e",
+        "3g2f",
+        "1e1d",
+        "2f1e",
+        "1d1e",
+        "P*1f",
+        "1e1f",
+        "G*2f",
+        "2e2f",
+        "G*1e",
+        "1f1e",
+        "B*3c",
+        "1e2e",
+        "3c2d+",
+        "2e3f",
+        "N*2h"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.429,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "musou-064",
+      "sfen": "2n6/6g2/5l1L1/3n3l+P/4+r+p3/3P2p2/1+R1Bk3N/7P1/3+p5 b BGS2g3snl12p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "verified_line": [
+        "6g5f",
+        "5g4f",
+        "8g4g",
+        "4f3e",
+        "S*2f",
+        "2d2f",
+        "4g4f",
+        "3e4d",
+        "B*3e",
+        "4d3c",
+        "3e2d",
+        "3c4d",
+        "4f5e",
+        "4e5e",
+        "2d3e",
+        "4d3e",
+        "R*3d",
+        "3e4f",
+        "G*4g"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.347,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "musou-074",
+      "sfen": "3l5/9/2sS5/5+Rp2/7+P+P/2g1+p+b3/2N+R5/3Sp1+pPk/6N1+l b BGSL2g2nl11p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000001281469",
+      "verified_line": [
+        "B*2g",
+        "1h2h",
+        "L*2i",
+        "1i2i",
+        "6g3g",
+        "2h3g",
+        "4d4f",
+        "3g4f",
+        "S*5e",
+        "4f5e",
+        "B*6f",
+        "5f6f",
+        "6c5d+",
+        "5e4f",
+        "G*4g"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.484,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "zukou-029",
+      "sfen": "9/lgsl5/1p7/1k2G4/L1n6/+p8/1+B7/1+R7/3r5 b B3N2g3sl16p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "verified_line": [
+        "8g9f",
+        "8d7c",
+        "N*6e",
+        "6i6e",
+        "N*8e",
+        "7c7d",
+        "8e9c",
+        "7d7c",
+        "8h8d",
+        "7c8d",
+        "B*7c",
+        "8d7c",
+        "P*7d",
+        "7c8d",
+        "N*7f"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.493,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "zukou-030",
+      "sfen": "4+LgB2/3+P1+R1R1/4+bl1g1/8k/5p1p1/7+p1/9/9/9 b 2G4s4n2l14p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "verified_line": [
+        "2b2c+",
+        "1d2c",
+        "3a1c+",
+        "2c3d",
+        "G*3e",
+        "5c3e",
+        "G*4d",
+        "3e4d",
+        "4b3c",
+        "3d3c",
+        "G*2c",
+        "3c4b",
+        "1c3a",
+        "4b3a",
+        "5a4a",
+        "3a4a",
+        "G*3b"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.349,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "zukou-033",
+      "sfen": "l8/1n7/np3B3/SR1+P5/k1N6/9/1Ps6/1N7/5+B3 b r4g2s3l15p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "verified_line": [
+        "8d8e",
+        "9e9d",
+        "8e8c",
+        "9d9e",
+        "4i8e",
+        "9c8e",
+        "8c9c",
+        "9a9c",
+        "P*9f",
+        "9e9d",
+        "4c6a+",
+        "9d8d",
+        "6a8c",
+        "8d7e",
+        "6d6e"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.039,
+        "stdout": "outcome=NoMate valid=true distance=None nodes=77068 aborted=false solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "zukou-034",
+      "sfen": "9/7lS/7pb/5S1B1/5rgk1/8p/4+R2G1/9/9 b SN2gs3n3l16p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "verified_line": [
+        "S*2f",
+        "3e2f",
+        "2g2f",
+        "2e2f",
+        "N*3h",
+        "2f2e",
+        "5g2g",
+        "2e1d",
+        "1b2c",
+        "2b2c",
+        "P*1e",
+        "4e1e",
+        "2g2e",
+        "1e2e",
+        "3h2f",
+        "1d2d",
+        "G*1d"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.373,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "zukou-035",
+      "sfen": "p8/3l5/RLSs5/G8/1k1p5/+p1s6/1P7/1+p7/9 b 2BGNr2gs3n2l13p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "verified_line": [
+        "9d9e",
+        "9f9e",
+        "B*9f",
+        "9e9f",
+        "N*9g",
+        "9f9g",
+        "9c9f+",
+        "9g9f",
+        "G*7e",
+        "8e9e",
+        "B*8d",
+        "9e9d",
+        "8d9c+",
+        "9d9c",
+        "7e8d",
+        "9c9b",
+        "8c8b+"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.369,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "zukou-036",
+      "sfen": "9/6nS1/4s4/4r1P1g/5Sk1B/5+pbR1/4Nsp2/9/4N4 b 3Gn4l15p 1",
+      "source_url": "https://ndlsearch.ndl.go.jp/books/R100000002-I000000493927",
+      "verified_line": [
+        "G*2e",
+        "3f2e",
+        "4e3f",
+        "2e3f",
+        "G*2e",
+        "3f2e",
+        "2f3f",
+        "4g3f+",
+        "5i4g",
+        "3f4g",
+        "G*2f",
+        "3e4d",
+        "1e3c+"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.36,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=",
+        "stderr": ""
+      }
+    }
+  ]
+}

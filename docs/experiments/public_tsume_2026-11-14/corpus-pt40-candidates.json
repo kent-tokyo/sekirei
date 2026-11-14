@@ -1,0 +1,22 @@
+{
+  "schema": "sekirei.public-tsume-pt40-source-selection.v1",
+  "source_parquet_sha256": "7aa1b3b426f927b94a69efa4b6ec1e387d7fc1f66b24c13827e0a7dc875763bd",
+  "rows_scanned": 500000,
+  "eligible_rows": 5,
+  "selection_ordinal": 5,
+  "cases": [
+    {
+      "id": "fgv4-4f8f519d92bd",
+      "dataset_id": "4f8f519d92bd11bf19bf8e302b6d3b46af66ce4a7fb758e0cbe606b69e6d3c61",
+      "global_row_index": 955867,
+      "mate_ply": 13,
+      "dataset_sfen": "1+R7/pS7/3+S5/kpp6/n2pb4/2P6/PP1P5/1SG6/1N2+r4 b b3gs2n4l10p 1",
+      "dataset_main_line": "8a9b 9d8e 8g8f 8e8f 8h8g 8f8e 8g9f 8e7f P*7g 5e7g 7h7g 7f7e B*6d",
+      "source_file": "wdoor2009.7z!wdoor+floodgate-900-0+Blunder+YSS+20090508083007.csa",
+      "source_line": 110,
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2009/05/08/wdoor+floodgate-900-0+Blunder+YSS+20090508083007.csa",
+      "source_archive_sha256": "c5470978990a8f63c2c868de233a9d691a64ad46573d20d8b341afbe1fad6825",
+      "unique_first_move": true
+    }
+  ]
+}

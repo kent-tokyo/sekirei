@@ -1,0 +1,250 @@
+{
+  "schema": "sekirei.public-tsume-pt53-sbq13-first12.v1",
+  "source_commit": "2ab5f5f0a37857c5e921b5b0a1bae27ef3d6c0ed",
+  "source_url": "https://github.com/hnakada123/ShogiBoardQ/blob/2ab5f5f0a37857c5e921b5b0a1bae27ef3d6c0ed/data/tsumeshogi/tsume_13ply_1000_20261001.txt",
+  "file_sha256": "76b9895ad40d30a5de0d6fe7508fafb1e16eaaee790a1c166115103abfa9caeb",
+  "noncomment_rows": 1000,
+  "selection": "first12 noncomment lines",
+  "cases": [
+    {
+      "id": "sbq13-0001",
+      "line_number": 16,
+      "sfen": "+P8/9/2S6/1+P7/kN7/9/SL7/9/9 b 2r2b4g2s3n3l16p 1",
+      "reference_usi": [
+        "8d9d",
+        "9e9d",
+        "8e9c+",
+        "9d9c",
+        "9a9b",
+        "9c9b",
+        "7c8b+",
+        "9b9c",
+        "8b8c",
+        "9c9d",
+        "8c8d",
+        "9d9e",
+        "8d8e"
+      ]
+    },
+    {
+      "id": "sbq13-0002",
+      "line_number": 17,
+      "sfen": "+Ng1r5/1g1k5/9/+S1B1S4/9/9/9/9/9 b rb2g2s3n4l18p 1",
+      "reference_usi": [
+        "5d6c+",
+        "6b7a",
+        "9a8a",
+        "7a8a",
+        "G*7b",
+        "8b7b",
+        "6c7b",
+        "8a7b",
+        "9d8c",
+        "7b6b",
+        "G*6c",
+        "6b7a",
+        "6c7b"
+      ]
+    },
+    {
+      "id": "sbq13-0003",
+      "line_number": 18,
+      "sfen": "+s1+L6/9/9/1N+B6/k2L5/1g7/9/9/9 b GP2rb2g3s3n2l17p 1",
+      "reference_usi": [
+        "P*9f",
+        "9e9d",
+        "G*9e",
+        "9d9c",
+        "8d9b+",
+        "9a9b",
+        "9e8d",
+        "9c8b",
+        "7d7c",
+        "8b7a",
+        "6e6b+",
+        "7a8a",
+        "6b7b"
+      ]
+    },
+    {
+      "id": "sbq13-0004",
+      "line_number": 19,
+      "sfen": "+Pg7/9/9/1RL6/1Rg6/k2+P5/9/2L6/9 b 2b2g4s4n2l16p 1",
+      "reference_usi": [
+        "8d9d",
+        "9f8e",
+        "6f7e",
+        "8e9d",
+        "G*8e",
+        "9d9c",
+        "7e8d",
+        "9c8b",
+        "9a8a",
+        "8b8a",
+        "7d7b+",
+        "8a9a",
+        "G*8b"
+      ]
+    },
+    {
+      "id": "sbq13-0005",
+      "line_number": 20,
+      "sfen": "+Pg7/9/9/3R5/1Rg+P5/k1L6/9/2L6/9 b 2b2g4s4n2l16p 1",
+      "reference_usi": [
+        "6d9d",
+        "9f8e",
+        "6e7e",
+        "8e9d",
+        "G*8e",
+        "9d9c",
+        "7e8d",
+        "9c8b",
+        "9a8a",
+        "8b8a",
+        "7f7b+",
+        "8a9a",
+        "G*8b"
+      ]
+    },
+    {
+      "id": "sbq13-0006",
+      "line_number": 21,
+      "sfen": "+Pg7/9/9/RL7/1kg+P5/2L6/9/2L6/9 b r2b2g4s4nl16p 1",
+      "reference_usi": [
+        "6e7e",
+        "8e9d",
+        "G*8e",
+        "9d9c",
+        "8d8c+",
+        "9c8c",
+        "7e8d",
+        "8c8b",
+        "9a8a",
+        "8b8a",
+        "7f7b+",
+        "8a9a",
+        "G*8b"
+      ]
+    },
+    {
+      "id": "sbq13-0007",
+      "line_number": 22,
+      "sfen": "2+P6/1k1B5/1N1P5/9/G8/3N5/9/9/9 b 2rb3g4s2n4l16p 1",
+      "reference_usi": [
+        "6f7d",
+        "8b8c",
+        "9e8d",
+        "8c9b",
+        "7d8b+",
+        "9b8b",
+        "6b7c+",
+        "8b7a",
+        "6c6b+",
+        "7a8a",
+        "6b7b",
+        "8a9b",
+        "8d8c"
+      ]
+    },
+    {
+      "id": "sbq13-0008",
+      "line_number": 23,
+      "sfen": "+SS7/9/kS7/2g6/2LG5/9/+L8/9/9 b 2r2b2gs4n2l18p 1",
+      "reference_usi": [
+        "9a9b",
+        "9c8c",
+        "6e7d",
+        "8c9d",
+        "9b9c",
+        "9d9c",
+        "G*8d",
+        "9c8b",
+        "7d8c",
+        "8b8a",
+        "7e7b+",
+        "8a9a",
+        "8c8b"
+      ]
+    },
+    {
+      "id": "sbq13-0009",
+      "line_number": 24,
+      "sfen": "7Bk/5+P2B/7Gs/9/9/9/9/9/9 b S2r3g2s4n4l17p 1",
+      "reference_usi": [
+        "S*2b",
+        "1c2b",
+        "2c2b",
+        "1a2b",
+        "2a3b+",
+        "2b1b",
+        "S*2c",
+        "1b1c",
+        "2c1d+",
+        "1c1b",
+        "1d2c",
+        "1b1a",
+        "2c2b"
+      ]
+    },
+    {
+      "id": "sbq13-0010",
+      "line_number": 25,
+      "sfen": "+b1+P6/9/1NN6/2+B6/k8/9/G8/9/9 b 2r3g4s2n4l17p 1",
+      "reference_usi": [
+        "9g9f",
+        "9e9d",
+        "9f8e",
+        "9d9c",
+        "8e8d",
+        "9c8b",
+        "7c8a+",
+        "9a8a",
+        "7d7c",
+        "8b9b",
+        "8c9a+",
+        "8a9a",
+        "8d8c"
+      ]
+    },
+    {
+      "id": "sbq13-0011",
+      "line_number": 26,
+      "sfen": "9/9/9/7+B1/9/9/6+l1B/6+L2/8k b 2S2r4g2s4n2l18p 1",
+      "reference_usi": [
+        "S*2h",
+        "3g2h",
+        "1g2h",
+        "1i2i",
+        "3h3i",
+        "2i1h",
+        "L*1i",
+        "1h2g",
+        "S*1f",
+        "2g3f",
+        "2d4f",
+        "3f2f",
+        "2h3g"
+      ]
+    },
+    {
+      "id": "sbq13-0012",
+      "line_number": 27,
+      "sfen": "6+L2/9/6N2/9/7k1/6L1R/9/7g1/7L1 b r2b3g4s3nl18p 1",
+      "reference_usi": [
+        "2i2h",
+        "2e1f",
+        "G*2g",
+        "1f2e",
+        "2g2f",
+        "2e2d",
+        "2f2e",
+        "2d2c",
+        "2e2d",
+        "2c2b",
+        "3c2a+",
+        "2b1b",
+        "2d2c"
+      ]
+    }
+  ]
+}

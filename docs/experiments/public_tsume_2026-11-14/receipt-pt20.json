@@ -1,0 +1,119 @@
+{
+  "schema": "sekirei.public-tsume-core-probe.v1",
+  "source_input_sha256": "480881fe697ac4dd129c18502027faf47edbed66ab49e295aeb3fd76162049fc",
+  "binary_sha256": "ae346ae724eaf2cc9256b0748725b79c18aaa0e793995829eff90603a4ca7a91",
+  "rlib_sha256": "92fda913a5cfe307e23fbedba7bfcf989c9643923ac865117fb83b67f52a833e",
+  "limits": {
+    "nodes": 1000000,
+    "wall_s": 4.0,
+    "threads": 1
+  },
+  "cases": [
+    {
+      "id": "fgv4-3289cadb780b",
+      "sfen": "ln5nl/1ksGp4/1gp+B4p/ps5r1/3P2P2/P1P6/1pNSPp2P/2G1G2+p1/L1K2R2L b Pbsn4p 103",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2020/01/28/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20200128023006.csa",
+      "mate_ply": 13,
+      "searched_max_ply": 13,
+      "verified_line": [
+        "6c7b",
+        "8b9c",
+        "7b8c",
+        "9c8c",
+        "S*7b",
+        "8c7d",
+        "7f7e",
+        "7d7e",
+        "G*7f",
+        "7e7d",
+        "P*7e",
+        "8d7e",
+        "7f8e"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.015,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=7833 aborted=false solutions=6c7b",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "fgv4-398d95eb7dce",
+      "sfen": "lng6/k3+B2p1/pLpS4p/+bp1pp4/2N2pp1P/4P4/PP2SP+n1+r/2GS5/LNKPG4 b GPrsl2p 91",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2014/02/28/wdoor+floodgate-900-0+Poseidon+sakurapyon_4G+20140228160003.csa",
+      "mate_ply": 13,
+      "searched_max_ply": 13,
+      "verified_line": [
+        "G*8b",
+        "7a8b",
+        "8c8b+",
+        "9b8b",
+        "G*8c",
+        "9d8c",
+        "7e8c+",
+        "8b8c",
+        "5b6a",
+        "8c9b",
+        "B*8c",
+        "9b8b",
+        "6a7b"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.007,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=6503 aborted=false solutions=G*8b",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "fgv4-3beeeb068548",
+      "sfen": "lns+B4l/5GG1k/p1pp1+N1s1/5ppPp/9/5PP2/PPPPP3P/2KS3+p1/LN1G2+r1L b rbgsn2p 79",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/05/27/wdoor+floodgate-900-0+gps500+Gasyou_Atom-D510_1c2t+20120527233003.csa",
+      "mate_ply": 13,
+      "searched_max_ply": 13,
+      "verified_line": [
+        "2d2c+",
+        "1b2c",
+        "4c3c",
+        "2c2d",
+        "6a3d",
+        "2d1e",
+        "3d1f",
+        "1e2d",
+        "P*2e",
+        "2d1c",
+        "S*2d",
+        "1c1b",
+        "3c2c"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.014,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=32448 aborted=false solutions=2d2c+",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "fgv4-4bd360a34f3e",
+      "sfen": "ln6G/6+P2/p1p3+N1+P/3p1g3/4p4/2P1PSpk1/P1+b1NG3/r5S2/2+r3PKL b 2Pbg2sn2l5p 123",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/06/24/wdoor+floodgate-900-0+kakusan_hadouhou+sakurapyon-2012-0.015kpp+20120624030005.csa",
+      "mate_ply": 13,
+      "searched_max_ply": 13,
+      "verified_line": [
+        "3h3g",
+        "3f3g+",
+        "4g3g",
+        "2f2e",
+        "P*2f",
+        "2e2d",
+        "1c1d"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.004,
+        "stdout": "outcome=Mate valid=true distance=Some(7) nodes=1096 aborted=false solutions=3h3g",
+        "stderr": ""
+      }
+    }
+  ]
+}

@@ -1,0 +1,185 @@
+{
+  "schema": "sekirei.public-tsume-pt54-sbq13-mate.v1",
+  "corpus_sha256": "5dc5b2220c605816b2ea3bc509ad2856614370fb6ddf2297fe65cda9614f59d2",
+  "source_commit": "f5507603a59d19f1d258246e7a2ed3569d7bf0dc",
+  "binary_sha256": "ae346ae724eaf2cc9256b0748725b79c18aaa0e793995829eff90603a4ca7a91",
+  "pvcheck_sha256": "371995e35ea80b048e4f4981de8c36e6f3e010528c8ff51b152bae0d62f53bee",
+  "limits": {
+    "max_ply_each": 13,
+    "nodes_each": 1000000,
+    "wall_s_each": 4,
+    "calls": 12,
+    "total_wall_s": 60
+  },
+  "cases": [
+    {
+      "id": "sbq13-0001",
+      "line_number": 16,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=9/9/9/9/k+S7/9/SL7/9/9 w 2r2b4g2s4n3l18p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=1857 aborted=false solutions=8d9d\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "sbq13-0002",
+      "line_number": 17,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=2kr5/2G6/1+S7/2B6/9/9/9/9/9 w rb3g3s4n4l18p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=51664 aborted=false solutions=5d6c+\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "sbq13-0003",
+      "line_number": 18,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=1k7/+s1+L6/2+B6/1G7/9/Pg7/9/9/9 w 2rb2g3s4n3l17p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=10050 aborted=false solutions=P*9f\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "sbq13-0004",
+      "line_number": 19,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=k8/1G+L6/9/1+P7/1G7/9/9/2L6/9 w 2r2b2g4s4n2l17p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=4472 aborted=false solutions=8d9d\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "sbq13-0005",
+      "line_number": 20,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=k8/1G+L6/9/1+P7/1G7/9/9/2L6/9 w 2r2b2g4s4n2l17p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=2082 aborted=false solutions=6d9d\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "sbq13-0006",
+      "line_number": 21,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=k8/1G+L6/9/1+P7/1G7/9/9/2L6/9 w 2r2b2g4s4n2l17p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=1529 aborted=false solutions=6e7e\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "sbq13-0007",
+      "line_number": 22,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=9/k1+P6/1G+B6/9/9/9/9/9/9 w 2rb3g4s4n4l17p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=19749 aborted=false solutions=6f7d\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "sbq13-0008",
+      "line_number": 23,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=k8/1G+L6/9/1G7/9/9/+L8/9/9 w 2r2b2g4s4n2l18p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=7904 aborted=false solutions=9a9b\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "sbq13-0009",
+      "line_number": 24,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=8k/5+P+B+S1/9/9/9/9/9/9/9 w 2rb4g3s4n4l17p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=8327 aborted=false solutions=S*2b\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "sbq13-0010",
+      "line_number": 25,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=+b1+P6/k8/1G+B6/9/9/9/9/9/9 w 2r3g4s4n4l17p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=6365 aborted=false solutions=9g9f\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "sbq13-0011",
+      "line_number": 26,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=9/9/9/9/9/5+B1kS/6B2/9/6+L1L w 2r4g3s4n2l18p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Mate valid=true distance=Some(13) nodes=29961 aborted=false solutions=S*2h\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "sbq13-0012",
+      "line_number": 27,
+      "reference_replay": {
+        "exit_code": 0,
+        "stdout": "plies=13 terminal_check=true legal_replies=0 final_sfen=6+L+N1/8k/7G1/9/9/6L2/9/7L1/9 w 2r2b3g4s3nl18p 14\n",
+        "stderr": ""
+      },
+      "mate": {
+        "exit_code": 0,
+        "stdout": "outcome=Unknown valid=true distance=None nodes=1000000 aborted=true solutions=\n",
+        "stderr": ""
+      }
+    }
+  ],
+  "elapsed_s": 0.447
+}

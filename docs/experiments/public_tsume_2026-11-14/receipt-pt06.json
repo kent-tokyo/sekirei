@@ -1,0 +1,161 @@
+{
+  "schema": "sekirei.public-tsume-probe.v1",
+  "source_input_sha256": "2f08fab8dc6f0a249e61f8ad33002d92b1cfcae5dc8e33331a2838f44a1fde30",
+  "binary_sha256": "272b88abd9726572ecc43587f15e67f731b1605cd697be1ea93b7b3a23ef12f6",
+  "limits": {
+    "nodes": 1000000,
+    "movetime_ms": 1000,
+    "wall_s": 4.0,
+    "threads": 1,
+    "mode": "Speculative"
+  },
+  "cases": [
+    {
+      "id": "0037aed341ef5fe21ec338a06a55e199aeff21861bec150db8bb769952287c1e",
+      "sfen": "9/9/9/9/9/2R6/4kg+S2/2R+sB4/8+B b 3g2s4n4l18p 1",
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "record_url": null,
+      "verified_line": [
+        "3g4g",
+        "5g5h",
+        "7h6h",
+        "5h6h",
+        "1i4f",
+        "6h6g",
+        "G*6f",
+        "6g5h",
+        "4f5g",
+        "5h5i",
+        "S*6h",
+        "5i4i",
+        "5g4h"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.633,
+        "transcript": [
+          "info depth 15 score cp -2936 nodes 1000000 nps 1636661 time 611 hashfull 134 pv 5h4g S*6g 7h7g L*6f G*5f 5g4h 7f6f L*4a 7g6g 6h6g 3g3h 4h4i 6f6g",
+          "bestmove 5h4g ponder S*6g"
+        ]
+      }
+    },
+    {
+      "id": "007211a1904adaedb457c24b32c4d870b53e34475438db76d3ab96def25e0ecd",
+      "sfen": "9/9/9/9/9/9/2+B2B3/5g1G1/5k1S1 b 2r2g3s4n4l18p 1",
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "record_url": null,
+      "verified_line": [
+        "2i3h",
+        "4h3h",
+        "7g6g",
+        "4i3i",
+        "2h3h",
+        "3i2i",
+        "3h3i",
+        "2i3i",
+        "G*2i",
+        "3i4h",
+        "2i3h",
+        "4h5i",
+        "6g5h"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.024,
+        "transcript": [
+          "info depth 8 score mate 11 nodes 18773 nps 2681857 time 7 hashfull 1 pv 2i3h 4h3h 2h3h G*4h 3h4h 4i3i 4h3h 3i2i",
+          "bestmove 2i3h ponder 4h3h"
+        ]
+      }
+    },
+    {
+      "id": "00abc536c99e87690c198dc92ccd6858dd870ad9e95bc9f1297489cd23950b40",
+      "sfen": "9/9/9/9/9/6s+L1/5BR1G/7k1/9 b rb3g3s4n3l18p 1",
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "record_url": null,
+      "verified_line": [
+        "2f2g",
+        "3f2g",
+        "1g2g",
+        "2h1h",
+        "S*2i",
+        "1h1i",
+        "2i2h",
+        "1i1h",
+        "4g2i",
+        "1h2i",
+        "3g3i",
+        "2i1h",
+        "3i1i"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.227,
+        "transcript": [
+          "info depth 12 score cp -6346 nodes 1000000 nps 4739336 time 211 hashfull 45 pv 2f3f L*1b 4g9b+ L*2a S*1h R*3i 9b5f L*1a 3g3i 2h3i 5f6f P*4h",
+          "bestmove 2f3f ponder L*1b"
+        ]
+      }
+    },
+    {
+      "id": "00ec76178c112e961ad86baf441578cc91963d63e7cc2fd1fa03132c5f87a78c",
+      "sfen": "9/9/9/8p/5G1k1/5BP2/9/7G1/9 b S2rb2g3s4n4l16p 1",
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "record_url": null,
+      "verified_line": [
+        "4e3e",
+        "2e1e",
+        "4f3g",
+        "P*2f",
+        "3g2f",
+        "1e2f",
+        "P*2g",
+        "2f1f",
+        "S*1g",
+        "1f1e",
+        "1g2f",
+        "1e1f",
+        "2h1g"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.048,
+        "transcript": [
+          "info depth 13 score mate 17 nodes 82692 nps 2584125 time 32 hashfull 3 pv 4e3e 2e1e 2h2g R*2f 2g2f 1e2f R*2c B*2d 2c2d+ S*2e 2d2e 2f1g 2e2h",
+          "bestmove 4e3e ponder 2e1e"
+        ]
+      }
+    },
+    {
+      "id": "017746294cc13d50e825c4add6bcb7aa17420dd94a878b25d9d69560d4a313e3",
+      "sfen": "8s/7g1/7k1/6N2/5N2B/6S2/8r/9/9 b Grb2g2s2n4l18p 1",
+      "source_url": "https://huggingface.co/datasets/tokoroten-jp/generated-tsume-shogi/tree/849617b78fa5769a666d6045aea586c301e03201",
+      "record_url": null,
+      "verified_line": [
+        "3d2b+",
+        "1a2b",
+        "G*3c",
+        "2c1d",
+        "G*2e",
+        "1d1c",
+        "2e2d",
+        "1c1b",
+        "3c2b",
+        "1b2b",
+        "4e3c+",
+        "2b1a",
+        "S*2b",
+        "1a1b",
+        "2d1c"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.174,
+        "transcript": [
+          "info depth 14 score mate 21 nodes 339010 nps 2145632 time 158 hashfull 40 pv 3d2b+ 1a2b G*2d 2c1b 4e3c+ G*3b 3c3b B*8h 3b2b 8h2b+ S*2c 2b2c 2d2c 1b2c",
+          "bestmove 3d2b+ ponder 1a2b"
+        ]
+      }
+    }
+  ]
+}

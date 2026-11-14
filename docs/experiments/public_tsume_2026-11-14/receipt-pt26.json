@@ -1,0 +1,118 @@
+{
+  "schema": "sekirei.public-tsume-pt26-r6-check-cap.v1",
+  "status": "CANDIDATE_NOT_UNIVERSAL_PT26",
+  "source_ref": "1e963743",
+  "binary_sha256": "3819b63e0bd119f903aa6354bab8a9d05293ba6ee0a4a28ee3aa3fc37bdb4a79",
+  "corpus_sha256": "a44e6eeba687f328f08cbd1e95d79b65e293014ef96f5e7ac0bed8b603ef7b66",
+  "proof_sha256": "3ad3c373cb87f8015c59a37703d2db2daa3b08a7f558c9d7685cbc8ee6dcd43c",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "limits": {
+    "threads": 1,
+    "hash_mib": 64,
+    "nodes_each": 1000000,
+    "movetime_ms_each": 1000,
+    "wall_s_each": 4,
+    "total_wall_s": 10
+  },
+  "elapsed_s": 0.908,
+  "cases": [
+    {
+      "id": "fgv4-664b2c354ebe",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2012/03/03/wdoor+floodgate-900-0+gps_l+NanohaWCSC21USI+20120303233003.csa",
+      "proved_first": "4a3b",
+      "r6_bestmove": "2e2d",
+      "matches_proof": false,
+      "depth": 15,
+      "nodes": 951467,
+      "score_pv": {
+        "score": [
+          "mate",
+          "19"
+        ],
+        "pv": [
+          "2e2d",
+          "6d6b",
+          "7a6b",
+          "6g6h",
+          "5i4h",
+          "4d4e",
+          "4a3b",
+          "2b3b",
+          "R*5b",
+          "B*4b",
+          "5b4b+",
+          "3c4b",
+          "4c4b+",
+          "3b3c",
+          "G*3b"
+        ]
+      },
+      "elapsed_s": 0.618,
+      "ready": [
+        "info string NNUE output mode absolute",
+        "info string FV_SCALE 24",
+        "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+        "info string evaluator format HalfKP 256x2-32-32",
+        "readyok"
+      ],
+      "search": [
+        "info string root_mate_safety mate1_cache_hits 14 blunder_cache_hits 1 mate1_nodes 143 blunder_nodes 419",
+        "info depth 15 score mate 19 nodes 951467 nps 1552148 time 613 hashfull 58 pv 2e2d 6d6b 7a6b 6g6h 5i4h 4d4e 4a3b 2b3b R*5b B*4b 5b4b+ 3c4b 4c4b+ 3b3c G*3b",
+        "bestmove 2e2d ponder 6d6b"
+      ],
+      "termination": {
+        "exitcode": 0,
+        "killed": false,
+        "reaped": true
+      }
+    },
+    {
+      "id": "fgv4-6e83e3a0b021",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2019/10/01/wdoor+floodgate-300-10F+Krist_483_473stb_16t_100m+elmo_WCSC27_479_1000k+20191001193001.csa",
+      "proved_first": "9f9b+",
+      "r6_bestmove": "9f9b+",
+      "matches_proof": true,
+      "depth": 11,
+      "nodes": 66877,
+      "score_pv": {
+        "score": [
+          "mate",
+          "15"
+        ],
+        "pv": [
+          "9f9b+",
+          "8b9b",
+          "P*9c",
+          "9b9c",
+          "P*9d",
+          "9c9d",
+          "P*9e",
+          "9d9c",
+          "7g8e",
+          "9c8d",
+          "G*7e"
+        ]
+      },
+      "elapsed_s": 0.06,
+      "ready": [
+        "info string NNUE output mode absolute",
+        "info string FV_SCALE 24",
+        "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+        "info string evaluator format HalfKP 256x2-32-32",
+        "readyok"
+      ],
+      "search": [
+        "info string root_mate_safety mate1_cache_hits 10 blunder_cache_hits 1 mate1_nodes 105 blunder_nodes 408",
+        "info depth 11 score mate 15 nodes 66877 nps 1238462 time 54 hashfull 8 pv 9f9b+ 8b9b P*9c 9b9c P*9d 9c9d P*9e 9d9c 7g8e 9c8d G*7e",
+        "bestmove 9f9b+ ponder 8b9b"
+      ],
+      "termination": {
+        "exitcode": 0,
+        "killed": false,
+        "reaped": true
+      }
+    }
+  ],
+  "strength_claim": false,
+  "adoption": false
+}

@@ -1,0 +1,8 @@
+{
+  "schema": "sekirei.public-tsume-pt44-flawed-source-selection.v1",
+  "source_parquet_sha256": "5c998ef29299adeab88583df25c073c18956fa6cce8dc88d897a397cf91104e2",
+  "rows_scanned": 500000,
+  "eligible_rows": 0,
+  "selection_limit": 6,
+  "cases": []
+}

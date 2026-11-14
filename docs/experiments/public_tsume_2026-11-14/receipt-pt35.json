@@ -1,0 +1,49 @@
+{
+  "schema": "sekirei.public-tsume-pt35-mate.v1",
+  "corpus_sha256": "03df5630d2798c01c58c633f278a3b311213911ba0108345a41a3318d4b63b98",
+  "source_commit": "f5507603a59d19f1d258246e7a2ed3569d7bf0dc",
+  "binary_sha256": "ae346ae724eaf2cc9256b0748725b79c18aaa0e793995829eff90603a4ca7a91",
+  "limits": {
+    "max_ply_each": 13,
+    "nodes_each": 1000000,
+    "wall_s_each": 4,
+    "calls": 5
+  },
+  "cases": [
+    {
+      "id": "fgv4-a6792e9c7119",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2022/04/05/wdoor+floodgate-300-10F+elmo_WCSC27_479_1000k+nene_20220403_ipad9+20220405060008.csa",
+      "exit_code": 0,
+      "stdout": "outcome=Mate valid=true distance=Some(13) nodes=10278 aborted=false solutions=8c8b+\n",
+      "stderr": ""
+    },
+    {
+      "id": "fgv4-bcc4e63ffdeb",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2022/02/19/wdoor+floodgate-300-10F+Krist_483_473stb_1000k+dlshogi_pre17_po10000+20220219050010.csa",
+      "exit_code": 0,
+      "stdout": "outcome=Mate valid=true distance=Some(13) nodes=1824 aborted=false solutions=G*2b\n",
+      "stderr": ""
+    },
+    {
+      "id": "fgv4-c447ae92bc1f",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2020/09/21/wdoor+floodgate-300-10F+Ayame_4t+elmo_WCSC27_479_1000k+20200921113006.csa",
+      "exit_code": 0,
+      "stdout": "outcome=Mate valid=true distance=Some(13) nodes=8095 aborted=false solutions=9f8e\n",
+      "stderr": ""
+    },
+    {
+      "id": "fgv4-df42bb7bd6bf",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2010/01/10/wdoor+floodgate-900-0+gps99+gps_l+20100110183004.csa",
+      "exit_code": 0,
+      "stdout": "outcome=NoMate valid=true distance=None nodes=7 aborted=false solutions=\n",
+      "stderr": ""
+    },
+    {
+      "id": "fgv4-e431511566b5",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2013/06/02/wdoor+floodgate-900-0+gps_normal+sakurapyon_2013+20130602073006.csa",
+      "exit_code": 0,
+      "stdout": "outcome=Mate valid=true distance=Some(13) nodes=5838 aborted=false solutions=S*8d\n",
+      "stderr": ""
+    }
+  ]
+}

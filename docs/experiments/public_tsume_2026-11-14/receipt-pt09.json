@@ -1,0 +1,72 @@
+{
+  "schema": "sekirei.public-tsume-probe.v1",
+  "source_input_sha256": "2bd5b15f88bb77ed4774ae9eaab2557d823235d6132e82604a59bbe2dba4934b",
+  "binary_sha256": "0aaf9cb72b9b85a6b4d9f424c5da5355181d3b206854b52b44cd2e2f9f03f8a4",
+  "limits": {
+    "nodes": 1000000,
+    "movetime_ms": 1000,
+    "wall_s": 4.0,
+    "threads": 1,
+    "mode": "Speculative"
+  },
+  "cases": [
+    {
+      "id": "fg-20230118-p96",
+      "sfen": "l5snk/5BgLp/p2pp1gpP/2p2p1nN/4P1S2/2sB1Pl2/P2P2RP1/3S5/L+rG2K3 b G2Pn3p 97",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2023/01/18/wdoor+floodgate-300-10F+Krist_483_473stb_1000k+AI_Ari_Shogi_Super_torch_test2+20230118230001.csa",
+      "record_url": null,
+      "verified_line": [
+        "2b2a+",
+        "1a2a",
+        "1c1b+",
+        "2a1b",
+        "P*1c",
+        "1b1c",
+        "N*2e",
+        "1c1d",
+        "P*1e",
+        "1d1e",
+        "3e2f",
+        "1e1d",
+        "G*1c"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 1.268,
+        "transcript": [
+          "info depth 14 score cp 1426 nodes 675840 nps 708427 time 954 hashfull 61 pv 7i8i 3b4b 2b2a+ 1a2a 1c1b+ 2a3b 1b2b 3a2b 1d2b+ 3b2b",
+          "bestmove 7i8i ponder 3b4b"
+        ]
+      }
+    },
+    {
+      "id": "fg-20171030-p156",
+      "sfen": "1n7/l1S1+P4/k1p4p1/ppsN1bp1p/7N1/P1PLp1gP1/1P1P1+p2P/1K1S5/LN1S2+r2 b 2Grbgl3p 157",
+      "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2017/10/30/wdoor+floodgate-300-10F+gps_l+Sunfish4-AWS09+20171030130000.csa",
+      "record_url": null,
+      "verified_line": [
+        "G*8c",
+        "7d8c",
+        "7b8c+",
+        "9c8c",
+        "S*7b",
+        "8c8b",
+        "G*8c",
+        "8b9a",
+        "7b8a+",
+        "9a8a",
+        "6d7b+",
+        "8a9a",
+        "7b8b"
+      ],
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.986,
+        "transcript": [
+          "info depth 15 score cp -2452 nodes 909312 nps 952159 time 955 hashfull 43 pv 9f9e 9d9e 7b8a 3i6i G*7i 6i5h N*8f 7d8c 9i9e P*9d G*9a G*8b 9e9d 8c9d 8f9d",
+          "bestmove 9f9e ponder 9d9e"
+        ]
+      }
+    }
+  ]
+}
