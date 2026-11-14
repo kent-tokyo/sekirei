@@ -13,6 +13,10 @@ frozen HalfKP incumbent on engine B using the same engine build. Both loader
 acknowledgements and evaluator identities are then checked. Explicit options
 can study parallel modes.
 
+With ``--openings-manifest``, self-play may also pin a shared ``--evalfile``
+for both engines. The wrapper verifies both load acknowledgements and checks
+the weight identity again after play.
+
 Self-play A/B (engine A is reported)::
 
     python3 scripts/run_ab_match.py selfplay --engine-a new/sekirei \\
@@ -789,7 +793,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
             "validated before the match starts"
         ),
     )
-    parser.add_argument("--openings-manifest", help="require and replay a frozen independent material-opening manifest")
+    parser.add_argument("--openings-manifest", help="require and replay a frozen independent opening manifest")
     args = parser.parse_args(argv)
 
     if args.mode == "selfplay" and not args.engine_b:
@@ -798,6 +802,12 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         parser.error("yaneuraou mode needs --yaneuraou")
     material_only = args.evalfile.lower() in {"none", "material"}
     candidate_material_gate = args.candidate_evalfile is not None
+    shared_halfkp_gate = bool(args.openings_manifest and not material_only and not candidate_material_gate)
+    if shared_halfkp_gate:
+        shared_path = Path(args.evalfile).expanduser().resolve()
+        if not shared_path.is_file():
+            parser.error("independent shared HalfKP gate needs an existing --evalfile")
+        args.evalfile = str(shared_path)
     if args.baseline_evalfile is not None and not candidate_material_gate:
         parser.error("--baseline-evalfile requires --candidate-evalfile")
     if args.mode == "yaneuraou" and material_only:
@@ -853,15 +863,15 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
             parser.error("--paired-sprt requires an even --games-per-position")
     if args.openings_manifest and not args.result_json:
         parser.error("--openings-manifest requires --result-json")
-    if args.openings_manifest and (args.mode != "selfplay" or not material_only):
-        parser.error("--openings-manifest requires selfplay with a material baseline")
+    if args.openings_manifest and args.mode != "selfplay":
+        parser.error("--openings-manifest requires selfplay")
     if args.openings_manifest:
         for option in args.option_a + args.option_b:
             if any(char in option for char in "\r\n\0"):
                 parser.error("independent gate options must be single-line")
             option_name = option.partition("=")[0].strip().casefold()
             protected_options = {"evalfile"}
-            if candidate_material_gate:
+            if candidate_material_gate or shared_halfkp_gate:
                 protected_options.update({"fv_scale", "nnueoutput"})
             if option_name in protected_options:
                 parser.error("independent gates cannot override evaluator options through side options")
@@ -895,6 +905,7 @@ def main() -> int:
     args, material_only, sprt = parse_args()
     candidate_material_gate = args.candidate_evalfile is not None
     candidate_baseline_gate = args.baseline_evalfile is not None
+    shared_halfkp_gate = bool(args.openings_manifest and not material_only and not candidate_material_gate)
     if args.supervised:
         from ab_match_supervisor import supervise
         return supervise(args, sys.argv[1:])
@@ -925,6 +936,8 @@ def main() -> int:
                 independent_inputs.append(args.candidate_evalfile)
             if candidate_baseline_gate:
                 independent_inputs.append(args.baseline_evalfile)
+            if shared_halfkp_gate:
+                independent_inputs.append(args.evalfile)
             frozen_inputs = [file_identity(path) for path in independent_inputs]
             if any(not item or not item.get("exists") or not item.get("sha256") for item in frozen_inputs):
                 raise ValueError("independent corpus requires explicit existing engine and runner files")
@@ -978,7 +991,7 @@ def main() -> int:
         args.spec_top_n_a,
         args.hash,
     )
-    if candidate_material_gate:
+    if candidate_material_gate or shared_halfkp_gate:
         command += ["--engine-option1", "NnueOutput=absolute"]
     command += [arg for option in args.option_a for arg in ("--engine-option1", option)]
     if args.mode == "selfplay":
@@ -992,7 +1005,7 @@ def main() -> int:
             args.spec_top_n_b,
             args.hash,
         )
-        if candidate_baseline_gate:
+        if candidate_baseline_gate or shared_halfkp_gate:
             command += ["--engine-option2", "NnueOutput=absolute"]
     else:
         command += yaneuraou_options(
@@ -1111,6 +1124,16 @@ def main() -> int:
                 if process_code in {None, 0} or terminated_for_sprt:
                     process_code = 1
                 verdict = ""
+        if launch_error is None and shared_halfkp_gate:
+            shared_evidence_error = validate_candidate_baseline_evidence(
+                raw_json_path, args.evalfile, args.evalfile, args.fv_scale,
+                (args.engine_a, engine2),
+            )
+            if shared_evidence_error is not None:
+                launch_error = f"EvidenceError: {shared_evidence_error}"
+                if process_code in {None, 0} or terminated_for_sprt:
+                    process_code = 1
+                verdict = ""
         if launch_error is None and sprt is not None:
             try:
                 durable_counts, durable_llr, durable_verdict = replay_durable_sprt(
@@ -1152,6 +1175,8 @@ def main() -> int:
                 independent_inputs.append(args.candidate_evalfile)
             if candidate_baseline_gate:
                 independent_inputs.append(args.baseline_evalfile)
+            if shared_halfkp_gate:
+                independent_inputs.append(args.evalfile)
             current_inputs = [file_identity(path) for path in independent_inputs]
             if current_corpus != corpus_evidence or current_inputs != frozen_inputs:
                 raise ValueError("independent gate inputs changed during the match")
@@ -1307,6 +1332,8 @@ def main() -> int:
                         if candidate_baseline_gate
                         else "candidate-halfkp-vs-material"
                         if candidate_material_gate
+                        else "shared-halfkp"
+                        if shared_halfkp_gate
                         else "material" if material_only else "halfkp"
                     ),
                     "file": (
@@ -1327,6 +1354,8 @@ def main() -> int:
                         else {}
                     ),
                     **({"native_yaneuraou_binding": evaluator_binding} if evaluator_binding is not None else {}),
+                    **({"both_load_acknowledgements_verified": launch_error is None}
+                       if shared_halfkp_gate else {}),
                 },
                 "openings": openings,
                 **({"pinned_inputs_before_match": frozen_inputs} if corpus_evidence is not None else {}),
