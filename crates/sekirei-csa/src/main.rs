@@ -54,6 +54,16 @@ fn run() -> i32 {
         std::process::exit(64);
     });
 
+    if let Some(threads) = config.threads
+        && let Err(error) = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build_global()
+    {
+        eprintln!("[csa] failed to configure {threads} Rayon workers: {error}");
+        return 64;
+    }
+    eprintln!("[csa] Rayon workers {}", rayon::current_num_threads());
+
     sekirei_core::halfkp::set_fv_scale(config.fv_scale).expect("FV_SCALE was validated");
     eprintln!("[csa] FV_SCALE {}", sekirei_core::halfkp::fv_scale());
     if config.evaluation == EvaluationMode::Nnue {
@@ -307,6 +317,16 @@ fn parse_args_with_args(argv: Vec<String>) -> Result<Config, String> {
                 }
                 cfg.fv_scale = scale;
             }
+            "--threads" => {
+                i += 1;
+                let threads = arg(&argv, i)?
+                    .parse::<usize>()
+                    .map_err(|_| "--threads must be in 1..=64".to_string())?;
+                if !(1..=64).contains(&threads) {
+                    return Err("--threads must be in 1..=64".into());
+                }
+                cfg.threads = Some(threads);
+            }
             "--eval" => {
                 i += 1;
                 evaluation_explicit = true;
@@ -439,6 +459,7 @@ struct RunManifest<'a> {
     binary_bytes: u64,
     weights_active: bool,
     fv_scale: i32,
+    threads: usize,
 }
 
 impl RunManifest<'_> {
@@ -457,6 +478,7 @@ impl RunManifest<'_> {
             },
             "evaluation": config.evaluation.as_str(),
             "fv_scale": self.fv_scale,
+            "threads": self.threads,
             "weights": {
                 "path": config.weights_path,
                 "active": self.weights_active,
@@ -498,6 +520,7 @@ fn write_run_manifest(
         binary_bytes: std::fs::metadata(&binary)?.len(),
         weights_active: sekirei_core::nnue::weights_active() || sekirei_core::halfkp::is_active(),
         fv_scale: sekirei_core::halfkp::fv_scale(),
+        threads: rayon::current_num_threads(),
     };
     let document = manifest.to_json();
     if let Some(parent) = path.parent()
@@ -531,6 +554,7 @@ fn print_usage() {
     eprintln!("  --fischer-time-policy <legacy|bank-reserve>  Fischer budget (default: legacy)");
     eprintln!("  --weights <file>   NNUE weight file");
     eprintln!("  --fv-scale <n>     HalfKP output divisor (1..=128, default: 16)");
+    eprintln!("  --threads <n>      Rayon workers (1..=64, default: automatic)");
     eprintln!("  --eval <mode>      material or nnue (default: material)");
     eprintln!("  --record-dir <dir> local CSA record directory (default: data/floodgate)");
     eprintln!("  --analysis-dir <dir> per-game search summary JSONL (disabled by default)");
@@ -579,6 +603,7 @@ mod tests {
         assert!(text.contains("\"max_depth\": 7"));
         assert!(text.contains("\"resign_score_cp\": -1234"));
         assert!(text.contains("\"fv_scale\": 16"));
+        assert!(text.contains(&format!("\"threads\": {}", rayon::current_num_threads())));
         assert!(text.contains("\"active\": false"));
         assert!(text.contains("\"analysis_record_schema\": \"sekirei.analysis-record.v3\""));
         assert!(text.contains("\"keep_alive\": false"));
@@ -717,6 +742,18 @@ mod tests {
             assert!(matches!(error, Err(message) if message.contains("1..=128")));
         }
         assert!(parse_args_from(["--fv-scale"]).is_err());
+    }
+
+    #[test]
+    fn explicit_csa_threads_are_bounded() {
+        assert_eq!(parse_args_from([]).unwrap().threads, None);
+        assert_eq!(
+            parse_args_from(["--threads", "4"]).unwrap().threads,
+            Some(4)
+        );
+        for value in ["0", "65", "invalid"] {
+            assert!(parse_args_from(["--threads", value]).is_err());
+        }
     }
 
     #[test]

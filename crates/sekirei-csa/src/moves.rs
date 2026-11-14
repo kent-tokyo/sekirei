@@ -4,7 +4,12 @@
 //! rank 1-9 (top to bottom). Drop: file=0, rank=0 → "00".
 
 use sekirei_core::{
-    board::Board, color::Color, movegen::generate_legal_moves, mv::Move, piece::PieceKind,
+    board::Board,
+    color::Color,
+    movegen::{generate_legal_moves, is_in_check},
+    mv::Move,
+    piece::PieceKind,
+    sfen::{PositionHistory, STARTPOS_SFEN},
     square::Square,
 };
 
@@ -129,9 +134,26 @@ pub fn csa_to_move(board: &mut Board, token: &str) -> Option<Move> {
 /// silently corrupts handicap/opening games and makes protocol bugs look like
 /// search mates. Convert the position block to the engine's already-tested SFEN
 /// parser instead of duplicating board construction here.
-pub fn board_from_csa_position(lines: &[String]) -> Result<Board, String> {
+fn base_board_from_csa_position(lines: &[String]) -> Result<Board, String> {
     if lines.iter().any(|line| line == "PI") && !lines.iter().any(|line| line.starts_with("P1")) {
-        return Ok(Board::startpos());
+        if lines
+            .iter()
+            .any(|line| line.starts_with('P') && line != "PI")
+        {
+            return Err("CSA PI position has unsupported piece overrides".into());
+        }
+        let sides: Vec<_> = lines
+            .iter()
+            .filter(|line| line.as_str() == "+" || line.as_str() == "-")
+            .collect();
+        return match sides.as_slice() {
+            [] => Ok(Board::startpos()),
+            [side] if side.as_str() == "+" => Ok(Board::startpos()),
+            [side] if side.as_str() == "-" => {
+                Board::from_sfen(&STARTPOS_SFEN.replacen(" b ", " w ", 1))
+            }
+            _ => Err("CSA position has conflicting side-to-move markers".into()),
+        };
     }
     let mut ranks = Vec::with_capacity(9);
     let mut hand = String::new();
@@ -230,6 +252,62 @@ pub fn board_from_csa_position(lines: &[String]) -> Result<Board, String> {
     Board::from_sfen(&sfen)
 }
 
+/// Apply a legal move to both the board and the repetition history.
+pub fn do_move_with_history(board: &mut Board, history: &mut PositionHistory, mv: Move) {
+    debug_assert_eq!(
+        history.entries().last().map(|entry| entry.hash),
+        Some(board.hash())
+    );
+    let mover = board.side_to_move;
+    board.do_move(mv);
+    history.push_after_move(board.hash(), mover, is_in_check(board, board.side_to_move));
+}
+
+fn position_move_token(line: &str) -> Result<Option<&str>, String> {
+    let (token, time) = match line.split_once(',') {
+        Some((token, time)) => (token, Some(time)),
+        None => (line, None),
+    };
+    if is_csa_move_token(token) {
+        if let Some(time) = time
+            && time
+                .strip_prefix('T')
+                .and_then(|value| value.parse::<u64>().ok())
+                .and_then(|units| units.checked_mul(1_000))
+                .is_none()
+        {
+            return Err(format!("invalid CSA position move time: {line}"));
+        }
+        Ok(Some(token))
+    } else if (token.starts_with('+') || token.starts_with('-')) && token.len() > 5 {
+        Err(format!("invalid CSA position move: {line}"))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Reconstruct the position and all preceding moves supplied by the CSA server.
+pub fn position_with_history_from_csa_position(
+    lines: &[String],
+) -> Result<(Board, PositionHistory), String> {
+    let mut board = base_board_from_csa_position(lines)?;
+    let mut history = PositionHistory::initial(board.hash());
+    for line in lines {
+        if let Some(token) = position_move_token(line)? {
+            let mv = csa_to_move(&mut board, token)
+                .ok_or_else(|| format!("illegal CSA position move: {line}"))?;
+            do_move_with_history(&mut board, &mut history, mv);
+        }
+    }
+    Ok((board, history))
+}
+
+/// Board-only adapter used by the standalone CSA replay binaries.
+#[allow(dead_code)]
+pub fn board_from_csa_position(lines: &[String]) -> Result<Board, String> {
+    position_with_history_from_csa_position(lines).map(|(board, _)| board)
+}
+
 fn sfen_piece(kind: PieceKind, black: bool) -> String {
     let ch = match kind.unpromoted() {
         PieceKind::Fu => 'P',
@@ -326,6 +404,85 @@ mod tests {
     fn csa_pi_selects_standard_startpos() {
         let parsed = board_from_csa_position(&["PI".into(), "+".into()]).expect("valid PI");
         assert_eq!(parsed.hash(), Board::startpos().hash());
+    }
+
+    fn sparse_position(with_rook: bool) -> Vec<String> {
+        let mut lines = Vec::new();
+        for rank in 1..=9 {
+            let mut row = format!("P{rank}");
+            for file in (1..=9).rev() {
+                row.push_str(match (file, rank) {
+                    (5, 1) => "-OU",
+                    (9, 9) => "+OU",
+                    (4, 3) if with_rook => "+HI",
+                    _ => " * ",
+                });
+            }
+            lines.push(row);
+        }
+        lines.push("+".into());
+        lines
+    }
+
+    #[test]
+    fn csa_position_and_live_moves_preserve_fourfold_history() {
+        use sekirei_core::sfen::RepetitionOutcome;
+
+        let mut lines = sparse_position(false);
+        let cycle = ["+9998OU", "-5152OU", "+9899OU", "-5251OU"];
+        for _ in 0..2 {
+            lines.extend(cycle.into_iter().map(str::to_owned));
+        }
+        let (mut board, mut history) =
+            position_with_history_from_csa_position(&lines).expect("legal embedded moves");
+        assert_eq!(history.entries().len(), 9);
+        assert_eq!(history.entries().last().unwrap().hash, board.hash());
+        assert_eq!(history.outcome_at_current_position(), None);
+        for token in cycle {
+            let mv = csa_to_move(&mut board, token).expect("legal live move");
+            do_move_with_history(&mut board, &mut history, mv);
+        }
+        assert_eq!(history.entries().len(), 13);
+        assert_eq!(history.entries().last().unwrap().hash, board.hash());
+        assert_eq!(
+            history.outcome_at_current_position(),
+            Some(RepetitionOutcome::Draw)
+        );
+        assert_eq!(
+            board_from_csa_position(&lines).unwrap().hash(),
+            history.entries()[8].hash
+        );
+    }
+
+    #[test]
+    fn csa_position_records_perpetual_check_from_legal_moves() {
+        use sekirei_core::sfen::RepetitionOutcome;
+
+        let mut lines = sparse_position(true);
+        let cycle = ["+4353HI", "-5141OU", "+5343HI", "-4151OU"];
+        for _ in 0..3 {
+            lines.extend(cycle.into_iter().map(str::to_owned));
+        }
+        let (board, history) =
+            position_with_history_from_csa_position(&lines).expect("legal checking cycle");
+        assert_eq!(history.entries().last().unwrap().hash, board.hash());
+        assert_eq!(
+            history.outcome_at_current_position(),
+            Some(RepetitionOutcome::PerpetualCheck(Color::Black))
+        );
+    }
+
+    #[test]
+    fn csa_position_rejects_bad_embedded_moves_and_honors_pi_side() {
+        let white = board_from_csa_position(&["PI".into(), "-".into()]).unwrap();
+        assert_eq!(white.side_to_move, Color::White);
+        assert!(board_from_csa_position(&["PI".into(), "+".into(), "-".into()]).is_err());
+        assert!(board_from_csa_position(&["PI".into(), "P+00FU".into()]).is_err());
+        assert!(board_from_csa_position(&["PI".into(), "+7776FU".into()]).is_ok());
+        assert!(board_from_csa_position(&["PI".into(), "+7776FU,T1".into()]).is_ok());
+        assert!(board_from_csa_position(&["PI".into(), "-7776FU".into()]).is_err());
+        assert!(board_from_csa_position(&["PI".into(), "+7776F?".into()]).is_err());
+        assert!(board_from_csa_position(&["PI".into(), "+7776FU,Tbad".into()]).is_err());
     }
 
     #[test]
