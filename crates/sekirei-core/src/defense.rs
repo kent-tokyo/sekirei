@@ -5,9 +5,7 @@ use web_time::Instant;
 
 use crate::board::Board;
 use crate::color::Color;
-use crate::mate::{
-    MateAnalysis, MateAnalysisAbortReason, MatePositionPolicy, analyze_mate_with_policy_until,
-};
+use crate::mate::{MateAnalysis, MatePositionPolicy, analyze_mate_with_policy_until};
 use crate::movegen::generate_legal_moves;
 use crate::mv::Move;
 
@@ -27,10 +25,24 @@ pub enum DefenseThreatOutcome {
     /// The move is not legal in the original position.
     IllegalMove,
     /// The shared node or time budget was exhausted before this candidate.
-    Skipped(MateAnalysisAbortReason),
+    Skipped(DefenseLimit),
+    /// The shared deadline expired during this candidate's mate search.
+    TimedOut {
+        /// Positions visited for this candidate before the deadline.
+        nodes: u64,
+    },
     /// The opponent's bounded mate analysis; inspect its `outcome`,
     /// `invalid_reason`, and `abort_reason` before interpreting the result.
     Analyzed(MateAnalysis),
+}
+
+/// Shared resource limit for defense diagnosis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DefenseLimit {
+    /// Total node limit was reached.
+    NodeLimit,
+    /// Total time limit was reached.
+    Deadline,
 }
 
 /// A defense comparison with one budget shared across all candidates.
@@ -76,13 +88,13 @@ pub fn analyze_defense_threats(
         let outcome = if !legal.contains(&candidate) {
             DefenseThreatOutcome::IllegalMove
         } else if nodes >= node_limit {
-            DefenseThreatOutcome::Skipped(MateAnalysisAbortReason::NodeLimit)
+            DefenseThreatOutcome::Skipped(DefenseLimit::NodeLimit)
         } else if Instant::now() >= deadline {
-            DefenseThreatOutcome::Skipped(MateAnalysisAbortReason::Deadline)
+            DefenseThreatOutcome::Skipped(DefenseLimit::Deadline)
         } else {
             let mut position = board.clone();
             let token = position.do_move_for_search(candidate);
-            let analysis = analyze_mate_with_policy_until(
+            let (analysis, timed_out) = analyze_mate_with_policy_until(
                 &position,
                 max_ply,
                 node_limit - nodes,
@@ -91,7 +103,13 @@ pub fn analyze_defense_threats(
             );
             position.undo_move_for_search(token);
             nodes += analysis.nodes;
-            DefenseThreatOutcome::Analyzed(analysis)
+            if timed_out {
+                DefenseThreatOutcome::TimedOut {
+                    nodes: analysis.nodes,
+                }
+            } else {
+                DefenseThreatOutcome::Analyzed(analysis)
+            }
         };
         results.push(DefenseThreat { candidate, outcome });
     }
@@ -122,7 +140,7 @@ pub fn analyze_all_defense_threats(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mate::MateAnalysisOutcome;
+    use crate::mate::{MateAnalysisAbortReason, MateAnalysisOutcome};
     use crate::sfen::{board_to_sfen, move_from_usi, move_to_usi};
 
     const DEFENSE_SFEN: &str =
@@ -178,12 +196,12 @@ mod tests {
         );
         assert_eq!(
             report.candidates[1].outcome,
-            DefenseThreatOutcome::Skipped(MateAnalysisAbortReason::NodeLimit)
+            DefenseThreatOutcome::Skipped(DefenseLimit::NodeLimit)
         );
         let report = analyze_defense_threats(&board, &[legal], 9, 100, Duration::ZERO);
         assert_eq!(
             report.candidates[0].outcome,
-            DefenseThreatOutcome::Skipped(MateAnalysisAbortReason::Deadline)
+            DefenseThreatOutcome::Skipped(DefenseLimit::Deadline)
         );
     }
 
@@ -252,7 +270,7 @@ mod tests {
         let defense = move_from_usi("S*2g", &board).unwrap();
         let mut after = board.clone();
         after.do_move_for_search(defense);
-        let analysis = analyze_mate_with_policy_until(
+        let (analysis, timed_out) = analyze_mate_with_policy_until(
             &after,
             9,
             500_000,
@@ -260,10 +278,8 @@ mod tests {
             Some(Instant::now()),
         );
         assert_eq!(analysis.outcome, MateAnalysisOutcome::Unknown);
-        assert_eq!(
-            analysis.abort_reason,
-            Some(MateAnalysisAbortReason::Deadline)
-        );
+        assert!(timed_out);
+        assert_eq!(analysis.abort_reason, None);
         assert_eq!(analysis.nodes, 0);
     }
 }

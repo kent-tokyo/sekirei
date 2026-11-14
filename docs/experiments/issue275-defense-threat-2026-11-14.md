@@ -6,7 +6,7 @@
 
 ## 実装と呼出し
 
-`sekirei_core::defense::analyze_defense_threats` は入力順に候補を返す。`analyze_all_defense_threats` は合法手を全件対象にし、両関数とも候補間で節点と締切を共有する。候補は `sfen::move_from_usi` で元局面から解析できる。各 `DefenseThreatOutcome::Analyzed` の `MateAnalysis` に相手の状態、最短証明手数、全最短初手、使用節点、打切り理由を残す。`IllegalMove` と `Skipped` に詰みの判定はない。
+`sekirei_core::defense::analyze_defense_threats` は入力順に候補を返す。`analyze_all_defense_threats` は合法手を全件対象にし、両関数とも候補間で節点と締切を共有する。候補は `sfen::move_from_usi` で元局面から解析できる。各 `DefenseThreatOutcome::Analyzed` の `MateAnalysis` に相手の状態、最短証明手数、全最短初手、使用節点、打切り理由を残す。`IllegalMove`、`Skipped`、探索途中の `TimedOut` に詰みの判定はない。時間切れは診断専用の状態で示し、既存の公開 `MateAnalysisAbortReason` に変更を加えない。
 
 ```rust
 use std::time::Duration;
@@ -22,3 +22,5 @@ let report = analyze_defense_threats(&board, &moves, 9, 500_000, Duration::from_
 ## 検証と判断
 
 2026-11-14 の公開 `main` (`03dc17db`) を基点とする隔離checkoutで、上記2候補は `8a8b+` 後に相手 `Mate`・最短1手・`N*2g`、`S*2g` 後に `NoMate`。先後、打ち駒、成り・不成、王手を放置する違法手、合計節点0/1、期限切れ、全合法手、元盤面の復元を対象テストで確認した。`cargo test -p sekirei-core --lib` は470件通過・10件無視、`cargo clippy -p sekirei-core --lib -- -D warnings` と `cargo fmt --all -- --check` も通過。これは診断機能の確認であり、通常探索の棋力改善や issue #277 の解決ではない。
+
+最初のPRのCIで、既存の公開 enum に `Deadline` を追加すると `cargo-semver-checks` が破壊的変更と判定した。公開 enum を元に戻し、診断専用の `DefenseLimit` / `TimedOut` に分離した。同じCIで公開 `main` に元からある `sekirei-train/src/trainer.rs` の重複Clippy属性がworkspaceの2 jobを止めていたため、隔離PRで重複行を1つ削除した。修正後の `cargo clippy --workspace --all-targets -- -D warnings` は通過した。
