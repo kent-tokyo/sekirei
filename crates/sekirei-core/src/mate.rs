@@ -147,6 +147,8 @@ impl MateAnalysisOutcome {
 pub enum MateAnalysisAbortReason {
     /// The configured node limit was reached.
     NodeLimit,
+    /// The configured deadline was reached.
+    Deadline,
 }
 
 impl MateAnalysisAbortReason {
@@ -154,6 +156,7 @@ impl MateAnalysisAbortReason {
     pub const fn code(self) -> &'static str {
         match self {
             Self::NodeLimit => "node_limit",
+            Self::Deadline => "deadline",
         }
     }
 }
@@ -291,7 +294,9 @@ struct CompleteMateSearch {
     attacker: Color,
     nodes: u64,
     node_limit: u64,
+    deadline: Option<Instant>,
     aborted: bool,
+    abort_reason: Option<MateAnalysisAbortReason>,
     path: Vec<u64>,
 }
 
@@ -299,6 +304,15 @@ impl CompleteMateSearch {
     fn visit(&mut self) -> bool {
         if self.nodes >= self.node_limit {
             self.aborted = true;
+            self.abort_reason = Some(MateAnalysisAbortReason::NodeLimit);
+            return false;
+        }
+        if self
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            self.aborted = true;
+            self.abort_reason = Some(MateAnalysisAbortReason::Deadline);
             return false;
         }
         self.nodes += 1;
@@ -464,6 +478,20 @@ pub fn analyze_mate_with_policy(
     node_limit: u64,
     position_policy: MatePositionPolicy,
 ) -> MateAnalysis {
+    analyze_mate_with_policy_until(board, max_ply, node_limit, position_policy, None)
+}
+
+/// Complete mate analysis with a shared deadline for bounded diagnostics.
+///
+/// The deadline is checked at each visited position. Move generation within
+/// one position is non-preemptive, so elapsed time may slightly exceed it.
+pub(crate) fn analyze_mate_with_policy_until(
+    board: &Board,
+    max_ply: u32,
+    node_limit: u64,
+    position_policy: MatePositionPolicy,
+    deadline: Option<Instant>,
+) -> MateAnalysis {
     let attacker = board.side_to_move;
     let invalid_reason = validate_problem_position(board, position_policy);
     if invalid_reason.is_some() {
@@ -484,7 +512,9 @@ pub fn analyze_mate_with_policy(
         attacker,
         nodes: 0,
         node_limit,
+        deadline,
         aborted: false,
+        abort_reason: None,
         path: vec![board.hash()],
     };
 
@@ -513,7 +543,7 @@ pub fn analyze_mate_with_policy(
                     solutions: Vec::new(),
                     nodes: search.nodes,
                     aborted: true,
-                    abort_reason: Some(MateAnalysisAbortReason::NodeLimit),
+                    abort_reason: search.abort_reason,
                 };
             }
         }
