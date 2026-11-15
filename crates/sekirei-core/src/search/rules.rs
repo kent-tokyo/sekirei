@@ -601,4 +601,231 @@ mod tests {
             board.do_move(mv);
         }
     }
+
+    #[test]
+    fn reference_session_rejects_mismatched_rules_limits_and_history() {
+        assert!(RuleSearchSession::new(EnteringKingRule::NoEnteringKing, 1).is_err());
+        assert!(RuleSearchSession::new(EnteringKingRule::CsaRule27, 0).is_err());
+        assert!(RuleSearchSession::new(EnteringKingRule::CsaRule27, 1025).is_err());
+
+        let mut board = Board::startpos();
+        let before = (board.hash(), board.acc.clone(), board.hkp.clone());
+        let history = PositionHistory::initial(board.hash());
+        let bad_history = PositionHistory::initial(board.hash() ^ 1);
+        let session = RuleSearchSession::new(EnteringKingRule::CsaRule27, 1).unwrap();
+        assert!(
+            session
+                .search_with_history(
+                    &mut board,
+                    SearchConfig {
+                        multi_pv: 2,
+                        ..SearchConfig::default()
+                    },
+                    &history
+                )
+                .is_err()
+        );
+        assert!(
+            session
+                .search_with_history(
+                    &mut board,
+                    SearchConfig {
+                        max_depth: MAX_REFERENCE_PLY + 1,
+                        ..SearchConfig::default()
+                    },
+                    &history
+                )
+                .is_err()
+        );
+        assert!(
+            session
+                .search_with_history(&mut board, SearchConfig::default(), &bad_history)
+                .is_err()
+        );
+
+        let stop = session.abort_flag();
+        stop.store(true, Ordering::Relaxed);
+        let stopped = session
+            .search_with_history(&mut board, SearchConfig::default(), &history)
+            .unwrap();
+        assert!(stopped.aborted);
+        assert!(stopped.result.is_none());
+        assert_eq!(stopped.completed_depth, 0);
+        session.reset_abort_flag();
+        session.clear_tt();
+        let deadline = session
+            .search_with_history(
+                &mut board,
+                SearchConfig {
+                    time_limit: Some(Duration::ZERO),
+                    ..SearchConfig::default()
+                },
+                &history,
+            )
+            .unwrap();
+        assert!(deadline.aborted);
+        session.reset_abort_flag();
+        let one_depth = session
+            .search_with_history(
+                &mut board,
+                SearchConfig {
+                    max_depth: 3,
+                    soft_limit: Some(Duration::ZERO),
+                    node_limit: Some(20_000),
+                    ..SearchConfig::default()
+                },
+                &history,
+            )
+            .unwrap();
+        assert_eq!(one_depth.completed_depth, 1);
+        assert_eq!(before, (board.hash(), board.acc.clone(), board.hkp.clone()));
+    }
+
+    #[test]
+    fn reference_terminal_classification_matches_root_child_and_quiescence() {
+        let cases = [
+            (
+                "4k4/3G1G3/4K4/9/9/9/9/9/9 w - 1",
+                RuleScore::Loss {
+                    kind: TerminalKind::Checkmate,
+                    plies: 0,
+                },
+            ),
+            ("k8/9/9/9/9/9/5b1g1/9/8K b - 1", cp(0)),
+        ];
+        for (sfen, score) in cases {
+            let mut board = Board::from_sfen(sfen).unwrap();
+            let before = (board.hash(), board.acc.clone(), board.hkp.clone());
+            assert!(MoveBuffer::legal(&mut board).is_empty(), "{sfen}");
+            let history = PositionHistory::initial(board.hash());
+            let session = RuleSearchSession::new(EnteringKingRule::CsaRule27, 1).unwrap();
+            let found = session
+                .search_with_history(
+                    &mut board,
+                    SearchConfig {
+                        max_depth: 1,
+                        ..SearchConfig::default()
+                    },
+                    &history,
+                )
+                .unwrap();
+            assert_eq!(found.result, Some(exact(score)), "{sfen}");
+            assert_eq!(found.best_move, None);
+            let root_history = SearchHistory::root(&history);
+            let budget = Budget::new(None, Some(100), Arc::new(AtomicBool::new(false)));
+            let context = Context {
+                budget: &budget,
+                deadline: None,
+                rule: EnteringKingRule::CsaRule27,
+            };
+            assert_eq!(
+                node(&context, &mut board, 1, 1, &root_history).result,
+                exact(score)
+            );
+            assert_eq!(
+                qsearch(&context, &mut board, 1, 0, &root_history, false).result,
+                exact(score)
+            );
+            assert_eq!(before, (board.hash(), board.acc.clone(), board.hkp.clone()));
+        }
+    }
+
+    #[test]
+    fn perpetual_check_sign_and_child_abort_preserve_terminal_meaning() {
+        use crate::color::Color;
+        assert_eq!(
+            repetition_score(
+                RepetitionOutcome::PerpetualCheck(Color::Black),
+                Color::Black
+            ),
+            RuleScore::Loss {
+                kind: TerminalKind::PerpetualCheck,
+                plies: 0
+            }
+        );
+        assert_eq!(
+            repetition_score(
+                RepetitionOutcome::PerpetualCheck(Color::Black),
+                Color::White
+            ),
+            RuleScore::Win {
+                kind: TerminalKind::PerpetualCheck,
+                plies: 0
+            }
+        );
+
+        let mut board = Board::from_sfen(DECLARATION_EDGE).unwrap();
+        let before = (board.hash(), board.acc.clone(), board.hkp.clone());
+        let history = PositionHistory::initial(board.hash());
+        let root_history = SearchHistory::root(&history);
+        let budget = Budget::new(None, Some(1), Arc::new(AtomicBool::new(false)));
+        let context = Context {
+            budget: &budget,
+            deadline: None,
+            rule: EnteringKingRule::CsaRule27,
+        };
+        assert_eq!(
+            root(&context, &mut board, 2, &root_history).result,
+            RuleNodeResult::Aborted
+        );
+        assert_eq!(before, (board.hash(), board.acc.clone(), board.hkp.clone()));
+    }
+
+    #[test]
+    fn recursive_entry_adjudicates_repetition_before_declaration() {
+        let mut board = Board::from_sfen(DECLARATION_EDGE).unwrap();
+        let quiet = move_from_usi("5i6i", &board).unwrap();
+        board.do_move(quiet);
+        let before = (board.hash(), board.acc.clone(), board.hkp.clone());
+        assert!(check_declaration(&board, EnteringKingRule::CsaRule27).eligible());
+
+        let current = board.hash();
+        let mut history = PositionHistory::initial(current);
+        for index in 0..6 {
+            let (hash, mover) = if index % 2 == 0 {
+                (current ^ 1, crate::color::Color::Black)
+            } else {
+                (current, crate::color::Color::White)
+            };
+            history.push_after_move(hash, mover, false);
+        }
+        let root_history = SearchHistory::root(&history);
+        let budget = Budget::new(None, Some(100), Arc::new(AtomicBool::new(false)));
+        let context = Context {
+            budget: &budget,
+            deadline: None,
+            rule: EnteringKingRule::CsaRule27,
+        };
+        assert_eq!(
+            node(&context, &mut board, 1, 1, &root_history).result,
+            exact(cp(0))
+        );
+        assert_eq!(
+            qsearch(&context, &mut board, 1, 0, &root_history, false).result,
+            exact(cp(0))
+        );
+        assert_eq!(before, (board.hash(), board.acc.clone(), board.hkp.clone()));
+
+        let single = PositionHistory::initial(current);
+        let single_root = SearchHistory::root(&single);
+        let declaration = exact(RuleScore::Win {
+            kind: TerminalKind::Declaration,
+            plies: 0,
+        });
+        assert_eq!(
+            qsearch(&context, &mut board, 1, 0, &single_root, false).result,
+            declaration
+        );
+        let stopped_budget = Budget::new(None, Some(0), Arc::new(AtomicBool::new(false)));
+        let stopped_context = Context {
+            budget: &stopped_budget,
+            deadline: None,
+            rule: EnteringKingRule::CsaRule27,
+        };
+        assert_eq!(
+            qsearch(&stopped_context, &mut board, 1, 0, &single_root, false).result,
+            RuleNodeResult::Aborted
+        );
+        assert_eq!(before, (board.hash(), board.acc.clone(), board.hkp.clone()));
+    }
 }
