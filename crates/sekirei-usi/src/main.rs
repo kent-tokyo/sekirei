@@ -32,7 +32,7 @@ use sekirei_core::{
         AspirationSnapshot, CooperativeRootPrestartStats, CooperativeRootStats,
         CooperativeRootWaitStats, MATE_SCORE, NmpSnapshot, RECURSIVE_SEARCH_STACK_BYTES,
         SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher,
-        SpecSearchInfo, SpeculativeSearcher,
+        SpecSearchInfo, SpecTaskDrainStats, SpeculativeSearcher,
     },
     sfen::{PositionHistory, RepetitionOutcome, move_to_usi, parse_position_cmd_with_history},
     tt::{Tt, TtWriteSnapshot},
@@ -396,9 +396,11 @@ impl SearchBackend {
                 }
                 result
             }
-            Self::Speculative(s) => {
-                normalize_spec_result(s.search_with_history(board, config, position_history))
-            }
+            Self::Speculative(s) => normalize_spec_result(s.search_with_history_and_diagnostics(
+                board,
+                config,
+                position_history,
+            )),
             Self::LazySmp(s) => {
                 let nmp_before = s.nmp_stats();
                 let aspiration_before = (ASPIRATION_DIAGNOSTICS.load(Ordering::Relaxed)
@@ -516,12 +518,8 @@ fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
     )
 }
 
-fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
-    let spec_task_stats = Some((
-        info.spec_tasks_spawned,
-        info.spec_tasks_remaining,
-        info.spec_join_wait_us,
-    ));
+fn normalize_spec_result((info, drain): (SpecSearchInfo, SpecTaskDrainStats)) -> SearchResult {
+    let spec_task_stats = Some((drain.spawned, drain.remaining, drain.join_wait_us));
     let base = SearchResult::new(
         info.best_move,
         info.score,

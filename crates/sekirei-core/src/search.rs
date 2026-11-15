@@ -4580,12 +4580,6 @@ pub struct SpecSearchInfo {
     pub spec_hits: u32,
     /// Number of depth iterations where speculation was launched.
     pub spec_total: u32,
-    /// Number of speculative tasks submitted during this invocation.
-    pub spec_tasks_spawned: usize,
-    /// Tasks still running when this result was constructed (must be zero).
-    pub spec_tasks_remaining: usize,
-    /// Time spent waiting for speculative tasks after requesting final abort.
-    pub spec_join_wait_us: u64,
     /// MultiPV results: [(move, score)] ordered best-first. Index 0 == best_move.
     pub pv_list: Vec<(Move, i32)>,
     /// Legal principal-variation prefix reconstructed from exact TT entries.
@@ -4595,6 +4589,18 @@ pub struct SpecSearchInfo {
     pub pv: Vec<Move>,
     /// Number of depths where bestmove changed (instability indicator).
     pub bestmove_changes: u32,
+}
+
+/// Optional task-drain diagnostics for one speculative search invocation.
+/// Returned separately so existing `SpecSearchInfo` struct literals remain valid.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SpecTaskDrainStats {
+    /// Number of speculative tasks submitted.
+    pub spawned: usize,
+    /// Tasks still running when the result was constructed (must be zero).
+    pub remaining: usize,
+    /// Microseconds spent waiting after the final abort request.
+    pub join_wait_us: u64,
 }
 
 /// `SpeculativeSearcher` wraps iterative deepening with preemptive
@@ -4692,6 +4698,17 @@ impl SpeculativeSearcher {
         config: SearchConfig,
         history: &PositionHistory,
     ) -> SpecSearchInfo {
+        self.search_with_history_and_diagnostics(board, config, history)
+            .0
+    }
+
+    /// Search and return the task-drain diagnostics for this invocation.
+    pub fn search_with_history_and_diagnostics(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> (SpecSearchInfo, SpecTaskDrainStats) {
         self.spec_pool
             .install(|| self.search_with_history_on_worker(board, config, history))
     }
@@ -4703,7 +4720,7 @@ impl SpeculativeSearcher {
         board: &mut Board,
         config: SearchConfig,
         history: &PositionHistory,
-    ) -> SpecSearchInfo {
+    ) -> (SpecSearchInfo, SpecTaskDrainStats) {
         debug_assert_eq!(
             history.entries().last().map(|entry| entry.hash),
             Some(board.hash())
@@ -4881,7 +4898,7 @@ impl SpeculativeSearcher {
         } else {
             best_pv
         };
-        SpecSearchInfo {
+        let info = SpecSearchInfo {
             best_move,
             score: best_score,
             depth: done_depth,
@@ -4890,13 +4907,16 @@ impl SpeculativeSearcher {
             hashfull: self.tt.hashfull(),
             spec_hits,
             spec_total,
-            spec_tasks_spawned,
-            spec_tasks_remaining,
-            spec_join_wait_us,
             pv_list,
             pv,
             bestmove_changes,
-        }
+        };
+        let drain = SpecTaskDrainStats {
+            spawned: spec_tasks_spawned,
+            remaining: spec_tasks_remaining,
+            join_wait_us: spec_join_wait_us,
+        };
+        (info, drain)
     }
 }
 
@@ -7307,15 +7327,14 @@ mod see_tests {
             multi_pv: 1,
         };
         let t0 = Instant::now();
-        let info = searcher.search(&mut board, config);
+        let history = PositionHistory::initial(board.hash());
+        let (info, drain) =
+            searcher.search_with_history_and_diagnostics(&mut board, config, &history);
         let elapsed = t0.elapsed();
         eprintln!("search_respects_time_limit: returned in {elapsed:?}");
         assert!(info.best_move.is_some(), "search returned no move");
-        assert!(info.spec_tasks_spawned > 0, "no speculative task ran");
-        assert_eq!(
-            info.spec_tasks_remaining, 0,
-            "search returned before task exit"
-        );
+        assert!(drain.spawned > 0, "no speculative task ran");
+        assert_eq!(drain.remaining, 0, "search returned before task exit");
         // Generous ceiling for the debug build: the point is that it RETURNS
         // (a regressed hang never would), well short of a depth-99 search.
         assert!(

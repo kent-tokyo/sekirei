@@ -17,8 +17,9 @@ establish a playing-strength gain or tournament readiness.
   or integer NNUE state; handle `bestmove win`, `%KACHI`, match adjudication,
   and CSA replay with explicit declaration semantics.
 - Record stopping and speculative task-drain diagnostics under fixed local
-  limits. The rules-aware search in `sekirei-core` is a sequential reference
-  path and is not connected to ordinary USI, V1/V2, or parallel search.
+  limits through a separate API that preserves `SpecSearchInfo` struct-literal
+  compatibility. The rules-aware search in `sekirei-core` is a sequential
+  reference path and is not connected to ordinary USI, V1/V2, or parallel search.
 - Inspect optional private HalfKP networks with the bounded `nnue_probe`
   diagnostics. No weights are bundled or selected as the default.
 
