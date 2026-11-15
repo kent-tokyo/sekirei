@@ -1,0 +1,60 @@
+{
+  "schema": "sekirei.pt73-article-replay.v1",
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "search_sha256": "1dd53f83c57601953c556403ad8bdac1929f6af0cc4946a4b068a33bb746d2ca",
+  "helper_sha256": "0ba4d163b92a29cd6c64b2d801d9b6fd573c5895fb69572aa05c538e266a772d",
+  "cases": [
+    {
+      "mode": "material",
+      "proved_first": "R*7i",
+      "bestmove": "8b1b",
+      "score_line": "info depth 13 score cp 211 nodes 1000000 nps 1385041 time 722 hashfull 43 pv 8b1b 7h8g N*9e 8g9f R*5a N*6c 5a7a 6c7a+ 1c1d",
+      "moves": [
+        "8b1b",
+        "7h8g",
+        "N*9e",
+        "8g9f",
+        "R*5a",
+        "N*6c",
+        "5a7a",
+        "6c7a+",
+        "1c1d"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=false\npv_legal=true plies=9 terminal_check=false legal_replies=210 input_hash=e4d66d64fb559430",
+        "stderr": ""
+      }
+    },
+    {
+      "mode": "r6",
+      "proved_first": "R*7i",
+      "bestmove": "R*3h",
+      "score_line": "info depth 17 score cp -129 nodes 1000000 nps 1121076 time 892 hashfull 67 pv R*3h P*4h 3h4h+ 7h8g S*7h 8g7f S*6e 6f6e 5d6e 7f7e 6e7d 7e6d S*7c 6d5d 8b5b 5d4e 8c7b",
+      "moves": [
+        "R*3h",
+        "P*4h",
+        "3h4h+",
+        "7h8g",
+        "S*7h",
+        "8g7f",
+        "S*6e",
+        "6f6e",
+        "5d6e",
+        "7f7e",
+        "6e7d",
+        "7e6d",
+        "S*7c",
+        "6d5d",
+        "8b5b",
+        "5d4e",
+        "8c7b"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=true\npv_legal=true plies=17 terminal_check=false legal_replies=277 input_hash=e4d66d64fb559430",
+        "stderr": ""
+      }
+    }
+  ]
+}

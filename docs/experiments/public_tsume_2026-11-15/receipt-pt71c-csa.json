@@ -1,0 +1,14 @@
+{
+  "schema": "sekirei.pt71c-csa.v1",
+  "source_url": "https://wdoor.c.u-tokyo.ac.jp/shogi/x/2013/05/31/wdoor+floodgate-900-0+ponanza-990XEE+NineDayFever_XeonE5-2690_16c+20130531163001.csa",
+  "game_id": "wdoor+floodgate-900-0+ponanza-990XEE+NineDayFever_XeonE5-2690_16c+20130531163001",
+  "source_csa_sha256": "43f6059752e1d135c86f69a1822d9d90a70f7feb37c61e88d846118cfd4674f4",
+  "article_corpus_sha256": "b31dba003d2ac9c9e60dc6e57f72b0654f3070eb47db22a40e214b84b19638b1",
+  "replay_helper_sha256": "7739984f33a1dfe9522ba8df88bd1b65fecc29830faf151692395c0d656f2f66",
+  "rlib_sha256": "50852f595b99e33ff4629a623c09c1a0dba111ad28ccd60d66d223d3e2c8a1ee",
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "after_plies": 103,
+  "replay_output": "plies=103 total_moves=122\nsfen=l1B5l/1r7/pk4g1p/1pPps3G/4N4/1P1P1p3/PnGNP3P/2K6/L7L w BG4Pr3sn3p 104\nnext_recorded_move=R*7i\nfollowing_moves=R*7i 7h8g 7i7g+ 8g7g P*7f 7g7f S*6e 6f6e 5d6e 7f7g S*6f 7g6h N*7f 6h5i S*5h 5i5h 6f5g+ 5h5g G*4g",
+  "article_sfen_match": true,
+  "article_next_move_match": true
+}

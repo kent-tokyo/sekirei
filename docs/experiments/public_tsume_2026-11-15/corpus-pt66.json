@@ -1,0 +1,40 @@
+{
+  "schema": "sekirei.public-tsume-pt66-sougyoku-positions.v1",
+  "list_url": "https://tsumeshogi.com/tags/%E5%8F%8C%E7%8E%89?page=3",
+  "list_html_sha256": "51d11b7404facd67fd369ef4d553544c7bd3d5d7904dd6a53b9380e15c73a25e",
+  "cases": [
+    {
+      "list_index": 6,
+      "title": "(^O^)／17手詰だよ　#2251",
+      "listed_ply": 17,
+      "source_url": "https://tsumeshogi.com/problems/pgt1mj6ikq",
+      "html_sha256": "2a967b29ff1cfc6dc5abd9f3d89a1fc4e2b3ae771aa5a556c8e37cd179775354",
+      "sfen": "7kl/3n5/2n3p2/4K1L1B/3+B1N1N1/7r1/9/9/9 b r4g4s2l17p 1",
+      "html_solution_attr": "",
+      "black_kings": 1,
+      "white_kings": 1
+    },
+    {
+      "list_index": 13,
+      "title": "19手詰",
+      "listed_ply": 19,
+      "source_url": "https://tsumeshogi.com/problems/asipdynfmk",
+      "html_sha256": "9de3948129fafae5fada8b769d9730816eff9c7a66142c96e1c634e6326cf806",
+      "sfen": "6p1k/7lB/6K2/8p/9/9/9/9/9 b S2N3P2rb4g3s2n3l13p 1",
+      "html_solution_attr": "",
+      "black_kings": 1,
+      "white_kings": 1
+    },
+    {
+      "list_index": 14,
+      "title": "17手詰",
+      "listed_ply": 17,
+      "source_url": "https://tsumeshogi.com/problems/migumgysm0",
+      "html_sha256": "345690fd237cbff984858d7052e07e57ffdabb3b4a1d2e3f6bc9199726e43945",
+      "sfen": "5k3/5sppS/1K1S3NB/4rL3/5gP2/8N/9/9/9 b GNrb2gsn3l15p 1",
+      "html_solution_attr": "",
+      "black_kings": 1,
+      "white_kings": 1
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "schema": "sekirei.pt72-article-mate.v1",
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "corpus_sha256": "b31dba003d2ac9c9e60dc6e57f72b0654f3070eb47db22a40e214b84b19638b1",
+  "proof_binary_sha256": "3d56764ba7ed6195635bcfb3d2118edd2ba2281e1005b2ea0e6a7ab19ab112f5",
+  "shortest_binary_sha256": "d5975a731877662f226bbebf5eb26aa51b50c9c9af0007c087c35c952011bb57",
+  "rlib_sha256": "50852f595b99e33ff4629a623c09c1a0dba111ad28ccd60d66d223d3e2c8a1ee",
+  "sfen": "l1B5l/1r7/pk4g1p/1pPps3G/4N4/1P1P1p3/PnGNP3P/2K6/L7L w BG4Pr3sn3p 104",
+  "max_ply": 21,
+  "proof": {
+    "status": "complete",
+    "returncode": 0,
+    "elapsed_s": 0.41,
+    "stdout": "verified=true invalid=None stop=None search_nodes=369724 extraction_nodes=2494 verification_nodes=834 first=R*7i longest=21 line=R*7i 7h8g 7i7g+ 8g9f S*9e 9f9e 9c9d 9e9f 9d9e",
+    "stderr": ""
+  },
+  "shortest": {
+    "status": "complete",
+    "returncode": 0,
+    "elapsed_s": 2.602,
+    "stdout": "outcome=Unknown valid=true distance=None nodes=5000000 aborted=true solutions=",
+    "stderr": ""
+  }
+}

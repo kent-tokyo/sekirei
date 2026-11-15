@@ -1,0 +1,50 @@
+{
+  "schema": "sekirei.pt68-proof.v1",
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "corpus_sha256": "0ed0434a9c49e3a63f850a9ecdd872ca8fdbc7f1322c78acc1e8491156e2a620",
+  "driver_sha256": "3d56764ba7ed6195635bcfb3d2118edd2ba2281e1005b2ea0e6a7ab19ab112f5",
+  "rlib_sha256": "50852f595b99e33ff4629a623c09c1a0dba111ad28ccd60d66d223d3e2c8a1ee",
+  "limits": {
+    "search_nodes": 5000000,
+    "extraction_nodes": 1000000,
+    "verification_nodes": 1000000,
+    "internal_deadline_s": 8,
+    "wall_s_per_case": 10,
+    "threads": 1
+  },
+  "cases": [
+    {
+      "list_index": 15,
+      "source_url": "https://tsumeshogi.com/problems/jlyg0bwfn2",
+      "listed_ply": 25,
+      "sfen": "9/3bn2k1/4Gl1N1/4+R4/8n/5+p1K1/9/9/9 b R2Lb3g4snl17p 1",
+      "status": "complete",
+      "returncode": 0,
+      "elapsed_s": 0.884,
+      "stdout": "verified=true invalid=None stop=None search_nodes=570766 extraction_nodes=52191 verification_nodes=21864 first=R*4b longest=25 line=R*4b P*3b 4b3b+ 2b3b 2c3a+ 3b3a L*3e P*3b 3e3b+ 3a3b 5d4c 3b3a 4c4b 3a2a L*2c P*2b 2c2b+",
+      "stderr": ""
+    },
+    {
+      "list_index": 9,
+      "source_url": "https://tsumeshogi.com/problems/lgoldo4sxn",
+      "listed_ply": 29,
+      "sfen": "ln7/1+bbP5/k2+P5/1P1R5/1pG+r5/9/1K7/9/9 b 4S3g3n3l14p 1",
+      "status": "complete",
+      "returncode": 0,
+      "elapsed_s": 6.244,
+      "stdout": "verified=false invalid=None stop=Some(SearchNodes) search_nodes=5000000 extraction_nodes=0 verification_nodes=0 first= longest=0 line=",
+      "stderr": ""
+    },
+    {
+      "list_index": 18,
+      "source_url": "https://tsumeshogi.com/problems/49smnkg_p3",
+      "listed_ply": 25,
+      "sfen": "1bl1nnn2/r1+P+P+P+P+P1+P/1sP4kP/2R6/1+B1pg4/3s5/2+p4K1/9/9 b 3g2sn3l8p 1",
+      "status": "complete",
+      "returncode": 0,
+      "elapsed_s": 0.04,
+      "stdout": "verified=true invalid=None stop=None search_nodes=42442 extraction_nodes=651 verification_nodes=260 first=3b2b longest=25 line=3b2b 2c3c 4b3b 3c4c 5b4b 4c5c 6b5b 5c6c 7d1d P*7d 5b6b 6c5c 8e8f 7d7e 6b5b 5c6c 8f8e L*7d 8e7d 8c7d L*6d",
+      "stderr": ""
+    }
+  ]
+}

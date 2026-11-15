@@ -1,0 +1,15 @@
+{
+  "schema": "sekirei.pt71b-article.v1",
+  "source_url": "https://suimon-shogi.com/tumeshogi-01/",
+  "source_html_sha256": "dab9e4df7198f902e038a34d7e8676ca0ceb78949dec1fc049b1de0a5a48d550",
+  "game_id": "wdoor+floodgate-900-0+ponanza-990XEE+NineDayFever_XeonE5-2690_16c+20130531163001",
+  "article_position_after_plies": 103,
+  "article_label": "実戦は19手、最長21手",
+  "diagram": "後手：NineDayFever_XeonE5-2690_16c\n後手の持駒：飛　銀三　桂　歩三　\n  ９ ８ ７ ６ ５ ４ ３ ２ １\n+---------------------------+\n|v香 ・ 角 ・ ・ ・ ・ ・v香|一\n| ・v飛 ・ ・ ・ ・ ・ ・ ・|二\n|v歩v玉 ・ ・ ・ ・v金 ・v歩|三\n| ・v歩 歩v歩v銀 ・ ・ ・ 金|四\n| ・ ・ ・ ・ 桂 ・ ・ ・ ・|五\n| ・ 歩 ・ 歩 ・v歩 ・ ・ ・|六\n| 歩v桂 金 桂 歩 ・ ・ ・ 歩|七\n| ・ ・ 玉 ・ ・ ・ ・ ・ ・|八\n| 香 ・ ・ ・ ・ ・ ・ ・ 香|九\n+---------------------------+\n先手：ponanza-990XEE\n先手の持駒：角　金　歩四　\n手数＝103  ▲７四同歩  まで\n\n後手番\n",
+  "sfen": "l1B5l/1r7/pk4g1p/1pPps3G/4N4/1P1P1p3/PnGNP3P/2K6/L7L w BG4Pr3sn3p 104",
+  "next_recorded_move": "R*7i",
+  "next_move_verification": "first_move_legal=true gives_check=true\npv_legal=true plies=1 terminal_check=true legal_replies=3 input_hash=e4d66d64fb559430",
+  "verification_binary_sha256": "0ba4d163b92a29cd6c64b2d801d9b6fd573c5895fb69572aa05c538e266a772d",
+  "official_csa_replayed": false,
+  "official_csa_http_status": 404
+}

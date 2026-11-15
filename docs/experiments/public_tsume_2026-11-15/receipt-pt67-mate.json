@@ -1,0 +1,47 @@
+{
+  "schema": "sekirei.pt67-mate.v1",
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "corpus_sha256": "0ed0434a9c49e3a63f850a9ecdd872ca8fdbc7f1322c78acc1e8491156e2a620",
+  "driver_sha256": "d5975a731877662f226bbebf5eb26aa51b50c9c9af0007c087c35c952011bb57",
+  "rlib_sha256": "50852f595b99e33ff4629a623c09c1a0dba111ad28ccd60d66d223d3e2c8a1ee",
+  "limits": {
+    "nodes": 5000000,
+    "wall_s_per_case": 10,
+    "threads": 1
+  },
+  "cases": [
+    {
+      "list_index": 15,
+      "source_url": "https://tsumeshogi.com/problems/jlyg0bwfn2",
+      "listed_ply": 25,
+      "sfen": "9/3bn2k1/4Gl1N1/4+R4/8n/5+p1K1/9/9/9 b R2Lb3g4snl17p 1",
+      "status": "complete",
+      "returncode": 0,
+      "elapsed_s": 2.945,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=5000000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "list_index": 9,
+      "source_url": "https://tsumeshogi.com/problems/lgoldo4sxn",
+      "listed_ply": 29,
+      "sfen": "ln7/1+bbP5/k2+P5/1P1R5/1pG+r5/9/1K7/9/9 b 4S3g3n3l14p 1",
+      "status": "complete",
+      "returncode": 0,
+      "elapsed_s": 4.222,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=5000000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "list_index": 18,
+      "source_url": "https://tsumeshogi.com/problems/49smnkg_p3",
+      "listed_ply": 25,
+      "sfen": "1bl1nnn2/r1+P+P+P+P+P1+P/1sP4kP/2R6/1+B1pg4/3s5/2+p4K1/9/9 b 3g2sn3l8p 1",
+      "status": "complete",
+      "returncode": 0,
+      "elapsed_s": 5.654,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=5000000 aborted=true solutions=",
+      "stderr": ""
+    }
+  ]
+}

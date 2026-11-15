@@ -1,0 +1,74 @@
+{
+  "schema": "sekirei.pt65-replay.v1",
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "corpus_sha256": "2b8ff90a0e54f3ff745818c88c3316536eff440a8bea28858cba34e8c742c148",
+  "proof_sha256": "1a49db056e46588cf33e29382fb687a632a93ffc76728f80db6d78f38dba0bb9",
+  "search_sha256": "158c08b8cca470b964fe52ac5190cb0451ca07501ed06324e492c834b02cc426",
+  "helper_sha256": "0ba4d163b92a29cd6c64b2d801d9b6fd573c5895fb69572aa05c538e266a772d",
+  "cases": [
+    {
+      "list_index": 9,
+      "mode": "proof_first",
+      "moves": [
+        "P*1b"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=true\npv_legal=true plies=1 terminal_check=true legal_replies=1 input_hash=bf16755eef1b85fb",
+        "stderr": ""
+      }
+    },
+    {
+      "list_index": 9,
+      "mode": "material",
+      "bestmove": "2d2c+",
+      "score_line": "info depth 13 score cp -408 nodes 1000000 nps 1926782 time 519 hashfull 125 pv 2d2c+ B*7i 7h7i 1i7i+ 8h9g N*8e 8f8e G*8f 8g8f G*8g 9g8g 7i8i S*8h",
+      "moves": [
+        "2d2c+",
+        "B*7i",
+        "7h7i",
+        "1i7i+",
+        "8h9g",
+        "N*8e",
+        "8f8e",
+        "G*8f",
+        "8g8f",
+        "G*8g",
+        "9g8g",
+        "7i8i",
+        "S*8h"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=false\npv_legal=true plies=13 terminal_check=false legal_replies=162 input_hash=bf16755eef1b85fb",
+        "stderr": ""
+      }
+    },
+    {
+      "list_index": 9,
+      "mode": "r6",
+      "bestmove": "2d2c+",
+      "score_line": "info depth 15 score cp 869 nodes 1000000 nps 1338688 time 747 hashfull 130 pv 2d2c+ B*7i 8h9h L*9g 8f9g 7i9g+ 9h9g N*8e 9g8f S*7g 8i7g 8e7g+ 8f7g",
+      "moves": [
+        "2d2c+",
+        "B*7i",
+        "8h9h",
+        "L*9g",
+        "8f9g",
+        "7i9g+",
+        "9h9g",
+        "N*8e",
+        "9g8f",
+        "S*7g",
+        "8i7g",
+        "8e7g+",
+        "8f7g"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=false\npv_legal=true plies=13 terminal_check=false legal_replies=191 input_hash=bf16755eef1b85fb",
+        "stderr": ""
+      }
+    }
+  ]
+}

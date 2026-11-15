@@ -1,0 +1,102 @@
+{
+  "schema": "sekirei.pt73-article-search.v1",
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "corpus_sha256": "b31dba003d2ac9c9e60dc6e57f72b0654f3070eb47db22a40e214b84b19638b1",
+  "proof_sha256": "faa86d51056e753ff16698348687aef33aa4e9af250c2bd0d87cf815c4b037fd",
+  "binary_sha256": "5559011835e204942e9584821b75f190bbf7d43fb29084b5f4ec7782025792e2",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "adapter_sha256": "fbec5d992e6593a917f3c1ae72ec957fd8fe7ce1e657b3f653206d4047a52aff",
+  "limits": {
+    "threads": 1,
+    "hash_mib": 64,
+    "nodes": 1000000,
+    "movetime_ms": 1000,
+    "wall_s_each": 4
+  },
+  "sfen": "l1B5l/1r7/pk4g1p/1pPps3G/4N4/1P1P1p3/PnGNP3P/2K6/L7L w BG4Pr3sn3p 104",
+  "proved_first": "R*7i",
+  "cases": [
+    {
+      "mode": "material",
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.751,
+        "transcript": [
+          "id name Sekirei",
+          "id author Kentaro Tanabe",
+          "id version 0.5.3",
+          "option name Hash type spin default 64 min 1 max 2048",
+          "option name Threads type spin default 0 min 0 max 512",
+          "option name SearchMode type combo default Auto var Auto var Speculative var LazySMP var Dfpn var SharedMcts",
+          "option name SpecTopN type spin default 0 min 0 max 512",
+          "option name LazyFlags type spin default 15 min 0 max 32767",
+          "option name LazyDiagnostics type check default false",
+          "option name NmpDiagnostics type check default false",
+          "option name AspirationDiagnostics type check default false",
+          "option name MoveOverhead type spin default 50 min 0 max 5000",
+          "option name IncrementUsePercent type spin default 75 min 0 max 100",
+          "option name Ponder type check default false",
+          "option name MultiPV type spin default 1 min 1 max 256",
+          "option name EvalFile type string default",
+          "option name NnueOutput type combo default absolute var absolute var residual-material",
+          "option name NnueResidualScalePermille type spin default 1000 min 0 max 2000",
+          "option name FV_SCALE type spin default 16 min 1 max 128",
+          "usiok",
+          "readyok",
+          "info string root_mate_safety mate1_cache_hits 13 blunder_cache_hits 1 mate1_nodes 208 blunder_nodes 1969",
+          "info depth 13 score cp 211 nodes 1000000 nps 1385041 time 722 hashfull 43 pv 8b1b 7h8g N*9e 8g9f R*5a N*6c 5a7a 6c7a+ 1c1d",
+          "bestmove 8b1b ponder 7h8g"
+        ],
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        },
+        "stderr": ""
+      }
+    },
+    {
+      "mode": "r6",
+      "result": {
+        "status": "complete",
+        "elapsed_s": 1.0,
+        "transcript": [
+          "id name Sekirei",
+          "id author Kentaro Tanabe",
+          "id version 0.5.3",
+          "option name Hash type spin default 64 min 1 max 2048",
+          "option name Threads type spin default 0 min 0 max 512",
+          "option name SearchMode type combo default Auto var Auto var Speculative var LazySMP var Dfpn var SharedMcts",
+          "option name SpecTopN type spin default 0 min 0 max 512",
+          "option name LazyFlags type spin default 15 min 0 max 32767",
+          "option name LazyDiagnostics type check default false",
+          "option name NmpDiagnostics type check default false",
+          "option name AspirationDiagnostics type check default false",
+          "option name MoveOverhead type spin default 50 min 0 max 5000",
+          "option name IncrementUsePercent type spin default 75 min 0 max 100",
+          "option name Ponder type check default false",
+          "option name MultiPV type spin default 1 min 1 max 256",
+          "option name EvalFile type string default",
+          "option name NnueOutput type combo default absolute var absolute var residual-material",
+          "option name NnueResidualScalePermille type spin default 1000 min 0 max 2000",
+          "option name FV_SCALE type spin default 16 min 1 max 128",
+          "usiok",
+          "info string FV_SCALE 24",
+          "info string NNUE output mode absolute",
+          "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+          "info string evaluator format HalfKP 256x2-32-32",
+          "readyok",
+          "info string root_mate_safety mate1_cache_hits 17 blunder_cache_hits 1 mate1_nodes 208 blunder_nodes 1969",
+          "info depth 17 score cp -129 nodes 1000000 nps 1121076 time 892 hashfull 67 pv R*3h P*4h 3h4h+ 7h8g S*7h 8g7f S*6e 6f6e 5d6e 7f7e 6e7d 7e6d S*7c 6d5d 8b5b 5d4e 8c7b",
+          "bestmove R*3h ponder G*6h"
+        ],
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        },
+        "stderr": ""
+      }
+    }
+  ]
+}

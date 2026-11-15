@@ -1,0 +1,28 @@
+{
+  "schema": "sekirei.pt70-index.v1",
+  "source_url": "https://drive.google.com/file/d/1KrGoyaJdse9Cq30rXnKTZw0L_fvZg2Pv/view",
+  "source_sha256": "e51376c1c528c737001f8f62a40f1ddb57d922e4bb987555326950a6cba9404c",
+  "source_rows": 86,
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "driver_sha256": "d5975a731877662f226bbebf5eb26aa51b50c9c9af0007c087c35c952011bb57",
+  "rlib_sha256": "50852f595b99e33ff4629a623c09c1a0dba111ad28ccd60d66d223d3e2c8a1ee",
+  "limits": {
+    "max_ply": 25,
+    "nodes_each": 200000,
+    "wall_s_each": 2,
+    "wall_s_total": 45,
+    "max_candidates": 3
+  },
+  "cases": [
+    {
+      "row": 1,
+      "status": "error",
+      "elapsed_s": 0.029,
+      "stdout": "",
+      "stderr": "thread 'main' (398540) panicked at scripts/public_tsume_mate_probe.rs:11:44:\ninvalid SFEN: \"SFEN: move number must be at least 1\"\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"
+    }
+  ],
+  "candidates": [],
+  "stop": "case_error_or_output_limit",
+  "elapsed_s": 0.03
+}

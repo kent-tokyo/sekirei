@@ -1,0 +1,198 @@
+{
+  "schema": "sekirei.pt69-search.v1",
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "corpus_sha256": "0ed0434a9c49e3a63f850a9ecdd872ca8fdbc7f1322c78acc1e8491156e2a620",
+  "proof_sha256": "e5724f3f55aeb6414ad4d1af34b0807bd88a43340db4cf77628b894d78fdcbe4",
+  "binary_sha256": "5559011835e204942e9584821b75f190bbf7d43fb29084b5f4ec7782025792e2",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "adapter_sha256": "fbec5d992e6593a917f3c1ae72ec957fd8fe7ce1e657b3f653206d4047a52aff",
+  "limits": {
+    "threads": 1,
+    "hash_mib": 64,
+    "nodes": 1000000,
+    "movetime_ms": 1000,
+    "wall_s_each": 4
+  },
+  "cases": [
+    {
+      "list_index": 15,
+      "source_url": "https://tsumeshogi.com/problems/jlyg0bwfn2",
+      "sfen": "9/3bn2k1/4Gl1N1/4+R4/8n/5+p1K1/9/9/9 b R2Lb3g4snl17p 1",
+      "proved_first": "R*4b",
+      "mode": "material",
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.559,
+        "transcript": [
+          "id name Sekirei",
+          "id author Kentaro Tanabe",
+          "id version 0.5.3",
+          "option name Hash type spin default 64 min 1 max 2048",
+          "option name Threads type spin default 0 min 0 max 512",
+          "option name SearchMode type combo default Auto var Auto var Speculative var LazySMP var Dfpn var SharedMcts",
+          "option name SpecTopN type spin default 0 min 0 max 512",
+          "option name LazyFlags type spin default 15 min 0 max 32767",
+          "option name LazyDiagnostics type check default false",
+          "option name NmpDiagnostics type check default false",
+          "option name AspirationDiagnostics type check default false",
+          "option name MoveOverhead type spin default 50 min 0 max 5000",
+          "option name IncrementUsePercent type spin default 75 min 0 max 100",
+          "option name Ponder type check default false",
+          "option name MultiPV type spin default 1 min 1 max 256",
+          "option name EvalFile type string default",
+          "option name NnueOutput type combo default absolute var absolute var residual-material",
+          "option name NnueResidualScalePermille type spin default 1000 min 0 max 2000",
+          "option name FV_SCALE type spin default 16 min 1 max 128",
+          "usiok",
+          "readyok",
+          "info string root_mate_safety mate1_cache_hits 13 blunder_cache_hits 1 mate1_nodes 158 blunder_nodes 3620",
+          "info depth 13 score cp -7185 nodes 1000000 nps 1848428 time 541 hashfull 60 pv R*4b N*3b 4b3b+ 2b3b 5d4c 3b2b 4c5b G*3b N*1d 2b2c 5b3b 2c3b L*3e",
+          "bestmove R*4b ponder N*3b"
+        ],
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        },
+        "stderr": ""
+      }
+    },
+    {
+      "list_index": 15,
+      "source_url": "https://tsumeshogi.com/problems/jlyg0bwfn2",
+      "sfen": "9/3bn2k1/4Gl1N1/4+R4/8n/5+p1K1/9/9/9 b R2Lb3g4snl17p 1",
+      "proved_first": "R*4b",
+      "mode": "r6",
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.89,
+        "transcript": [
+          "id name Sekirei",
+          "id author Kentaro Tanabe",
+          "id version 0.5.3",
+          "option name Hash type spin default 64 min 1 max 2048",
+          "option name Threads type spin default 0 min 0 max 512",
+          "option name SearchMode type combo default Auto var Auto var Speculative var LazySMP var Dfpn var SharedMcts",
+          "option name SpecTopN type spin default 0 min 0 max 512",
+          "option name LazyFlags type spin default 15 min 0 max 32767",
+          "option name LazyDiagnostics type check default false",
+          "option name NmpDiagnostics type check default false",
+          "option name AspirationDiagnostics type check default false",
+          "option name MoveOverhead type spin default 50 min 0 max 5000",
+          "option name IncrementUsePercent type spin default 75 min 0 max 100",
+          "option name Ponder type check default false",
+          "option name MultiPV type spin default 1 min 1 max 256",
+          "option name EvalFile type string default",
+          "option name NnueOutput type combo default absolute var absolute var residual-material",
+          "option name NnueResidualScalePermille type spin default 1000 min 0 max 2000",
+          "option name FV_SCALE type spin default 16 min 1 max 128",
+          "usiok",
+          "info string FV_SCALE 24",
+          "info string NNUE output mode absolute",
+          "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+          "info string evaluator format HalfKP 256x2-32-32",
+          "readyok",
+          "info string root_mate_safety mate1_cache_hits 15 blunder_cache_hits 1 mate1_nodes 158 blunder_nodes 3620",
+          "info depth 15 score cp -858 nodes 1000000 nps 1253132 time 798 hashfull 52 pv R*3b 2b3b L*3e 3b2b 3e3c+",
+          "bestmove R*3b ponder 2b3b"
+        ],
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        },
+        "stderr": ""
+      }
+    },
+    {
+      "list_index": 18,
+      "source_url": "https://tsumeshogi.com/problems/49smnkg_p3",
+      "sfen": "1bl1nnn2/r1+P+P+P+P+P1+P/1sP4kP/2R6/1+B1pg4/3s5/2+p4K1/9/9 b 3g2sn3l8p 1",
+      "proved_first": "3b2b",
+      "mode": "material",
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.374,
+        "transcript": [
+          "id name Sekirei",
+          "id author Kentaro Tanabe",
+          "id version 0.5.3",
+          "option name Hash type spin default 64 min 1 max 2048",
+          "option name Threads type spin default 0 min 0 max 512",
+          "option name SearchMode type combo default Auto var Auto var Speculative var LazySMP var Dfpn var SharedMcts",
+          "option name SpecTopN type spin default 0 min 0 max 512",
+          "option name LazyFlags type spin default 15 min 0 max 32767",
+          "option name LazyDiagnostics type check default false",
+          "option name NmpDiagnostics type check default false",
+          "option name AspirationDiagnostics type check default false",
+          "option name MoveOverhead type spin default 50 min 0 max 5000",
+          "option name IncrementUsePercent type spin default 75 min 0 max 100",
+          "option name Ponder type check default false",
+          "option name MultiPV type spin default 1 min 1 max 256",
+          "option name EvalFile type string default",
+          "option name NnueOutput type combo default absolute var absolute var residual-material",
+          "option name NnueResidualScalePermille type spin default 1000 min 0 max 2000",
+          "option name FV_SCALE type spin default 16 min 1 max 128",
+          "usiok",
+          "readyok",
+          "info string root_mate_safety mate1_cache_hits 18 blunder_cache_hits 1 mate1_nodes 50 blunder_nodes 848",
+          "info depth 18 score cp -3860 nodes 1000000 nps 2808988 time 356 hashfull 44 pv 3b2b 2c3c 4b3b 3c4c 5b4b",
+          "bestmove 3b2b ponder 2c3c"
+        ],
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        },
+        "stderr": ""
+      }
+    },
+    {
+      "list_index": 18,
+      "source_url": "https://tsumeshogi.com/problems/49smnkg_p3",
+      "sfen": "1bl1nnn2/r1+P+P+P+P+P1+P/1sP4kP/2R6/1+B1pg4/3s5/2+p4K1/9/9 b 3g2sn3l8p 1",
+      "proved_first": "3b2b",
+      "mode": "r6",
+      "result": {
+        "status": "complete",
+        "elapsed_s": 0.574,
+        "transcript": [
+          "id name Sekirei",
+          "id author Kentaro Tanabe",
+          "id version 0.5.3",
+          "option name Hash type spin default 64 min 1 max 2048",
+          "option name Threads type spin default 0 min 0 max 512",
+          "option name SearchMode type combo default Auto var Auto var Speculative var LazySMP var Dfpn var SharedMcts",
+          "option name SpecTopN type spin default 0 min 0 max 512",
+          "option name LazyFlags type spin default 15 min 0 max 32767",
+          "option name LazyDiagnostics type check default false",
+          "option name NmpDiagnostics type check default false",
+          "option name AspirationDiagnostics type check default false",
+          "option name MoveOverhead type spin default 50 min 0 max 5000",
+          "option name IncrementUsePercent type spin default 75 min 0 max 100",
+          "option name Ponder type check default false",
+          "option name MultiPV type spin default 1 min 1 max 256",
+          "option name EvalFile type string default",
+          "option name NnueOutput type combo default absolute var absolute var residual-material",
+          "option name NnueResidualScalePermille type spin default 1000 min 0 max 2000",
+          "option name FV_SCALE type spin default 16 min 1 max 128",
+          "usiok",
+          "info string FV_SCALE 24",
+          "info string NNUE output mode absolute",
+          "info string NNUE weights loaded from /Users/k_tanabe/Documents/Projects/sekirei/data/selfplay/nnue/r6-current-main-a60be2c-20261020/release-artifact-v2/weights/nn_r6.bin",
+          "info string evaluator format HalfKP 256x2-32-32",
+          "readyok",
+          "info string root_mate_safety mate1_cache_hits 13 blunder_cache_hits 1 mate1_nodes 50 blunder_nodes 848",
+          "info depth 13 score cp -808 nodes 1000000 nps 2092050 time 478 hashfull 27 pv 3b2b 2c3c 4b3b 3c4c 5b4b 4c5c 6b5b 5c6c 5b6b 6c5c 6b5b 5c6c 5b6b",
+          "bestmove 3b2b ponder 2c3c"
+        ],
+        "termination": {
+          "exitcode": 0,
+          "killed": false,
+          "reaped": true
+        },
+        "stderr": ""
+      }
+    }
+  ]
+}

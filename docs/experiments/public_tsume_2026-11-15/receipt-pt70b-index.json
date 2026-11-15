@@ -1,0 +1,623 @@
+{
+  "schema": "sekirei.pt70b-index.v1",
+  "source_url": "https://drive.google.com/file/d/1KrGoyaJdse9Cq30rXnKTZw0L_fvZg2Pv/view",
+  "source_sha256": "e51376c1c528c737001f8f62a40f1ddb57d922e4bb987555326950a6cba9404c",
+  "source_rows": 86,
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "driver_sha256": "d5975a731877662f226bbebf5eb26aa51b50c9c9af0007c087c35c952011bb57",
+  "rlib_sha256": "50852f595b99e33ff4629a623c09c1a0dba111ad28ccd60d66d223d3e2c8a1ee",
+  "limits": {
+    "max_ply": 25,
+    "nodes_each": 200000,
+    "wall_s_each": 2,
+    "wall_s_total": 45,
+    "max_candidates": 3
+  },
+  "cases": [
+    {
+      "row": 1,
+      "status": "complete",
+      "elapsed_s": 0.066,
+      "stdout": "outcome=Mate valid=true distance=Some(11) nodes=170064 aborted=false solutions=S*4b,G*4b",
+      "stderr": ""
+    },
+    {
+      "row": 2,
+      "status": "complete",
+      "elapsed_s": 0.072,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 3,
+      "status": "complete",
+      "elapsed_s": 0.077,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 4,
+      "status": "complete",
+      "elapsed_s": 0.086,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 5,
+      "status": "complete",
+      "elapsed_s": 0.003,
+      "stdout": "outcome=Mate valid=true distance=Some(11) nodes=408 aborted=false solutions=2e1d",
+      "stderr": ""
+    },
+    {
+      "row": 6,
+      "status": "complete",
+      "elapsed_s": 0.003,
+      "stdout": "outcome=Mate valid=true distance=Some(3) nodes=140 aborted=false solutions=B*4b",
+      "stderr": ""
+    },
+    {
+      "row": 7,
+      "status": "complete",
+      "elapsed_s": 0.087,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 8,
+      "status": "complete",
+      "elapsed_s": 0.089,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 9,
+      "status": "complete",
+      "elapsed_s": 0.003,
+      "stdout": "outcome=Mate valid=true distance=Some(5) nodes=543 aborted=false solutions=G*6f",
+      "stderr": ""
+    },
+    {
+      "row": 10,
+      "status": "complete",
+      "elapsed_s": 0.08,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 11,
+      "status": "complete",
+      "elapsed_s": 0.082,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 12,
+      "status": "complete",
+      "elapsed_s": 0.076,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 13,
+      "status": "complete",
+      "elapsed_s": 0.081,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 14,
+      "status": "complete",
+      "elapsed_s": 0.08,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 15,
+      "status": "complete",
+      "elapsed_s": 0.085,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 16,
+      "status": "complete",
+      "elapsed_s": 0.083,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 17,
+      "status": "complete",
+      "elapsed_s": 0.074,
+      "stdout": "outcome=Mate valid=true distance=Some(13) nodes=169603 aborted=false solutions=P*6f",
+      "stderr": ""
+    },
+    {
+      "row": 18,
+      "status": "complete",
+      "elapsed_s": 0.003,
+      "stdout": "outcome=Mate valid=true distance=Some(9) nodes=596 aborted=false solutions=G*8c",
+      "stderr": ""
+    },
+    {
+      "row": 19,
+      "status": "complete",
+      "elapsed_s": 0.084,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 20,
+      "status": "complete",
+      "elapsed_s": 0.082,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 21,
+      "status": "complete",
+      "elapsed_s": 0.08,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 22,
+      "status": "complete",
+      "elapsed_s": 0.088,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 23,
+      "status": "complete",
+      "elapsed_s": 0.005,
+      "stdout": "outcome=Mate valid=true distance=Some(7) nodes=4492 aborted=false solutions=7f6e",
+      "stderr": ""
+    },
+    {
+      "row": 24,
+      "status": "complete",
+      "elapsed_s": 0.014,
+      "stdout": "outcome=Mate valid=true distance=Some(11) nodes=28155 aborted=false solutions=4a5b",
+      "stderr": ""
+    },
+    {
+      "row": 25,
+      "status": "complete",
+      "elapsed_s": 0.084,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 26,
+      "status": "complete",
+      "elapsed_s": 0.003,
+      "stdout": "outcome=Mate valid=true distance=Some(5) nodes=98 aborted=false solutions=7e6e",
+      "stderr": ""
+    },
+    {
+      "row": 27,
+      "status": "complete",
+      "elapsed_s": 0.088,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 28,
+      "status": "complete",
+      "elapsed_s": 0.108,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 29,
+      "status": "complete",
+      "elapsed_s": 0.078,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 30,
+      "status": "complete",
+      "elapsed_s": 0.015,
+      "stdout": "outcome=Mate valid=true distance=Some(7) nodes=33060 aborted=false solutions=B*2a",
+      "stderr": ""
+    },
+    {
+      "row": 31,
+      "status": "complete",
+      "elapsed_s": 0.074,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 32,
+      "status": "complete",
+      "elapsed_s": 0.08,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 33,
+      "status": "complete",
+      "elapsed_s": 0.081,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 34,
+      "status": "complete",
+      "elapsed_s": 0.092,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 35,
+      "status": "complete",
+      "elapsed_s": 0.087,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 36,
+      "status": "complete",
+      "elapsed_s": 0.08,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 37,
+      "status": "complete",
+      "elapsed_s": 0.075,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 38,
+      "status": "complete",
+      "elapsed_s": 0.094,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 39,
+      "status": "complete",
+      "elapsed_s": 0.079,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 40,
+      "status": "complete",
+      "elapsed_s": 0.016,
+      "stdout": "outcome=Mate valid=true distance=Some(9) nodes=33148 aborted=false solutions=G*8c,G*6c",
+      "stderr": ""
+    },
+    {
+      "row": 41,
+      "status": "complete",
+      "elapsed_s": 0.079,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 42,
+      "status": "complete",
+      "elapsed_s": 0.098,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 43,
+      "status": "complete",
+      "elapsed_s": 0.097,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 44,
+      "status": "complete",
+      "elapsed_s": 0.091,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 45,
+      "status": "complete",
+      "elapsed_s": 0.085,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 46,
+      "status": "complete",
+      "elapsed_s": 0.091,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 47,
+      "status": "complete",
+      "elapsed_s": 0.073,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 48,
+      "status": "complete",
+      "elapsed_s": 0.016,
+      "stdout": "outcome=Mate valid=true distance=Some(9) nodes=28596 aborted=false solutions=S*7b",
+      "stderr": ""
+    },
+    {
+      "row": 49,
+      "status": "complete",
+      "elapsed_s": 0.081,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 50,
+      "status": "complete",
+      "elapsed_s": 0.003,
+      "stdout": "outcome=Mate valid=true distance=Some(1) nodes=9 aborted=false solutions=3a6a+",
+      "stderr": ""
+    },
+    {
+      "row": 51,
+      "status": "complete",
+      "elapsed_s": 0.085,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 52,
+      "status": "complete",
+      "elapsed_s": 0.08,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 53,
+      "status": "complete",
+      "elapsed_s": 0.077,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 54,
+      "status": "complete",
+      "elapsed_s": 0.095,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 55,
+      "status": "complete",
+      "elapsed_s": 0.106,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 56,
+      "status": "complete",
+      "elapsed_s": 0.1,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 57,
+      "status": "complete",
+      "elapsed_s": 0.096,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 58,
+      "status": "complete",
+      "elapsed_s": 0.07,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 59,
+      "status": "complete",
+      "elapsed_s": 0.086,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 60,
+      "status": "complete",
+      "elapsed_s": 0.081,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 61,
+      "status": "complete",
+      "elapsed_s": 0.072,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 62,
+      "status": "complete",
+      "elapsed_s": 0.087,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 63,
+      "status": "complete",
+      "elapsed_s": 0.076,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 64,
+      "status": "complete",
+      "elapsed_s": 0.003,
+      "stdout": "outcome=Mate valid=true distance=Some(7) nodes=412 aborted=false solutions=4b4a+",
+      "stderr": ""
+    },
+    {
+      "row": 65,
+      "status": "complete",
+      "elapsed_s": 0.097,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 66,
+      "status": "complete",
+      "elapsed_s": 0.02,
+      "stdout": "outcome=Mate valid=true distance=Some(11) nodes=46642 aborted=false solutions=6e5c+",
+      "stderr": ""
+    },
+    {
+      "row": 67,
+      "status": "complete",
+      "elapsed_s": 0.077,
+      "stdout": "outcome=Mate valid=true distance=Some(9) nodes=197590 aborted=false solutions=S*5b",
+      "stderr": ""
+    },
+    {
+      "row": 68,
+      "status": "complete",
+      "elapsed_s": 0.089,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 69,
+      "status": "complete",
+      "elapsed_s": 0.098,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 70,
+      "status": "complete",
+      "elapsed_s": 0.003,
+      "stdout": "outcome=Mate valid=true distance=Some(3) nodes=51 aborted=false solutions=G*3b",
+      "stderr": ""
+    },
+    {
+      "row": 71,
+      "status": "complete",
+      "elapsed_s": 0.003,
+      "stdout": "outcome=Mate valid=true distance=Some(5) nodes=196 aborted=false solutions=P*1b",
+      "stderr": ""
+    },
+    {
+      "row": 72,
+      "status": "complete",
+      "elapsed_s": 0.081,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 73,
+      "status": "complete",
+      "elapsed_s": 0.09,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 74,
+      "status": "complete",
+      "elapsed_s": 0.004,
+      "stdout": "outcome=Mate valid=true distance=Some(5) nodes=964 aborted=false solutions=G*5e",
+      "stderr": ""
+    },
+    {
+      "row": 75,
+      "status": "complete",
+      "elapsed_s": 0.084,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 76,
+      "status": "complete",
+      "elapsed_s": 0.023,
+      "stdout": "outcome=Mate valid=true distance=Some(11) nodes=51053 aborted=false solutions=B*3c",
+      "stderr": ""
+    },
+    {
+      "row": 77,
+      "status": "complete",
+      "elapsed_s": 0.077,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 78,
+      "status": "complete",
+      "elapsed_s": 0.075,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 79,
+      "status": "complete",
+      "elapsed_s": 0.097,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 80,
+      "status": "complete",
+      "elapsed_s": 0.099,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 81,
+      "status": "complete",
+      "elapsed_s": 0.076,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 82,
+      "status": "complete",
+      "elapsed_s": 0.092,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 83,
+      "status": "complete",
+      "elapsed_s": 0.003,
+      "stdout": "outcome=Mate valid=true distance=Some(5) nodes=1288 aborted=false solutions=N*2g,5a6b,5a6b+",
+      "stderr": ""
+    },
+    {
+      "row": 84,
+      "status": "complete",
+      "elapsed_s": 0.08,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    },
+    {
+      "row": 85,
+      "status": "complete",
+      "elapsed_s": 0.003,
+      "stdout": "outcome=Mate valid=true distance=Some(9) nodes=487 aborted=false solutions=G*4h",
+      "stderr": ""
+    },
+    {
+      "row": 86,
+      "status": "complete",
+      "elapsed_s": 0.103,
+      "stdout": "outcome=Unknown valid=true distance=None nodes=200000 aborted=true solutions=",
+      "stderr": ""
+    }
+  ],
+  "candidates": [],
+  "stop": "source_exhausted",
+  "elapsed_s": 5.838
+}

@@ -1,0 +1,71 @@
+{
+  "schema": "sekirei.pt66-replay.v1",
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "corpus_sha256": "023d138a564804c80afcdb8b6896b296f864fcc5c1e6f544e0bf3c288be0f7d2",
+  "proof_sha256": "4f9976a17e5e40a60e28f36ffa75649120d41b6c410f0edff785582364aa10e4",
+  "search_sha256": "351a0a460047420d3333e9c5d48eb7ca5c8ca7e70903c6e2ea10a92b8be25989",
+  "helper_sha256": "0ba4d163b92a29cd6c64b2d801d9b6fd573c5895fb69572aa05c538e266a772d",
+  "cases": [
+    {
+      "list_index": 13,
+      "mode": "proof_first",
+      "moves": [
+        "N*2c"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=true\npv_legal=true plies=1 terminal_check=true legal_replies=2 input_hash=5aceb206f9bf65a7",
+        "stderr": ""
+      }
+    },
+    {
+      "list_index": 13,
+      "mode": "material",
+      "bestmove": "N*2d",
+      "score_line": "info depth 14 score cp -10677 nodes 1000000 nps 1700680 time 588 hashfull 90 pv N*2d R*3h 3c4d 2b2d 1b4e+ B*2f 4d5e 3h5h+ N*5f 2f3g+ S*4f",
+      "moves": [
+        "N*2d",
+        "R*3h",
+        "3c4d",
+        "2b2d",
+        "1b4e+",
+        "B*2f",
+        "4d5e",
+        "3h5h+",
+        "N*5f",
+        "2f3g+",
+        "S*4f"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=false\npv_legal=true plies=11 terminal_check=false legal_replies=416 input_hash=5aceb206f9bf65a7",
+        "stderr": ""
+      }
+    },
+    {
+      "list_index": 13,
+      "mode": "r6",
+      "bestmove": "N*2c",
+      "score_line": "info depth 13 score cp -926 nodes 765952 nps 806265 time 950 hashfull 95 pv N*2c 2b2c 1b2a+ 1a2a P*2b 2a1b S*2a 1b1c N*2e 2c2e 2a1b+ 1c1b",
+      "moves": [
+        "N*2c",
+        "2b2c",
+        "1b2a+",
+        "1a2a",
+        "P*2b",
+        "2a1b",
+        "S*2a",
+        "1b1c",
+        "N*2e",
+        "2c2e",
+        "2a1b+",
+        "1c1b"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=true\npv_legal=true plies=12 terminal_check=false legal_replies=67 input_hash=5aceb206f9bf65a7",
+        "stderr": ""
+      }
+    }
+  ]
+}

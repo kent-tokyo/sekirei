@@ -1,0 +1,62 @@
+{
+  "schema": "sekirei.pt67-dfpn.v1",
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "corpus_sha256": "0ed0434a9c49e3a63f850a9ecdd872ca8fdbc7f1322c78acc1e8491156e2a620",
+  "proof_sha256": "116a34ac739bfd09b27aa7fd6df2cd1b265d5026a336b24fc0c1e63c3d13b598",
+  "binary_sha256": "5559011835e204942e9584821b75f190bbf7d43fb29084b5f4ec7782025792e2",
+  "adapter_sha256": "67f3da611daa419234ec019ef07d7cde82d0665f3db876a82c39f64f50f10b84",
+  "limits": {
+    "threads": 1,
+    "hash_mib": 64,
+    "nodes": 5000000,
+    "movetime_ms": 5000,
+    "wall_s_each": 10
+  },
+  "cases": [
+    {
+      "list_index": 15,
+      "source_url": "https://tsumeshogi.com/problems/jlyg0bwfn2",
+      "listed_ply": 25,
+      "sfen": "9/3bn2k1/4Gl1N1/4+R4/8n/5+p1K1/9/9/9 b R2Lb3g4snl17p 1",
+      "result": {
+        "status": "complete",
+        "elapsed_s": 3.052,
+        "transcript": [
+          "info string dfpn outcome unknown scope bounded distance none limit_depth 25 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 5000000 nps 1649076 time 3032 hashfull 0",
+          "bestmove 2c3a+"
+        ]
+      }
+    },
+    {
+      "list_index": 9,
+      "source_url": "https://tsumeshogi.com/problems/lgoldo4sxn",
+      "listed_ply": 29,
+      "sfen": "ln7/1+bbP5/k2+P5/1P1R5/1pG+r5/9/1K7/9/9 b 4S3g3n3l14p 1",
+      "result": {
+        "status": "complete",
+        "elapsed_s": 2.668,
+        "transcript": [
+          "info string dfpn outcome disproven scope bounded distance none limit_depth 29 completed false aborted true bestmove_source fallback",
+          "info depth 0 nodes 5000000 nps 1885369 time 2652 hashfull 0",
+          "bestmove 8d8c+"
+        ]
+      }
+    },
+    {
+      "list_index": 18,
+      "source_url": "https://tsumeshogi.com/problems/49smnkg_p3",
+      "listed_ply": 25,
+      "sfen": "1bl1nnn2/r1+P+P+P+P+P1+P/1sP4kP/2R6/1+B1pg4/3s5/2+p4K1/9/9 b 3g2sn3l8p 1",
+      "result": {
+        "status": "complete",
+        "elapsed_s": 2.91,
+        "transcript": [
+          "info string dfpn outcome proven scope bounded distance unknown limit_depth 25 completed false aborted true bestmove_source proof",
+          "info depth 0 score mate + nodes 5000000 nps 1726519 time 2896 hashfull 0 pv 7b8a",
+          "bestmove 7b8a"
+        ]
+      }
+    }
+  ]
+}

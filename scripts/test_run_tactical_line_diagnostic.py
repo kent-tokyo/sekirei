@@ -9,6 +9,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,6 +42,28 @@ def result_fields(score: int = 42, *, bestmove: str = "8g8f") -> dict[str, str]:
 
 
 class TacticalLineDiagnosticTests(unittest.TestCase):
+    def test_r6_scale_is_passed_to_search_diagnostic(self) -> None:
+        with patch.object(TACTICAL, "run_process", return_value=SimpleNamespace(stdout="ignored")) as run, \
+             patch.object(TACTICAL, "parse_fields", return_value=result_fields()):
+            TACTICAL.search(
+                Path("/tmp/search_diagnostic"), "startpos", [], "startpos", 1000,
+                Path("/tmp/r6.bin"), 24, "absolute", None,
+            )
+        command = run.call_args.args[0]
+        self.assertEqual(command[command.index("--fv-scale") + 1], "24")
+        self.assertEqual(command[command.index("--weights") + 1], "/tmp/r6.bin")
+
+    def test_weights_require_explicit_scale(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            weight = Path(directory) / "r6.bin"
+            weight.touch()
+            args = ["tactical", "--cases", str(weight), "--engine", str(weight),
+                    "--history-sfen", str(weight), "--weights", str(weight),
+                    "--output", str(weight)]
+            with patch.object(sys, "argv", args), self.assertRaises(SystemExit) as error:
+                TACTICAL.main()
+            self.assertEqual(error.exception.code, 2)
+
     def test_shipped_case_replays_reference_and_alternative_positions(self) -> None:
         document = TACTICAL.load_cases(
             ROOT / "scripts" / "fixtures" / "tactical_line_cases_v1.json"

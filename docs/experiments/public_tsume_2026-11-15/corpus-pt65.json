@@ -1,0 +1,40 @@
+{
+  "schema": "sekirei.public-tsume-pt65-sougyoku-positions.v1",
+  "list_url": "https://tsumeshogi.com/tags/%E5%8F%8C%E7%8E%89?page=2",
+  "list_html_sha256": "98cbb5fcbe1e001e2b2661df14e041f578c8bdcf5591d4f0559a368e8680f5a0",
+  "cases": [
+    {
+      "list_index": 7,
+      "title": "(^O^)／13手詰だよ　#2267",
+      "listed_ply": 13,
+      "source_url": "https://tsumeshogi.com/problems/y_lmsyrb84",
+      "html_sha256": "2888dbf2deb243d4370bb57d013b707d92994784a423b048e5ecfadb9c6e0d0c",
+      "sfen": "4K4/5PkLp/6p2/4p2PP/7N1/9/9/9/9 b RGNr2b3g4s2n3l12p 1",
+      "html_solution_attr": "",
+      "black_kings": 1,
+      "white_kings": 1
+    },
+    {
+      "list_index": 9,
+      "title": "17手詰　ショウジョウバエ",
+      "listed_ply": 17,
+      "source_url": "https://tsumeshogi.com/problems/2frbor958v",
+      "html_sha256": "75b2575720eb6d19bfc424951bc48af01e19fd04bf306e0e8611eafdd8f6ab24",
+      "sfen": "ln5pk/1r4G2/2pG1pL1s/p6P1/4psPN1/PSPP5/1P1p1b3/1KG4+p1/LN6r b SPbgnl4p 1",
+      "html_solution_attr": "",
+      "black_kings": 1,
+      "white_kings": 1
+    },
+    {
+      "list_index": 24,
+      "title": "15手詰",
+      "listed_ply": 15,
+      "source_url": "https://tsumeshogi.com/problems/pts7ssn-tp",
+      "html_sha256": "887e5f403fdf69f9ea225e783cbd3b183b51e05f4b9433bd0b30236d9befd869",
+      "sfen": "6p1k/6bR1/6K1N/9/9/9/9/9/9 b BPr4g4s3n4l16p 1",
+      "html_solution_attr": "",
+      "black_kings": 1,
+      "white_kings": 1
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "schema": "sekirei.pt69-replay.v1",
+  "source_commit": "f84aa55d197d4b4cd4b377f80a2757b9e8654bfc",
+  "search_sha256": "a49ebd4f0444d31f30174b165ff04f32055f7e67805b02e2072f179348e24755",
+  "helper_sha256": "0ba4d163b92a29cd6c64b2d801d9b6fd573c5895fb69572aa05c538e266a772d",
+  "cases": [
+    {
+      "list_index": 15,
+      "mode": "material",
+      "proved_first": "R*4b",
+      "bestmove": "R*4b",
+      "score_line": "info depth 13 score cp -7185 nodes 1000000 nps 1848428 time 541 hashfull 60 pv R*4b N*3b 4b3b+ 2b3b 5d4c 3b2b 4c5b G*3b N*1d 2b2c 5b3b 2c3b L*3e",
+      "moves": [
+        "R*4b",
+        "N*3b",
+        "4b3b+",
+        "2b3b",
+        "5d4c",
+        "3b2b",
+        "4c5b",
+        "G*3b",
+        "N*1d",
+        "2b2c",
+        "5b3b",
+        "2c3b",
+        "L*3e"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=true\npv_legal=true plies=13 terminal_check=true legal_replies=17 input_hash=e4b4656a06fd0367",
+        "stderr": ""
+      }
+    },
+    {
+      "list_index": 15,
+      "mode": "r6",
+      "proved_first": "R*4b",
+      "bestmove": "R*3b",
+      "score_line": "info depth 15 score cp -858 nodes 1000000 nps 1253132 time 798 hashfull 52 pv R*3b 2b3b L*3e 3b2b 3e3c+",
+      "moves": [
+        "R*3b",
+        "2b3b",
+        "L*3e",
+        "3b2b",
+        "3e3c+"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=true\npv_legal=true plies=5 terminal_check=true legal_replies=4 input_hash=e4b4656a06fd0367",
+        "stderr": ""
+      }
+    },
+    {
+      "list_index": 18,
+      "mode": "material",
+      "proved_first": "3b2b",
+      "bestmove": "3b2b",
+      "score_line": "info depth 18 score cp -3860 nodes 1000000 nps 2808988 time 356 hashfull 44 pv 3b2b 2c3c 4b3b 3c4c 5b4b",
+      "moves": [
+        "3b2b",
+        "2c3c",
+        "4b3b",
+        "3c4c",
+        "5b4b"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=true\npv_legal=true plies=5 terminal_check=true legal_replies=1 input_hash=c3da35394764d364",
+        "stderr": ""
+      }
+    },
+    {
+      "list_index": 18,
+      "mode": "r6",
+      "proved_first": "3b2b",
+      "bestmove": "3b2b",
+      "score_line": "info depth 13 score cp -808 nodes 1000000 nps 2092050 time 478 hashfull 27 pv 3b2b 2c3c 4b3b 3c4c 5b4b 4c5c 6b5b 5c6c 5b6b 6c5c 6b5b 5c6c 5b6b",
+      "moves": [
+        "3b2b",
+        "2c3c",
+        "4b3b",
+        "3c4c",
+        "5b4b",
+        "4c5c",
+        "6b5b",
+        "5c6c",
+        "5b6b",
+        "6c5c",
+        "6b5b",
+        "5c6c",
+        "5b6b"
+      ],
+      "replay": {
+        "exitcode": 0,
+        "stdout": "first_move_legal=true gives_check=true\npv_legal=true plies=13 terminal_check=true legal_replies=1 input_hash=c3da35394764d364",
+        "stderr": ""
+      }
+    }
+  ]
+}

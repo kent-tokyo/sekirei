@@ -146,6 +146,7 @@ def search(
     expected_sfen: str,
     nodes: int,
     weights: Path | None,
+    fv_scale: int | None,
     nnue_output: str,
     root_move: str | None,
 ) -> dict[str, Any]:
@@ -161,7 +162,10 @@ def search(
         expected_sfen,
     ]
     if weights is not None:
-        command.extend(["--weights", str(weights), "--nnue-output", nnue_output])
+        command.extend(
+            ["--weights", str(weights), "--fv-scale", str(fv_scale),
+             "--nnue-output", nnue_output]
+        )
     if root_move is not None:
         command.extend(["--root-move", root_move])
     return encode_result(parse_fields(run_process(command).stdout), root_move)
@@ -197,6 +201,7 @@ def main() -> int:
     parser.add_argument("--history-sfen", type=Path, required=True)
     parser.add_argument("--nodes", type=int, action="append", dest="budgets")
     parser.add_argument("--weights", type=Path)
+    parser.add_argument("--fv-scale", type=int)
     parser.add_argument(
         "--nnue-output", choices=("absolute", "residual-material"), default="absolute"
     )
@@ -210,6 +215,10 @@ def main() -> int:
             parser.error(f"executable does not exist: {executable}")
     if args.weights is not None and not args.weights.is_file():
         parser.error(f"weights do not exist: {args.weights}")
+    if (args.weights is None) != (args.fv_scale is None):
+        parser.error("--weights and --fv-scale must be supplied together")
+    if args.fv_scale is not None and not 1 <= args.fv_scale <= 128:
+        parser.error("--fv-scale must be in 1..=128")
 
     cases = load_cases(args.cases)
     rows = []
@@ -227,6 +236,7 @@ def main() -> int:
                     position["sfen"],
                     nodes,
                     args.weights,
+                    args.fv_scale,
                     args.nnue_output,
                     None,
                 )
@@ -238,6 +248,7 @@ def main() -> int:
                         position["sfen"],
                         nodes,
                         args.weights,
+                        args.fv_scale,
                         args.nnue_output,
                         candidate,
                     )
@@ -282,6 +293,7 @@ def main() -> int:
             "evaluator": "nnue" if args.weights else "material",
             "weights": str(args.weights) if args.weights else None,
             "weights_sha256": sha256(args.weights) if args.weights else None,
+            "fv_scale": args.fv_scale,
             "nnue_output": args.nnue_output if args.weights else None,
             "budgets": budgets,
         },
