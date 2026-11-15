@@ -1,0 +1,59 @@
+{
+  "schema": "sekirei.issue289.d02.v1",
+  "binary_sha256": "27f7f2328a9fb4239710035ef0177cce467df4ce213e6445442bf92f3157ca7a",
+  "source_identity": "exploratory_existing_binary_not_independently_bound_to_source",
+  "weights_sha256": "634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469",
+  "sfen": "l6n1/1kgG2R2/1sn2+L3/1pppp2r1/p4+B2s/1PPg1p2n/6PP1/4+b1S1K/LN6L b S3Pg5p 1",
+  "node_limit_each": 1000000,
+  "timeout_s_each": 5,
+  "runs": [
+    {
+      "evaluator": "material",
+      "exit_code": 0,
+      "wall_ms": 518,
+      "free_bytes_before": 3751936000,
+      "fields": {
+        "bestmove": "6b7b",
+        "bestmove_legal": "true",
+        "pv_starts_with_bestmove": "true",
+        "depth": "12",
+        "score_cp": "-1161",
+        "nodes": "1000000",
+        "bound": "unknown",
+        "completed_bound": "exact",
+        "completed_iteration_valid": "true",
+        "aborted": "true",
+        "abort_reason": "budget",
+        "pv_usi": "6b7b,8c7b,S*7a,8b9c,9i9e,P*9d,9e9d,9c9d,3b7b+,4f4g+,3h2i,G*4f",
+        "pv_legal": "true",
+        "pv_replay_preserves_input": "true",
+        "root_initial_order": "8f8e,7f7e,3g3f,2g2f,9i9e,9i9f,9i9g,9i9h,8i9g,8i7g,3h4g,3h4i,3h2i,6b7a,6b7b,6b6a,6b6c,6b5a,6b5b,4c5b,4c5c,4c4b,4c4d,4c3c,3b3a+,3b3a,3b3c+,3b3c,3b3d+,3b3d,3b3e+,3b3e,3b3f+,3b3f,3b5b+,3b5b,3b4b+,3b4b,3b2b+,3b2b,3b1b+,3b1b,4e5d,4e3d,4e2c,4e1b,4e7h,4e6g,4e5f,4e3f,4e5e,4e4d,4e4f,4e3e,1h2i,1h1g,P*9b,P*9c,P*9d,P*9f,P*9g,P*9h,P*6c,P*6e,P*6g,P*6h,P*6i,P*5b,P*5c,P*5e,P*5f,P*5g,P*5i,P*4b,P*4d,P*4g,P*4h,P*4i,P*1b,P*1c,P*1d,P*1g,S*9b,S*9c,S*9d,S*9f,S*9g,S*9h,S*8a,S*8e,S*8g,S*8h,S*7a,S*7e,S*7g,S*7h,S*7i,S*6a,S*6c,S*6e,S*6g,S*6h,S*6i,S*5a,S*5b,S*5c,S*5e,S*5f,S*5g,S*5i,S*4a,S*4b,S*4d,S*4g,S*4h,S*4i,S*3a,S*3c,S*3d,S*3e,S*3f,S*3i,S*2b,S*2c,S*2e,S*2f,S*2h,S*2i,S*1a,S*1b,S*1c,S*1d,S*1g",
+        "iteration_trace": "1:3b1b+:-1410:1191:exact:133:778,2:3b1b+:-1410:1531:exact:133:778,3:3b1b+:-1410:1909:exact:133:778,4:3b1b+:-1410:2273:exact:133:778,5:3b1b+:-1410:2678:exact:133:778,6:S*7a:-1390:3624:exact:133:778,7:3b1b+:-1384:6080:exact:133:778,8:S*7a:-1095:16295:exact:133:778,9:6b7b:-1033:112350:exact:133:778,10:6b7b:581:122089:exact:133:778,11:6b7b:-68:187567:exact:133:778,12:6b7b:-1161:353872:exact:133:778"
+      }
+    },
+    {
+      "evaluator": "r6",
+      "exit_code": 0,
+      "wall_ms": 904,
+      "free_bytes_before": 3743744000,
+      "fields": {
+        "bestmove": "6b7b",
+        "bestmove_legal": "true",
+        "pv_starts_with_bestmove": "true",
+        "depth": "13",
+        "score_cp": "-497",
+        "nodes": "1000000",
+        "bound": "unknown",
+        "completed_bound": "exact",
+        "completed_iteration_valid": "true",
+        "aborted": "true",
+        "abort_reason": "budget",
+        "pv_usi": "6b7b,8c7b,S*7a,8b9c,9i9e,P*9d,9e9d,9c9d,P*9e,9d9e,4e4f,G*2h,1h1g",
+        "pv_legal": "true",
+        "pv_replay_preserves_input": "true",
+        "root_initial_order": "8f8e,7f7e,3g3f,2g2f,9i9e,9i9f,9i9g,9i9h,8i9g,8i7g,3h4g,3h4i,3h2i,6b7a,6b7b,6b6a,6b6c,6b5a,6b5b,4c5b,4c5c,4c4b,4c4d,4c3c,3b3a+,3b3a,3b3c+,3b3c,3b3d+,3b3d,3b3e+,3b3e,3b3f+,3b3f,3b5b+,3b5b,3b4b+,3b4b,3b2b+,3b2b,3b1b+,3b1b,4e5d,4e3d,4e2c,4e1b,4e7h,4e6g,4e5f,4e3f,4e5e,4e4d,4e4f,4e3e,1h2i,1h1g,P*9b,P*9c,P*9d,P*9f,P*9g,P*9h,P*6c,P*6e,P*6g,P*6h,P*6i,P*5b,P*5c,P*5e,P*5f,P*5g,P*5i,P*4b,P*4d,P*4g,P*4h,P*4i,P*1b,P*1c,P*1d,P*1g,S*9b,S*9c,S*9d,S*9f,S*9g,S*9h,S*8a,S*8e,S*8g,S*8h,S*7a,S*7e,S*7g,S*7h,S*7i,S*6a,S*6c,S*6e,S*6g,S*6h,S*6i,S*5a,S*5b,S*5c,S*5e,S*5f,S*5g,S*5i,S*4a,S*4b,S*4d,S*4g,S*4h,S*4i,S*3a,S*3c,S*3d,S*3e,S*3f,S*3i,S*2b,S*2c,S*2e,S*2f,S*2h,S*2i,S*1a,S*1b,S*1c,S*1d,S*1g",
+        "iteration_trace": "1:6b7b:-387:1072:exact:133:778,2:1h1g:-326:1585:exact:133:778,3:1h1g:-328:1882:exact:133:778,4:1h1g:-352:2177:exact:133:778,5:6b7b:-399:3185:exact:133:778,6:S*6c:-371:6286:exact:133:778,7:S*6c:-379:8820:exact:133:778,8:S*6c:-303:15442:exact:133:778,9:S*6c:-344:39140:exact:133:778,10:6b7b:-149:67208:exact:133:778,11:6b7b:-345:96750:exact:133:778,12:S*6c:-429:365133:exact:133:778,13:6b7b:-497:638707:exact:133:778"
+      }
+    }
+  ]
+}
