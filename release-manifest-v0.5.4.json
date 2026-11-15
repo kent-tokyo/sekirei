@@ -3,7 +3,7 @@
   "release": "v0.5.4",
   "commit": "bda9348b7315b19af5cad440a8b7a1e0eaece48e",
   "branch_at_release": "main",
-  "candidate_state": "prepared from the API-compatible v0.5.4 source commit; publication planned",
+  "candidate_state": "released from the verified release-preparation commit",
   "packages": {
     "sekirei": "0.5.4",
     "sekirei-core": "0.5.4",
@@ -23,9 +23,9 @@
     "sha256": "198b7be5a71ccfb5fa1b099a6cffbbdd85ed1c20784e7264f10e5ee4e47a0b97"
   },
   "publish": {
-    "workflow_run": null,
+    "workflow_run": "43727074479",
     "registry": "crates.io",
-    "status": "planned",
+    "status": "verified",
     "crates": [
       "sekirei",
       "sekirei-core",
@@ -41,8 +41,10 @@
     "registry": "github-release",
     "asset": "sekirei-wasm-0.5.4.tgz",
     "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.5.4/sekirei-wasm-0.5.4.tgz",
-    "status": "planned",
-    "npm_registry_status": "not_published"
+    "status": "verified",
+    "npm_registry_status": "not_published",
+    "sha256": "8f3b0e6df5e7ac8520c6c5a8ec536172e55e37e6114e63173c13c7dcae5c515d",
+    "size": 570947
   },
   "internal_measurement": {
     "spec_top_n": 0,
