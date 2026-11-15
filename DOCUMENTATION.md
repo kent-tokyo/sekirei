@@ -47,6 +47,7 @@ stronger.
 - [`docs/design/lazy_smp_provenance.md`](docs/design/lazy_smp_provenance.md)
 - [`docs/design/shared_tt_write_topology_audit.md`](docs/design/shared_tt_write_topology_audit.md)
 - [`docs/design/nnue_architecture_next_candidate.md`](docs/design/nnue_architecture_next_candidate.md)
+- [`docs/plans/denryu7-implementation-2026-11-15.md`](docs/plans/denryu7-implementation-2026-11-15.md): root declaration implementation, bounded diagnostics, and unfinished search integration
 
 ## Historical experiments
 
@@ -55,6 +56,10 @@ preregistrations, exact run conditions, hashes, and results. Their dates and
 revisions are part of the record. A verdict applies only to its recorded
 artifact and conditions. Qualification of a changed artifact or conditions
 requires a separately registered run; preserve the original bounds and verdict.
+
+The [2026-11-15 public next-move index](docs/experiments/issue289-published-next-move-2026-11-15.md)
+links bounded tactical diagnostics. These cases did not qualify a search or
+evaluation change; the unused confirmation set remains separate.
 
 The [2026-10-25 own-HalfKP 8T PGO study](docs/experiments/own_halfkp_pgo_8t_v0.5.1/README.md)
 records an inconclusive speed result; the candidate was not adopted.

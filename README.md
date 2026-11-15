@@ -3,17 +3,19 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.5.3-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.3)
+[![Release](https://img.shields.io/badge/release-v0.5.4-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.4)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.5.3` uses
+Sekirei is an experimental Pure Rust shogi engine. Release `0.5.4` uses
 material evaluation by default. Optional NNUE weights require an explicit
-file path; see [weights and evidence](docs/nnue_weights.md). This release
-adds bounded mate and defense diagnostics, an opt-in CSA Fischer clock policy,
-and a mate proof depth fix. It makes no playing-strength claim. Changes are in the
+file path; see [weights and evidence](docs/nnue_weights.md). This release adds
+opt-in 27-point entering-king declarations at the root in USI, CSA, and local
+matches, plus bounded stop and task-drain diagnostics. The rules-aware search
+reference is not connected to ordinary USI search. No playing-strength gain
+has been established. Changes are in the
 [changelog](CHANGELOG.md).
 
 ## Quick start
@@ -112,6 +114,8 @@ The 27-point entering-king root declaration is opt-in. In a local match,
 `--engine-option1 EnteringKingRule=CSARule27` and
 `--engine-option2 EnteringKingRule=CSARule27` to enable it in both Sekirei
 engines. The CSA client uses `--entering-king-rule csa27`. Defaults remain off.
+The rules-aware reference search in `sekirei-core` is not used by USI, V1/V2,
+or parallel search; it does not enable in-search declaration handling.
 The [implementation record](docs/plans/denryu7-implementation-2026-11-15.md)
 separates protocol regression checks from tournament and strength evidence.
 

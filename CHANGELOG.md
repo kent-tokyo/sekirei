@@ -4,6 +4,33 @@ This file summarizes recent releases. The
 [archived detailed history](CHANGELOG_ARCHIVE.md)
 preserves older per-change notes.
 
+## [0.5.4] – 2026-11-15
+
+Version 0.5.4 adds opt-in 27-point entering-king declaration handling at the
+root across USI, CSA, and local matches. The default material evaluator and
+ordinary search policy remain unchanged. Bounded diagnostic results do not
+establish a playing-strength gain or tournament readiness.
+
+### Added
+
+- Check 27-point declaration eligibility without changing the board, history,
+  or integer NNUE state; handle `bestmove win`, `%KACHI`, match adjudication,
+  and CSA replay with explicit declaration semantics.
+- Record stopping and speculative task-drain diagnostics under fixed local
+  limits. The rules-aware search in `sekirei-core` is a sequential reference
+  path and is not connected to ordinary USI, V1/V2, or parallel search.
+- Inspect optional private HalfKP networks with the bounded `nnue_probe`
+  diagnostics. No weights are bundled or selected as the default.
+
+### Fixed
+
+- Wait for speculative child tasks to finish after cancellation before
+  returning a search result.
+- Keep the material-search NNUE accumulator untouched on king moves in the
+  optional `king_relative_b_small` build, including undo.
+- Preserve winner interpretation for CSA declaration records with explicit
+  initial-position information.
+
 ## [0.5.3] – 2026-11-14
 
 Version 0.5.3 adds bounded mate and defense diagnostics and an opt-in CSA

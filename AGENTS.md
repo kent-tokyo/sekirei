@@ -57,11 +57,12 @@ Read [README.md](README.md) for the engine and verification commands. For ongoin
 - Run checks appropriate to the change and the repository's applicable contracts. Separate local tests, benchmarks, hosted CI, registry publication, and deployment verification. The original 64-core contention target (<5%) and 10,000,000 random-validation target require their own evidence; do not rerun them for every small edit or claim them from compilation.
 - When `lineprior`, `shogiesa-core`, or `veridict` already ships a needed capability, prefer its dependency update and local adapter over duplicate implementation or another upstream issue.
 
-## Current strength focus — 2026-11-14
+## Current strength focus — 2026-11-15
 
 - 2026-11-14: The outcome is stronger Sekirei play, regardless of whether the improvement comes from evaluation, search, time use, opening play, or a source-identical faster build. Rank these paths together by expected strength benefit, evidence, and Mac cost. Use [the current plan](docs/plans/strength-first-2026-11-14.md) and the roadmap; do not keep searching for a new NNUE weight when another route has better evidence. Continue bounded work autonomously after the planning step, while keeping independent adoption and prior trial contracts intact. Do not claim unattended continuation unless a running job is verified.
 - M03 passed entry but failed independent confirmation (`CONFIRMATION_NO_PASS`). Preserve both results and its weights. Do not adopt it, extend its completed match, or combine entry and confirmation into a new verdict.
 - Apply the failure analysis using existing evidence first. The current roadmap identifies the next diagnostic, candidate hypothesis, budgets, and unexecuted work. Check its linked plan and execution state before starting. Keep those changing details in the roadmap rather than duplicating them here.
+- The 0.5.4 release includes opt-in root entering-king handling and bounded stop/task diagnostics. The rules-aware reference search is not connected to ordinary USI or parallel search, and local diagnostics are not a strength or tournament-readiness result. Follow the dated D7 plan for the remaining integration and qualification work.
 
 ## Report decisions and maintain these instructions
 

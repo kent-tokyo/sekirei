@@ -3,16 +3,17 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.5.3-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.3)
+[![Release](https://img.shields.io/badge/release-v0.5.4-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.4)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.5.3`は
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.5.4`は
 既定で駒得評価を使います。NNUE重みを使う場合はファイルを明示します。今回の変更は
-手数・資源上限付きの詰みと受けの診断、任意設定のCSA Fischer時間配分、
-詰み証明の深さ境界の修正です。棋力向上は主張しません。対応形式と測定範囲は
+任意設定の27点法入玉宣言をUSI・CSA・ローカル対局のrootで扱い、停止応答と
+投機task終了を上限付きで診断できるようにしたものです。規則付き参照探索は
+通常のUSI探索へ未接続で、棋力向上は確認されていません。対応形式と測定範囲は
 [NNUE重み](docs/nnue_weights.md)、リリースごとの変更は
 [変更履歴](CHANGELOG.md)を参照してください。
 
@@ -102,6 +103,15 @@ python3 scripts/run_local_selfplay.py --games 1000 \
 実行結果はGit管理外の`data/runs/`に保存します。同一エンジンの自己対局は
 学習・回帰用であり、Floodgateや人間のレートではありません。対局・ゲートの
 ツールは[スクリプト索引](scripts/README.md)を参照してください。
+
+27点法の入玉宣言は任意設定です。ローカル対局ではrunnerに
+`--entering-king-rule csa27`を渡し、両エンジンにも
+`--engine-option1 EnteringKingRule=CSARule27`と
+`--engine-option2 EnteringKingRule=CSARule27`を指定します。CSAクライアントは
+`--entering-king-rule csa27`を使います。既定はOFFです。`sekirei-core`の
+規則付き参照探索はUSI・V1/V2・並列探索へ未接続で、探索中の入玉宣言には
+対応していません。[実装記録](docs/plans/denryu7-implementation-2026-11-15.md)に
+局所検証と未検証の範囲を記録しています。
 
 NNUE学習の引数は`cargo run --release -p sekirei-train -- --help`で確認できます。
 データと重みはGit外に保存します。レシピ、ハッシュ、再開条件、対局単位の分割条件は

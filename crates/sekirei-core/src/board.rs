@@ -961,7 +961,7 @@ impl Board {
                 // king move, not unsound, since this always has the last word;
                 // see NnueAcc::add_piece's doc comment).
                 #[cfg(feature = "king_relative_b_small")]
-                if pre_kind == PieceKind::Ou {
+                if UPDATE_NNUE && pre_kind == PieceKind::Ou {
                     self.refresh_acc();
                 }
 
@@ -1297,7 +1297,7 @@ impl Board {
                 // block, and `refresh_acc()` reads `self.hand` -- refreshing
                 // any earlier would read stale hand state.
                 #[cfg(feature = "king_relative_b_small")]
-                if token.moved.kind == PieceKind::Ou {
+                if UPDATE_NNUE && token.moved.kind == PieceKind::Ou {
                     self.refresh_acc();
                 }
             }
