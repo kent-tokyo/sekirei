@@ -1,9 +1,9 @@
 {
   "schema": "sekirei.release-manifest.v1",
   "release": "v0.5.4",
-  "commit": "100bd6c50189630bb1ff03ebe6abc4837425a965",
+  "commit": "bda9348b7315b19af5cad440a8b7a1e0eaece48e",
   "branch_at_release": "main",
-  "candidate_state": "prepared from the verified v0.5.4 source commit; publication planned",
+  "candidate_state": "prepared from the API-compatible v0.5.4 source commit; publication planned",
   "packages": {
     "sekirei": "0.5.4",
     "sekirei-core": "0.5.4",
@@ -20,7 +20,7 @@
   "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
   "binary": {
     "path": "target/release/sekirei",
-    "sha256": "f88e9b8a8b9b796087f7d602bd4d9f17e64d64ca028563619f6775a7e89f364a"
+    "sha256": "198b7be5a71ccfb5fa1b099a6cffbbdd85ed1c20784e7264f10e5ee4e47a0b97"
   },
   "publish": {
     "workflow_run": null,
@@ -51,7 +51,7 @@
     "status": "release_preparation",
     "strength_claim": false,
     "evaluator": "material-only native USI smoke",
-    "results": "The release-mode USI binary from source commit 100bd6c answered usiok and readyok; workspace tests, king_relative_b_small core tests, rustfmt, Clippy, and the 98% Rust coverage gate passed (54,952/56,073 lines). sekirei-core cargo publish dry run passed. This is not a playing-strength measurement."
+    "results": "The release-mode USI binary from source commit bda9348 answered usiok and readyok; workspace tests, king_relative_b_small core tests, rustfmt, Clippy, the public API compatibility check, and the 98% Rust coverage gate passed (54,968/56,086 lines). sekirei-core cargo publish dry run passed on the API-compatible source. This is not a playing-strength measurement."
   },
   "external_opponents": {
     "status": "excluded_from_release_evidence",
