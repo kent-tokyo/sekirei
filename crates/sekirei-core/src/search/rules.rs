@@ -828,4 +828,77 @@ mod tests {
         );
         assert_eq!(before, (board.hash(), board.acc.clone(), board.hkp.clone()));
     }
+
+    #[test]
+    fn interrupted_recursive_children_never_publish_scores_or_mutate_board() {
+        let mut board = Board::startpos();
+        let before = (board.hash(), board.acc.clone(), board.hkp.clone());
+        let history = PositionHistory::initial(board.hash());
+        let root_history = SearchHistory::root(&history);
+        let stopped = Arc::new(AtomicBool::new(true));
+        let stopped_budget = Budget::new(None, None, stopped);
+        let stopped_context = Context {
+            budget: &stopped_budget,
+            deadline: None,
+            rule: EnteringKingRule::CsaRule27,
+        };
+        assert_eq!(
+            root(&stopped_context, &mut board, 1, &root_history).result,
+            RuleNodeResult::Aborted
+        );
+
+        let node_budget = Budget::new(None, Some(2), Arc::new(AtomicBool::new(false)));
+        let node_context = Context {
+            budget: &node_budget,
+            deadline: None,
+            rule: EnteringKingRule::CsaRule27,
+        };
+        assert_eq!(
+            node(&node_context, &mut board, 2, 1, &root_history).result,
+            RuleNodeResult::Aborted
+        );
+        assert_eq!(before, (board.hash(), board.acc.clone(), board.hkp.clone()));
+
+        let mut best = Some(aborted());
+        select_best(&mut best, line(cp(10)));
+        assert_eq!(best.unwrap().result, exact(cp(10)));
+        let mut best = Some(line(cp(10)));
+        select_best(&mut best, aborted());
+        assert_eq!(best.unwrap().result, exact(cp(10)));
+
+        let mut capture_board = Board::from_sfen("4k4/9/9/9/4p4/4R4/9/9/4K4 b - 1").unwrap();
+        let capture_before = (
+            capture_board.hash(),
+            capture_board.acc.clone(),
+            capture_board.hkp.clone(),
+        );
+        let capture_history = PositionHistory::initial(capture_board.hash());
+        let capture_root = SearchHistory::root(&capture_history);
+        let capture_budget = Budget::new(None, Some(2), Arc::new(AtomicBool::new(false)));
+        let capture_context = Context {
+            budget: &capture_budget,
+            deadline: None,
+            rule: EnteringKingRule::CsaRule27,
+        };
+        assert_eq!(
+            qsearch(
+                &capture_context,
+                &mut capture_board,
+                1,
+                0,
+                &capture_root,
+                false
+            )
+            .result,
+            RuleNodeResult::Aborted
+        );
+        assert_eq!(
+            capture_before,
+            (
+                capture_board.hash(),
+                capture_board.acc.clone(),
+                capture_board.hkp.clone()
+            )
+        );
+    }
 }

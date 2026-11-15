@@ -272,4 +272,18 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn perpetual_check_ties_and_upper_bounds_keep_their_rule_meaning() {
+        let perpetual = Score::Win {
+            kind: Kind::PerpetualCheck,
+            plies: 1,
+        };
+        let mate = Score::Win {
+            kind: Kind::Checkmate,
+            plies: 1,
+        };
+        assert!(perpetual < mate);
+        assert_eq!(Bound::Upper.after_parent_move(), Bound::Lower);
+    }
 }

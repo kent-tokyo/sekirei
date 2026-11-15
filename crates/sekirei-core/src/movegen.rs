@@ -5336,3 +5336,24 @@ mod mate_in_one_tests {
         assert!(mates > 20, "only {mates} mates in {positions} positions");
     }
 }
+
+#[cfg(test)]
+mod empty_slider_ray_tests {
+    use super::*;
+
+    #[test]
+    fn slider_probe_without_an_occupied_blocker_has_no_attacker() {
+        let board = Board::startpos();
+        let square = Square::from_shogi(5, 5);
+        for direction in 0..8 {
+            assert!(!first_slider_attacker(
+                &board,
+                square,
+                Color::Black,
+                Bitboard::EMPTY,
+                direction,
+                false,
+            ));
+        }
+    }
+}
