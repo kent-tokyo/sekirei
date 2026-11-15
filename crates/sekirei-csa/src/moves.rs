@@ -56,7 +56,7 @@ pub fn csa_piece(s: &str) -> Option<PieceKind> {
 }
 
 /// PieceKind → CSA piece-name.
-fn piece_to_csa(k: PieceKind) -> &'static str {
+pub(crate) fn piece_to_csa(k: PieceKind) -> &'static str {
     match k {
         PieceKind::Fu => "FU",
         PieceKind::Kyou => "KY",
@@ -134,7 +134,7 @@ pub fn csa_to_move(board: &mut Board, token: &str) -> Option<Move> {
 /// silently corrupts handicap/opening games and makes protocol bugs look like
 /// search mates. Convert the position block to the engine's already-tested SFEN
 /// parser instead of duplicating board construction here.
-fn base_board_from_csa_position(lines: &[String]) -> Result<Board, String> {
+pub(crate) fn base_board_from_csa_position(lines: &[String]) -> Result<Board, String> {
     if lines.iter().any(|line| line == "PI") && !lines.iter().any(|line| line.starts_with("P1")) {
         if lines
             .iter()

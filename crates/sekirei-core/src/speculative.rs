@@ -9,7 +9,7 @@
 //! poisoning entries that the main search later reads.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 
 use crate::board::Board;
 use crate::budget::Budget;
@@ -49,6 +49,32 @@ pub struct SpecState {
     /// makes that structurally impossible regardless of how long any one
     /// speculative task runs.
     pub(crate) pool: Arc<rayon::ThreadPool>,
+    /// Counts queued and running tasks for this search invocation. A result
+    /// cannot be returned until all of them have left the dedicated pool.
+    pub(crate) tasks_in_flight: Arc<AtomicUsize>,
+    pub(crate) tasks_spawned: AtomicUsize,
+}
+
+struct SpecTaskCompletion(Arc<AtomicUsize>);
+
+impl Drop for SpecTaskCompletion {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Release);
+    }
+}
+
+impl SpecState {
+    fn task_started(&self) -> SpecTaskCompletion {
+        self.tasks_spawned.fetch_add(1, Ordering::Relaxed);
+        self.tasks_in_flight.fetch_add(1, Ordering::AcqRel);
+        SpecTaskCompletion(self.tasks_in_flight.clone())
+    }
+
+    pub(crate) fn wait_for_tasks(&self) {
+        while self.tasks_in_flight.load(Ordering::Acquire) != 0 {
+            std::thread::yield_now();
+        }
+    }
 }
 
 // ---- Per-task handle ----
@@ -84,11 +110,13 @@ impl SpecGroup {
                 let result_c = result.clone();
                 let state_c = state.clone();
                 let mut b = board.clone();
+                let completion = state.task_started();
 
                 // Dedicated pool (see SpecState::pool), not the bare rayon::spawn
                 // global-pool function -- must never share a pool with alpha_beta's
                 // own YBW dispatch.
                 state.pool.spawn(move || {
+                    let _completion = completion;
                     // Check abort flags before doing any work
                     if abort_c.load(Ordering::Relaxed) || state_c.budget.should_abort() {
                         result_c.store(0, Ordering::Relaxed);
@@ -293,6 +321,48 @@ mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
+    #[test]
+    fn task_wait_blocks_until_running_task_exits() {
+        let state = spec_state();
+        let started = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let completion = state.task_started();
+        let started_task = started.clone();
+        let release_task = release.clone();
+        state.pool.spawn(move || {
+            let _completion = completion;
+            started_task.store(true, Ordering::Release);
+            while !release_task.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+        });
+        let start = Instant::now();
+        while !started.load(Ordering::Acquire) {
+            assert!(start.elapsed() < Duration::from_secs(1));
+            std::thread::yield_now();
+        }
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            state.wait_for_tasks();
+            done_tx.send(()).unwrap();
+        });
+        assert!(done_rx.recv_timeout(Duration::from_millis(10)).is_err());
+        release.store(true, Ordering::Release);
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        waiter.join().unwrap();
+    }
+
+    #[test]
+    fn panicking_task_still_releases_completion_guard() {
+        let state = spec_state();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _completion = state.task_started();
+            panic!("task failed");
+        }));
+        state.wait_for_tasks();
+        assert_eq!(state.tasks_in_flight.load(Ordering::Acquire), 0);
+    }
+
     // Hand-verified mate-in-1 for black: white king cornered at (file9,rank1);
     // black king at (file7,rank2) covers both diagonal escapes; black rook
     // slides to (file9,rank5) delivering unstoppable check down the file. See
@@ -309,6 +379,8 @@ mod tests {
         Arc::new(SpecState {
             tt: Tt::new(1),
             budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
+            tasks_in_flight: Arc::new(AtomicUsize::new(0)),
+            tasks_spawned: AtomicUsize::new(0),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)
@@ -428,6 +500,8 @@ mod tests {
         let state = Arc::new(SpecState {
             tt: tt.clone(),
             budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
+            tasks_in_flight: Arc::new(AtomicUsize::new(0)),
+            tasks_spawned: AtomicUsize::new(0),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)
@@ -507,6 +581,8 @@ mod tests {
         let state = Arc::new(SpecState {
             tt: tt.clone(),
             budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
+            tasks_in_flight: Arc::new(AtomicUsize::new(0)),
+            tasks_spawned: AtomicUsize::new(0),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)
@@ -666,6 +742,8 @@ mod tests {
         let state = Arc::new(SpecState {
             tt: tt.clone(),
             budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
+            tasks_in_flight: Arc::new(AtomicUsize::new(0)),
+            tasks_spawned: AtomicUsize::new(0),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(2)
@@ -740,6 +818,8 @@ mod tests {
         let state = Arc::new(SpecState {
             tt: tt.clone(),
             budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
+            tasks_in_flight: Arc::new(AtomicUsize::new(0)),
+            tasks_spawned: AtomicUsize::new(0),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)
@@ -815,6 +895,8 @@ mod tests {
         let state = Arc::new(SpecState {
             tt: tt.clone(),
             budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
+            tasks_in_flight: Arc::new(AtomicUsize::new(0)),
+            tasks_spawned: AtomicUsize::new(0),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)

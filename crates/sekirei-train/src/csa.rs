@@ -13,7 +13,13 @@
 //!   - Time lines (`T<n>`), comment lines (`'...`) and metadata (`$...`) are ignored
 
 use sekirei_core::{
-    board::Board, movegen::generate_legal_moves, mv::Move, piece::PieceKind, square::Square,
+    board::Board,
+    color::Color,
+    entering_king::{EnteringKingRule, check_declaration},
+    movegen::generate_legal_moves,
+    mv::Move,
+    piece::PieceKind,
+    square::Square,
 };
 
 // ---- Public types ----
@@ -54,6 +60,7 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
     let mut black_rate: Option<f32> = None;
     let mut white_rate: Option<f32> = None;
     let mut perpetual_check_loser = None;
+    let mut kachi_turn = None;
 
     for line in text.lines() {
         let line = line.trim();
@@ -90,6 +97,17 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
             };
             continue;
         }
+        if let Some(declarer) = line.strip_prefix("'sekirei_kachi_turn:") {
+            if kachi_turn.is_some() {
+                return None;
+            }
+            kachi_turn = Some(match declarer.trim() {
+                "black" => Color::Black,
+                "white" => Color::White,
+                _ => return None,
+            });
+            continue;
+        }
         if line.starts_with('\'') {
             continue;
         }
@@ -124,17 +142,32 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
                     }
                 }
                 "%KACHI" => {
-                    // 27-point (nyugyoku) win declaration: made after the
-                    // declaring side's own move satisfies the entering-king
-                    // point requirement, so by the time this tag is parsed
-                    // side_to_move has already flipped to the opponent --
-                    // same "the player who just moved won" shape as %TSUMI.
-                    // Verified against a real floodgate KACHI game (its
-                    // 'summary: comment names the mover, not side_to_move).
-                    if board.side_to_move == sekirei_core::color::Color::Black {
-                        GameResult::WhiteWin
+                    if let Some(declarer) = kachi_turn {
+                        // Sekirei's marker means an in-turn declaration, not
+                        // a server result attached to the previous move.
+                        if board.side_to_move != declarer
+                            || !check_declaration(&board, EnteringKingRule::CsaRule27).eligible()
+                        {
+                            return None;
+                        }
+                        if declarer == Color::Black {
+                            GameResult::BlackWin
+                        } else {
+                            GameResult::WhiteWin
+                        }
                     } else {
-                        GameResult::BlackWin
+                        // 27-point (nyugyoku) win declaration: made after the
+                        // declaring side's own move satisfies the entering-king
+                        // point requirement, so by the time this tag is parsed
+                        // side_to_move has already flipped to the opponent --
+                        // same "the player who just moved won" shape as %TSUMI.
+                        // Verified against a real floodgate KACHI game (its
+                        // 'summary: comment names the mover, not side_to_move).
+                        if board.side_to_move == sekirei_core::color::Color::Black {
+                            GameResult::WhiteWin
+                        } else {
+                            GameResult::BlackWin
+                        }
                     }
                 }
                 "%JISHOGI" => GameResult::Draw,
@@ -312,6 +345,30 @@ T1
         // as the %TORYO case above.
         let game = parse_csa(&sample_with_ending("%KACHI")).expect("parse failed");
         assert_eq!(game.result, GameResult::WhiteWin);
+    }
+
+    #[test]
+    fn sekirei_in_turn_kachi_preserves_declaring_side() {
+        let black =
+            include_str!("../../sekirei-match-runner/tests/fixtures/entering_king_black.csa");
+        let white =
+            include_str!("../../sekirei-match-runner/tests/fixtures/entering_king_white.csa");
+        assert_eq!(parse_csa(black).unwrap().result, GameResult::BlackWin);
+        assert_eq!(parse_csa(white).unwrap().result, GameResult::WhiteWin);
+        assert!(parse_csa(&black.replace("black\n%KACHI", "white\n%KACHI")).is_none());
+        assert!(parse_csa(&black.replace("K1RPBPPP1", "K8")).is_none());
+    }
+
+    #[test]
+    fn csa_client_custom_position_comment_replays_before_result() {
+        let text = "V2.2\n'sekirei_initial_sfen: 4k4/9/9/9/9/9/9/9/K8 b - 1\nP1 *  *  *  * -OU *  *  *  *\nP9+OU *  *  *  *  *  *  *  *\n+\n+9998OU\n%TORYO\n";
+        let game = parse_csa(text).expect("custom CSA position must replay");
+        assert_eq!(game.result, GameResult::BlackWin);
+        assert_eq!(game.moves.len(), 1);
+        assert_eq!(
+            sekirei_core::sfen::board_to_sfen(&game.initial_board),
+            "4k4/9/9/9/9/9/9/9/K8 b - 1"
+        );
     }
 
     #[test]

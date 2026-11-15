@@ -15,6 +15,7 @@ use sekirei_core::{
     board::Board,
     color::Color,
     dfpn::{DfpnConfig, DfpnOutcome, DfpnResult, DfpnSolver},
+    entering_king::{EnteringKingRule, check_declaration},
     eval::{
         NnueOutputMode, set_nnue_output_mode, set_nnue_residual_scale_permille,
         validate_nnue_residual_scale_permille,
@@ -41,6 +42,7 @@ use sekirei_core::{
 mod book;
 #[cfg(feature = "opening-book")]
 mod book_log;
+mod declaration;
 mod go;
 mod invariant;
 mod session;
@@ -48,6 +50,7 @@ mod session;
 use book::{Book, BookProvenance};
 #[cfg(feature = "opening-book")]
 use book_log::{BookDecisionLogger, DecisionContext};
+use declaration::has_declaration_time;
 use invariant::DiagCtx;
 #[cfg(feature = "opening-book")]
 use sekirei_core::sfen::board_to_sfen;
@@ -142,6 +145,7 @@ struct SearchResult {
     nmp_stats: Vec<NmpSnapshot>,
     aspiration_stats: Vec<AspirationSnapshot>,
     shared_mcts_stats: Option<(u32, u32, u32)>,
+    spec_task_stats: Option<(usize, usize, u64)>,
     /// Per-search root mate-safety metrics, only available on the sequential
     /// backend used by `Speculative` with `SpecTopN=0`.
     root_safety: Option<SearchDiagnosticsSnapshot>,
@@ -180,6 +184,7 @@ impl SearchResult {
             nmp_stats: Vec::new(),
             aspiration_stats: Vec::new(),
             shared_mcts_stats: None,
+            spec_task_stats: None,
             root_safety: None,
             dfpn: None,
         }
@@ -512,6 +517,11 @@ fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
 }
 
 fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
+    let spec_task_stats = Some((
+        info.spec_tasks_spawned,
+        info.spec_tasks_remaining,
+        info.spec_join_wait_us,
+    ));
     let base = SearchResult::new(
         info.best_move,
         info.score,
@@ -523,6 +533,7 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
     );
     SearchResult {
         pv_list: info.pv_list,
+        spec_task_stats,
         ..base
     }
 }
@@ -978,6 +989,11 @@ fn emit_search_result(
     emit_lazy_smp_tt_diagnostics(&info);
     emit_lazy_smp_overlap_diagnostics(&info);
     emit_lazy_smp_root_hint_diagnostics(&info);
+    if let Some((spawned, remaining, join_wait_us)) = info.spec_task_stats {
+        println!(
+            "info string speculative_tasks spawned {spawned} remaining {remaining} join_wait_us {join_wait_us}"
+        );
+    }
     if let Some(workers) = &info.lazy_retirement {
         for (worker, (iterations, retired, contributions)) in workers.iter().enumerate() {
             println!(
@@ -1247,6 +1263,11 @@ fn spawn_search_thread(task: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
         .expect("failed to spawn sekirei search thread")
 }
 
+fn emit_declaration_win() {
+    println!("bestmove win");
+    io::stdout().lock().flush().ok();
+}
+
 fn diagnostic_context(
     board: &Board,
     game_counter: u64,
@@ -1312,6 +1333,7 @@ fn main() {
     // Mirrors the USI Threads option; zero means one Lazy SMP worker.
     let mut threads: u32 = 0;
     let mut search_mode = SearchMode::Auto;
+    let mut entering_king_rule = EnteringKingRule::NoEnteringKing;
     let mut searcher = make_searcher(hash_mb, spec_top_n, threads_for_lazy_smp(0), search_mode);
     let mut eval_file: Option<String> = None;
     // NNUE is intentionally a process-global OnceLock.  Remember the path
@@ -1373,6 +1395,9 @@ fn main() {
     // the ponder generation instead.
     let ponder_result: Arc<Mutex<Option<SearchResult>>> = Arc::new(Mutex::new(None));
     let mut active_ponder = false;
+    // An eligible `go ponder` retains its terminal action until stop/ponderhit.
+    let mut pending_declaration = false;
+    let mut declaration_waits_for_stop = false;
 
     for raw in stdin.lock().lines() {
         let Ok(line) = raw else { break };
@@ -1395,6 +1420,9 @@ fn main() {
                 print_spin_option("Threads", 0, THREADS_RANGE);
                 println!(
                     "option name SearchMode type combo default Auto var Auto var Speculative var LazySMP var Dfpn var SharedMcts"
+                );
+                println!(
+                    "option name EnteringKingRule type combo default NoEnteringKing var NoEnteringKing var CSARule27"
                 );
                 print_spin_option("SpecTopN", DEFAULT_SPEC_TOP_N as u64, SPEC_TOP_N_RANGE);
                 print_spin_option("LazyFlags", u64::from(LAZY_DEFAULT_FLAGS), LAZY_FLAGS_RANGE);
@@ -1629,6 +1657,32 @@ fn main() {
                         threads_for_lazy_smp(threads),
                         search_mode,
                     );
+                } else if option_name == Some("EnteringKingRule") {
+                    let new_rule = match parts.get(3).copied() {
+                        Some("NoEnteringKing") => EnteringKingRule::NoEnteringKing,
+                        Some("CSARule27") => EnteringKingRule::CsaRule27,
+                        _ => {
+                            println!("info string invalid EnteringKingRule value");
+                            continue;
+                        }
+                    };
+                    if entering_king_rule != new_rule {
+                        invalidate_and_join_inflight_search(
+                            &search_generation,
+                            &mut search_abort,
+                            &mut search_handle,
+                        );
+                        pending_declaration = false;
+                        declaration_waits_for_stop = false;
+                        active_ponder = false;
+                        ponder_go_args = None;
+                        ponder_result
+                            .lock()
+                            .expect("ponder result lock poisoned")
+                            .take();
+                        searcher.clear_tt();
+                        entering_king_rule = new_rule;
+                    }
                 } else if option_name == Some("IncrementUsePercent")
                     && let Some(percent) = parse_spin_option_or_report(
                         &parts,
@@ -1806,6 +1860,8 @@ fn main() {
                     &mut search_handle,
                 );
                 active_ponder = false;
+                pending_declaration = false;
+                declaration_waits_for_stop = false;
                 ponder_go_args = None;
                 ponder_result
                     .lock()
@@ -1836,6 +1892,8 @@ fn main() {
                     &mut search_handle,
                 );
                 active_ponder = false;
+                pending_declaration = false;
+                declaration_waits_for_stop = false;
                 ponder_go_args = None;
                 ponder_result
                     .lock()
@@ -1888,7 +1946,10 @@ fn main() {
                 // suppress_bm stays false so the dying thread still emits bestmove.
                 abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                 let pondering = rest.split_whitespace().any(|t| t == "ponder");
+                let infinite = rest.split_whitespace().any(|t| t == "infinite");
                 active_ponder = pondering;
+                pending_declaration = false;
+                declaration_waits_for_stop = false;
                 ponder_result
                     .lock()
                     .expect("ponder result lock poisoned")
@@ -1901,6 +1962,19 @@ fn main() {
                 // Reset suppress flag now that the previous thread has joined.
                 suppress_bm.store(false, Ordering::Relaxed);
                 let generation = search_generation.fetch_add(1, Ordering::AcqRel) + 1;
+
+                if position_history.outcome_at_current_position().is_none()
+                    && has_declaration_time(rest, board.side_to_move)
+                    && check_declaration(&board, entering_king_rule).eligible()
+                {
+                    if pondering || infinite {
+                        pending_declaration = true;
+                        declaration_waits_for_stop = infinite;
+                    } else {
+                        emit_declaration_win();
+                    }
+                    continue;
+                }
 
                 // Book lookup: skip search entirely for a known opening
                 // position, within BookMaxPly. Not applied while pondering --
@@ -2044,6 +2118,12 @@ fn main() {
                 abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                 active_ponder = false;
                 ponder_go_args = None;
+                if pending_declaration {
+                    pending_declaration = false;
+                    declaration_waits_for_stop = false;
+                    emit_declaration_win();
+                    continue;
+                }
                 if was_pondering
                     && let Some(info) = ponder_result
                         .lock()
@@ -2064,6 +2144,15 @@ fn main() {
 
             "ponderhit" => {
                 if !active_ponder {
+                    continue;
+                }
+                if pending_declaration {
+                    active_ponder = false;
+                    ponder_go_args = None;
+                    if !declaration_waits_for_stop {
+                        pending_declaration = false;
+                        emit_declaration_win();
+                    }
                     continue;
                 }
                 // If ponder already completed (notably a forced mate), return
@@ -2128,8 +2217,11 @@ fn main() {
                 }
             }
 
-            "gameover" =>
-            {
+            "gameover" => {
+                pending_declaration = false;
+                declaration_waits_for_stop = false;
+                active_ponder = false;
+                ponder_go_args = None;
                 #[cfg(feature = "opening-book")]
                 if let Err(error) = book_decision_logger.terminal(game_counter, rest) {
                     println!("info string book decision log failed: {error}");

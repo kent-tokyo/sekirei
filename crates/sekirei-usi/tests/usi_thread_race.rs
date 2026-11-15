@@ -168,6 +168,85 @@ fn infinite_search_answers_repeated_isready_without_stopping() {
 }
 
 #[test]
+fn entering_king_infinite_waits_for_stop_and_emits_win_once() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(
+        &mut stdin,
+        "setoption name EnteringKingRule value CSARule27",
+    );
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |line| line == "readyok", Duration::from_secs(5));
+
+    // Existing rule-conformance position: Black has 28 points and at least
+    // ten other pieces in White's camp.
+    send(
+        &mut stdin,
+        "position sfen K1RPBPPP1/1GPGPSPS1/1NPNPLPL1/9/4k4/9/9/9/9 b - 1",
+    );
+    send(&mut stdin, "go infinite");
+    send(&mut stdin, "isready");
+    let lines = recv_until_collect(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(
+        lines.iter().all(|line| !line.starts_with("bestmove ")),
+        "declaration leaked before stop: {lines:?}"
+    );
+
+    send(&mut stdin, "stop");
+    recv_line_matching(&rx, |line| line == "bestmove win", Duration::from_secs(5));
+    send(&mut stdin, "stop");
+    send(&mut stdin, "isready");
+    let lines = recv_until_collect(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(
+        lines.iter().all(|line| !line.starts_with("bestmove ")),
+        "duplicate declaration: {lines:?}"
+    );
+
+    send(&mut stdin, "quit");
+    wait_for_child_exit(
+        &mut child,
+        Duration::from_secs(5),
+        "declaration engine did not exit",
+    );
+}
+
+#[test]
+fn entering_king_ponder_infinite_waits_after_ponderhit() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(
+        &mut stdin,
+        "setoption name EnteringKingRule value CSARule27",
+    );
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |line| line == "readyok", Duration::from_secs(5));
+
+    send(
+        &mut stdin,
+        "position sfen K1RPBPPP1/1GPGPSPS1/1NPNPLPL1/9/4k4/9/9/9/9 b - 1",
+    );
+    send(&mut stdin, "go ponder infinite");
+    send(&mut stdin, "ponderhit");
+    send(&mut stdin, "isready");
+    let lines = recv_until_collect(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(
+        lines.iter().all(|line| !line.starts_with("bestmove ")),
+        "infinite ponder leaked: {lines:?}"
+    );
+
+    send(&mut stdin, "stop");
+    recv_line_matching(&rx, |line| line == "bestmove win", Duration::from_secs(5));
+    send(&mut stdin, "quit");
+    wait_for_child_exit(
+        &mut child,
+        Duration::from_secs(5),
+        "ponder declaration engine did not exit",
+    );
+}
+
+#[test]
 fn ponder_isready_then_ponderhit_keeps_one_search_response() {
     let (mut child, rx, mut stdin) = spawn_engine();
     send(&mut stdin, "usi");

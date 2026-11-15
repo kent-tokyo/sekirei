@@ -107,6 +107,14 @@ Runs store manifests, records, CSA, and search data under ignored `data/runs/`.
 Same-engine results are regression evidence, not Floodgate or human ratings.
 See the [script index](scripts/README.md) for match and gate tooling.
 
+The 27-point entering-king root declaration is opt-in. In a local match,
+`--entering-king-rule csa27` enables the runner's adjudication; pass
+`--engine-option1 EnteringKingRule=CSARule27` and
+`--engine-option2 EnteringKingRule=CSARule27` to enable it in both Sekirei
+engines. The CSA client uses `--entering-king-rule csa27`. Defaults remain off.
+The [implementation record](docs/plans/denryu7-implementation-2026-11-15.md)
+separates protocol regression checks from tournament and strength evidence.
+
 For NNUE training, run `cargo run --release -p sekirei-train -- --help`.
 Data and weights remain outside Git. Recipes, hashes, resume rules, and
 whole-game split requirements are in the [script index](scripts/README.md).

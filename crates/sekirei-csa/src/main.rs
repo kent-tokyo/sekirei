@@ -11,6 +11,7 @@
 //!   --game <id>        (default: floodgate-300-10F)
 //!   --hash <MB>        hash table size (default: 256)
 //!   --fischer-time-policy <legacy|bank-reserve>  opt-in Fischer clock policy
+//!   --entering-king-rule <off|csa27>  opt-in 27-point declaration
 //!   --weights <file>   NNUE weight file
 //!   --fv-scale <n>     HalfKP output divisor (1..=128, default: 16)
 //!   --record-dir <dir> local CSA record directory (default: data/floodgate)
@@ -36,6 +37,7 @@ use protocol::{
     Config, CsaClient, EvaluationMode, FischerTimePolicy, write_reconnect_exhausted_progress,
     write_runtime_status_progress,
 };
+use sekirei_core::entering_king::EnteringKingRule;
 
 const POST_GAME_RECONNECT_LIMIT: u32 = 3;
 
@@ -282,6 +284,14 @@ fn parse_args_with_args(argv: Vec<String>) -> Result<Config, String> {
                     }
                 };
             }
+            "--entering-king-rule" => {
+                i += 1;
+                cfg.entering_king_rule = match arg(&argv, i)?.as_str() {
+                    "off" => EnteringKingRule::NoEnteringKing,
+                    "csa27" => EnteringKingRule::CsaRule27,
+                    value => return Err(format!("--entering-king-rule: unsupported mode {value}")),
+                };
+            }
             "--resign" => {
                 i += 1;
                 cfg.resign_score = -(arg(&argv, i)?
@@ -487,6 +497,10 @@ impl RunManifest<'_> {
             "search_backend": "alpha_beta",
             "hash_mb": config.hash_mb,
             "fischer_time_policy": config.fischer_time_policy.as_str(),
+            "entering_king_rule": match config.entering_king_rule {
+                EnteringKingRule::NoEnteringKing => "off",
+                EnteringKingRule::CsaRule27 => "csa27",
+            },
             "max_depth": config.max_depth,
             "resign_score_cp": config.resign_score,
             "ponder": "disabled",
@@ -552,6 +566,7 @@ fn print_usage() {
     eprintln!("  --game <id>        game ID (default: floodgate-300-10F)");
     eprintln!("  --hash <MB>        hash table MB (default: 256)");
     eprintln!("  --fischer-time-policy <legacy|bank-reserve>  Fischer budget (default: legacy)");
+    eprintln!("  --entering-king-rule <off|csa27>  declaration rule (default: off)");
     eprintln!("  --weights <file>   NNUE weight file");
     eprintln!("  --fv-scale <n>     HalfKP output divisor (1..=128, default: 16)");
     eprintln!("  --threads <n>      Rayon workers (1..=64, default: automatic)");
@@ -645,6 +660,18 @@ mod tests {
         let selected = parse_args_from(["--fischer-time-policy", "bank-reserve"]).unwrap();
         assert_eq!(selected.fischer_time_policy, FischerTimePolicy::BankReserve);
         assert!(parse_args_from(["--fischer-time-policy", "other"]).is_err());
+    }
+
+    #[test]
+    fn entering_king_rule_is_explicit_and_validated() {
+        use sekirei_core::entering_king::EnteringKingRule;
+        assert_eq!(
+            Config::default().entering_king_rule,
+            EnteringKingRule::NoEnteringKing
+        );
+        let selected = parse_args_from(["--entering-king-rule", "csa27"]).unwrap();
+        assert_eq!(selected.entering_king_rule, EnteringKingRule::CsaRule27);
+        assert!(parse_args_from(["--entering-king-rule", "other"]).is_err());
     }
 
     #[test]

@@ -19,14 +19,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use sekirei_core::{
     board::Board,
     color::Color,
+    entering_king::{EnteringKingRule, check_declaration},
     search::{SearchConfig, Searcher},
     sfen::{PositionHistory, board_to_sfen},
     tt::Tt,
 };
 
 use crate::moves::{
-    csa_to_move, do_move_with_history, is_csa_move_token, move_to_csa,
-    position_with_history_from_csa_position,
+    base_board_from_csa_position, csa_to_move, do_move_with_history, is_csa_move_token,
+    move_to_csa, position_with_history_from_csa_position,
 };
 
 mod framing;
@@ -53,6 +54,43 @@ fn opponent_receive_deadline(main_ms: u64, period_ms: u64) -> Duration {
         .saturating_add(2 * 60_000)
         .clamp(5 * 60_000, 40 * 60_000);
     Duration::from_millis(milliseconds)
+}
+
+fn should_declare(
+    board: &Board,
+    position_history: &PositionHistory,
+    rule: EnteringKingRule,
+    time_left_ms: u64,
+    period_ms: u64,
+) -> bool {
+    (time_left_ms > 0 || period_ms > 0)
+        && position_history.outcome_at_current_position().is_none()
+        && check_declaration(board, rule).eligible()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum KachiAttribution {
+    InTurn(Color),
+    AfterOwnMove,
+    Unknown,
+}
+
+fn attribute_server_kachi(
+    board: &Board,
+    our_color: Color,
+    result: GameResult,
+    resigned: bool,
+) -> KachiAttribution {
+    if result == GameResult::Lose
+        && board.side_to_move == our_color.flip()
+        && check_declaration(board, EnteringKingRule::CsaRule27).eligible()
+    {
+        KachiAttribution::InTurn(board.side_to_move)
+    } else if result == GameResult::Win && !resigned && board.side_to_move == our_color.flip() {
+        KachiAttribution::AfterOwnMove
+    } else {
+        KachiAttribution::Unknown
+    }
 }
 
 struct ActiveReceiveWindow {
@@ -129,6 +167,8 @@ pub struct Config {
     pub hash_mb: usize,
     /// Clock policy for Fischer games; the default preserves existing play.
     pub fischer_time_policy: FischerTimePolicy,
+    /// Entering-king declaration rule for this connection (off by default).
+    pub entering_king_rule: EnteringKingRule,
     pub resign_score: i32, // centipawns (negative threshold)
     pub keep_alive: bool,  // reconnect after each game
     /// Optional process-wide ceiling for completed game attempts.
@@ -202,6 +242,7 @@ impl Default for Config {
             game_id: "floodgate-300-10F".into(),
             hash_mb: 256,
             fischer_time_policy: FischerTimePolicy::Legacy,
+            entering_king_rule: EnteringKingRule::NoEnteringKing,
             resign_score: -2000,
             keep_alive: false,
             max_games: None,
@@ -1240,10 +1281,12 @@ impl CsaClient {
         );
 
         let mut resigned = false;
+        let mut declared = false;
+        let mut pending_kachi_event = false;
         loop {
             let stm = board.side_to_move;
 
-            if stm == our_color && !resigned && ply_count < TOURNAMENT_MAX_PLIES {
+            if stm == our_color && !resigned && !declared && ply_count < TOURNAMENT_MAX_PLIES {
                 // Our turn — search and send
                 // Preserve the pre-move position for the sidecar. `think_and_send`
                 // applies the selected move to `board` before returning.
@@ -1264,7 +1307,22 @@ impl CsaClient {
                     self.set_status("client_error", Some("analysis_record_write_failed"));
                     return Ok(GameResult::Aborted);
                 }
-                if result.move_made.is_some() {
+                if result.declared_win {
+                    if let Some(record) = record.as_mut() {
+                        let side = if our_color == Color::Black {
+                            "black"
+                        } else {
+                            "white"
+                        };
+                        record.append(&format!("'sekirei_kachi_turn: {side}"));
+                    }
+                    if record.as_ref().is_some_and(|record| !record.healthy()) {
+                        eprintln!("[csa] aborting game: declaration record write failed");
+                        return Ok(GameResult::Aborted);
+                    }
+                    // The server, not the local board check, decides the result.
+                    declared = true;
+                } else if result.move_made.is_some() {
                     advance_tournament_ply(&mut ply_count)
                         .expect("our move is guarded by the tournament ply boundary");
                     // Read T{units} from the server echo and debit our clock.
@@ -1300,6 +1358,12 @@ impl CsaClient {
                                 {
                                     record.append(csa_move);
                                 }
+                                if pending_kachi_event {
+                                    if terminal != GameResult::Win {
+                                        record.append("'sekirei_kachi_turn: unknown");
+                                    }
+                                    record.append("%KACHI");
+                                }
                                 record.append(&t_line);
                                 record.finish_with_result(terminal);
                                 if !record.healthy() {
@@ -1309,7 +1373,9 @@ impl CsaClient {
                             return Ok(terminal);
                         }
                         if t_line.starts_with('%') {
-                            if let Some(record) = record.as_mut() {
+                            if t_line == "%KACHI" {
+                                pending_kachi_event = true;
+                            } else if let Some(record) = record.as_mut() {
                                 record.append(&t_line);
                                 if !record.healthy() {
                                     eprintln!("[csa] aborting game: event record write failed");
@@ -1404,6 +1470,27 @@ impl CsaClient {
                             }
                             self.awaiting_aborted_game_result = result == GameResult::Aborted;
                             if let Some(record) = record.as_mut() {
+                                if declared && result == GameResult::Win {
+                                    record.append("%KACHI");
+                                } else if pending_kachi_event {
+                                    match attribute_server_kachi(
+                                        &board, our_color, result, resigned,
+                                    ) {
+                                        KachiAttribution::InTurn(side) => {
+                                            let side = if side == Color::Black {
+                                                "black"
+                                            } else {
+                                                "white"
+                                            };
+                                            record.append(&format!("'sekirei_kachi_turn: {side}"));
+                                        }
+                                        KachiAttribution::AfterOwnMove => {}
+                                        KachiAttribution::Unknown => {
+                                            record.append("'sekirei_kachi_turn: unknown")
+                                        }
+                                    }
+                                    record.append("%KACHI");
+                                }
                                 record.append(&line);
                                 if !record.healthy() {
                                     eprintln!("[csa] aborting game: terminal record write failed");
@@ -1419,7 +1506,10 @@ impl CsaClient {
                             return Ok(result);
                         }
                         ServerLine::Move(move_line)
-                            if !resigned && awaiting_opponent_adjudication.is_none() =>
+                            if !resigned
+                                && !declared
+                                && !pending_kachi_event
+                                && awaiting_opponent_adjudication.is_none() =>
                         {
                             // Opponent's move
                             if let Err(error) = advance_tournament_ply(&mut ply_count) {
@@ -1470,12 +1560,18 @@ impl CsaClient {
                             self.emit_status(Some("opponent_move"));
                             break;
                         }
+                        ServerLine::Move(_) if declared || pending_kachi_event => {
+                            self.stop_for_protocol_error("move_after_kachi_event");
+                            return Ok(GameResult::Aborted);
+                        }
                         ServerLine::Move(_) if awaiting_opponent_adjudication.is_some() => {
                             self.stop_for_protocol_error("move_before_server_adjudication");
                             return Ok(GameResult::Aborted);
                         }
                         ServerLine::Event(event) => {
-                            if let Some(record) = record.as_mut() {
+                            if event == "%KACHI" {
+                                pending_kachi_event = true;
+                            } else if let Some(record) = record.as_mut() {
                                 record.append(event);
                                 if !record.healthy() {
                                     eprintln!("[csa] aborting game: event record write failed");
@@ -1549,6 +1645,36 @@ impl CsaClient {
         is_fischer: bool,
     ) -> io::Result<ThinkResult> {
         let search_side = board.side_to_move;
+        if should_declare(
+            board,
+            position_history,
+            self.config.entering_king_rule,
+            time_left_ms,
+            byoyomi_ms,
+        ) {
+            self.send("%KACHI")?;
+            return Ok(ThinkResult {
+                move_made: None,
+                declared_win: true,
+                csa_move: None,
+                score: 0,
+                depth: 0,
+                nodes: 0,
+                elapsed_ms: 0,
+                budget_ms: 0,
+                time_left_before_ms: time_left_ms,
+                byoyomi_ms,
+                hashfull: 0,
+                score_kind: "declaration",
+                bound: "terminal",
+                completed_bound: "terminal",
+                completed_iteration_valid: false,
+                abort_reason: "none",
+                decision: "declare_win",
+                pv_csa: None,
+                root_candidates: None,
+            });
+        }
         let time_limit = Some(Duration::from_millis(
             match (is_fischer, self.config.fischer_time_policy) {
                 (true, FischerTimePolicy::BankReserve) => {
@@ -1585,6 +1711,7 @@ impl CsaClient {
             self.send("%TORYO")?;
             return Ok(ThinkResult {
                 move_made: None,
+                declared_win: false,
                 csa_move: None,
                 score: info.score,
                 depth: info.depth,
@@ -1620,6 +1747,7 @@ impl CsaClient {
             self.emit_status(Some("our_move"));
             Ok(ThinkResult {
                 move_made: Some(m),
+                declared_win: false,
                 csa_move: Some(csa_move),
                 score: info.score,
                 depth: info.depth,
@@ -1642,6 +1770,7 @@ impl CsaClient {
             self.send("%TORYO")?;
             Ok(ThinkResult {
                 move_made: None,
+                declared_win: false,
                 csa_move: None,
                 score: info.score,
                 depth: info.depth,
@@ -1697,6 +1826,7 @@ impl CsaClient {
 
 struct ThinkResult {
     move_made: Option<sekirei_core::mv::Move>,
+    declared_win: bool,
     csa_move: Option<String>,
     score: i32,
     depth: u32,
@@ -1875,6 +2005,15 @@ impl GameRecord {
     }
 
     fn append_position(&mut self, position_lines: &[String]) {
+        // The training reader deliberately does not implement CSA's full P1-P9
+        // setup grammar. Preserve the exact base position before any embedded
+        // moves so it can replay this record without guessing a start position.
+        if let Ok(base_board) = base_board_from_csa_position(position_lines) {
+            self.append(&format!(
+                "'sekirei_initial_sfen: {}",
+                board_to_sfen(&base_board)
+            ));
+        }
         for line in position_lines {
             self.append(line);
         }
@@ -2238,15 +2377,16 @@ mod tests {
         CsaTimeControl, CsaTimeControlSet, parse_decimal, parse_time_unit_ms,
     };
     use super::{
-        AnalysisLog, BetweenGameReceiveWindow, Color, Config, CsaClient, EvaluationMode,
-        GameRecord, GameResult, RecordMetadata, RootCandidateRecord, RuntimeStatusDetails,
-        ServerLine, TOURNAMENT_MAX_PLIES, ThinkResult, advance_tournament_ply, bare_server_move,
-        classify_server_line, clock_after_echo, csa_fischer_bank_reserve_budget_ms,
-        csa_think_budget_ms, current_timestamp_ms, game_result_name, json_string,
-        opponent_receive_deadline, parse_game_end, parse_our_color, parse_time_from_echo,
-        pv_to_csa, root_candidates_json, score_kind, update_run_manifest_game,
-        update_run_manifest_progress, write_reconnect_exhausted_progress,
-        write_runtime_status_progress, write_runtime_status_snapshot,
+        AnalysisLog, BetweenGameReceiveWindow, Color, Config, CsaClient, EnteringKingRule,
+        EvaluationMode, GameRecord, GameResult, KachiAttribution, RecordMetadata,
+        RootCandidateRecord, RuntimeStatusDetails, ServerLine, TOURNAMENT_MAX_PLIES, ThinkResult,
+        advance_tournament_ply, attribute_server_kachi, bare_server_move, classify_server_line,
+        clock_after_echo, csa_fischer_bank_reserve_budget_ms, csa_think_budget_ms,
+        current_timestamp_ms, game_result_name, json_string, opponent_receive_deadline,
+        parse_game_end, parse_our_color, parse_time_from_echo, pv_to_csa, root_candidates_json,
+        score_kind, should_declare, update_run_manifest_game, update_run_manifest_progress,
+        write_reconnect_exhausted_progress, write_runtime_status_progress,
+        write_runtime_status_snapshot,
     };
     use sekirei_core::board::Board;
     use sekirei_core::color::Color as CoreColor;
@@ -2265,6 +2405,226 @@ mod tests {
     // protocol test still terminates, but do not mistake instrumentation
     // overhead for a CSA timeout failure.
     const FAKE_SERVER_READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+    #[test]
+    fn entering_king_root_needs_rule_and_available_time() {
+        let board = Board::from_sfen("K1RPBPPP1/1GPGPSPS1/1NPNPLPL1/9/4k4/9/9/9/9 b - 1").unwrap();
+        let history = PositionHistory::initial(board.hash());
+        assert!(should_declare(
+            &board,
+            &history,
+            EnteringKingRule::CsaRule27,
+            1,
+            0
+        ));
+        assert!(should_declare(
+            &board,
+            &history,
+            EnteringKingRule::CsaRule27,
+            0,
+            1
+        ));
+        assert!(!should_declare(
+            &board,
+            &history,
+            EnteringKingRule::CsaRule27,
+            0,
+            0
+        ));
+        assert!(!should_declare(
+            &board,
+            &history,
+            EnteringKingRule::NoEnteringKing,
+            1,
+            1
+        ));
+    }
+
+    #[test]
+    fn server_kachi_attribution_distinguishes_in_turn_from_after_move() {
+        let black = Board::from_sfen("K1RPBPPP1/1GPGPSPS1/1NPNPLPL1/9/4k4/9/9/9/9 b - 1").unwrap();
+        let white = Board::from_sfen("9/9/9/9/4K4/9/1npnplpl1/1gpgpsps1/k1rpbppp1 w - 1").unwrap();
+        assert_eq!(
+            attribute_server_kachi(&black, Color::White, GameResult::Lose, false),
+            KachiAttribution::InTurn(Color::Black)
+        );
+        assert_eq!(
+            attribute_server_kachi(&white, Color::Black, GameResult::Lose, false),
+            KachiAttribution::InTurn(Color::White)
+        );
+        assert_eq!(
+            attribute_server_kachi(&black, Color::White, GameResult::Win, false),
+            KachiAttribution::AfterOwnMove
+        );
+        assert_eq!(
+            attribute_server_kachi(&black, Color::White, GameResult::Win, true),
+            KachiAttribution::Unknown
+        );
+    }
+
+    #[test]
+    fn custom_csa_position_record_preserves_base_sfen_before_moves() {
+        let root = unique_test_directory("custom-position-record");
+        fs::create_dir_all(&root).unwrap();
+        let mut lines = Vec::new();
+        for rank in 1..=9 {
+            let mut row = format!("P{rank}");
+            for file in (1..=9).rev() {
+                row.push_str(match (file, rank) {
+                    (5, 1) => "-OU",
+                    (9, 9) => "+OU",
+                    _ => " * ",
+                });
+            }
+            lines.push(row);
+        }
+        lines.push("+".to_owned());
+
+        let mut record = GameRecord::open(&root, test_metadata(), None).unwrap();
+        record.append_position(&lines);
+        record.append("+9998OU");
+        record.append("%TORYO");
+        record.finish_with_result(GameResult::Win);
+        assert!(record.healthy());
+        let path = fs::read_dir(&root).unwrap().next().unwrap().unwrap().path();
+        let text = fs::read_to_string(path).unwrap();
+        let base = "'sekirei_initial_sfen: 4k4/9/9/9/9/9/9/9/K8 b - 1";
+        assert!(text.contains(base), "missing base position: {text}");
+        assert!(text.find(base) < text.find("P1"));
+        assert!(text.find("P1") < text.find("+9998OU"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn entering_king_server_result_records_the_declaring_side_for_both_colors() {
+        use sekirei_core::search::Searcher;
+        use sekirei_core::square::Square;
+        use sekirei_core::tt::Tt;
+
+        for (declarer, initial_sfen, prior_move) in [
+            (
+                Color::Black,
+                "K1RPBPPP1/1GPGPSPS1/1NPNPLPL1/9/4k4/9/9/9/9 w - 1",
+                "-5556OU",
+            ),
+            (
+                Color::White,
+                "9/9/9/9/4K4/9/1npnplpl1/1gpgpsps1/k1rpbppp1 b - 1",
+                "+5554OU",
+            ),
+        ] {
+            let initial = Board::from_sfen(initial_sfen).unwrap();
+            let mut position = Vec::new();
+            for rank in 1..=9 {
+                let mut row = format!("P{rank}");
+                for file in (1..=9).rev() {
+                    let cell = initial.piece_at(Square::from_shogi(file, rank));
+                    match cell {
+                        Some(piece) => {
+                            row.push(if piece.color == Color::Black {
+                                '+'
+                            } else {
+                                '-'
+                            });
+                            row.push_str(crate::moves::piece_to_csa(piece.kind));
+                        }
+                        None => row.push_str(" * "),
+                    }
+                }
+                position.push(row);
+            }
+            position.push(if initial.side_to_move == Color::Black {
+                "+".to_owned()
+            } else {
+                "-".to_owned()
+            });
+            position.push(prior_move.to_owned());
+            let (ready_board, _) =
+                crate::moves::position_with_history_from_csa_position(&position).unwrap();
+            assert_eq!(ready_board.side_to_move, declarer);
+            assert!(
+                sekirei_core::entering_king::check_declaration(
+                    &ready_board,
+                    EnteringKingRule::CsaRule27
+                )
+                .eligible()
+            );
+
+            for own_declaration in [true, false] {
+                let our_color = if own_declaration {
+                    declarer
+                } else {
+                    declarer.flip()
+                };
+                let game_id = format!("declaration-{declarer:?}-{own_declaration}");
+                let root = unique_test_directory(&game_id);
+                fs::create_dir_all(&root).unwrap();
+                let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+                let stream = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+                let (mut server, _) = listener.accept().unwrap();
+                server
+                    .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
+                    .unwrap();
+                let sign = if our_color == Color::Black { '+' } else { '-' };
+                let header = format!(
+                    "Game_ID:{game_id}\nYour_Turn:{sign}\nTotal_Time:1\nByoyomi:1\nEND Game_Summary\nBEGIN Position\n{}\nEND Position\nSTART:{game_id}\n",
+                    position.join("\n")
+                );
+                server.write_all(header.as_bytes()).unwrap();
+                server.flush().unwrap();
+                let server_thread = thread::spawn(move || {
+                    let mut reader = BufReader::new(server.try_clone().unwrap());
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    assert!(line.starts_with("AGREE:"), "{line:?}");
+                    if own_declaration {
+                        line.clear();
+                        reader.read_line(&mut line).unwrap();
+                        assert_eq!(line.trim(), "%KACHI");
+                        server.write_all(b"%KACHI\n#WIN\n").unwrap();
+                    } else {
+                        server.write_all(b"%KACHI\n#LOSE\n").unwrap();
+                    }
+                    server.flush().unwrap();
+                });
+                let mut client = CsaClient {
+                    reader: CsaLineReader::new(stream.try_clone().unwrap()),
+                    writer: stream,
+                    searcher: Searcher::new(Tt::new(1)),
+                    config: Config {
+                        entering_king_rule: EnteringKingRule::CsaRule27,
+                        record_dir: root.clone(),
+                        ..Config::default()
+                    },
+                    status_state: "connected",
+                    status_event: None,
+                    status_details: RuntimeStatusDetails::default(),
+                    awaiting_aborted_game_result: false,
+                };
+                assert_eq!(
+                    client.play_game().unwrap(),
+                    if own_declaration {
+                        GameResult::Win
+                    } else {
+                        GameResult::Lose
+                    }
+                );
+                server_thread.join().unwrap();
+                let path = fs::read_dir(&root).unwrap().next().unwrap().unwrap().path();
+                let record = fs::read_to_string(path).unwrap();
+                let side = if declarer == Color::Black {
+                    "black"
+                } else {
+                    "white"
+                };
+                assert!(record.contains(&format!("'sekirei_kachi_turn: {side}")));
+                assert_eq!(record.lines().filter(|line| *line == "%KACHI").count(), 1);
+                assert!(record.contains(&format!("'sekirei_initial_sfen: {initial_sfen}")));
+                assert!(record.contains(prior_move));
+                fs::remove_dir_all(root).unwrap();
+            }
+        }
+    }
 
     enum ReadStep {
         Bytes(Vec<u8>),
@@ -4870,6 +5230,7 @@ mod tests {
         let bestmove_csa = crate::moves::move_to_csa(best_move, CoreColor::Black);
         let result = ThinkResult {
             move_made: Some(best_move),
+            declared_win: false,
             csa_move: Some(bestmove_csa.clone()),
             score: 42,
             depth: 4,

@@ -86,12 +86,14 @@ mod late_move;
 mod move_order;
 mod node;
 mod node_moves;
+pub mod outcome;
 pub mod params;
 mod path;
 mod pruning;
 mod root_hint_retry;
 mod root_safety;
 mod root_split;
+pub mod rules;
 mod singular;
 mod static_pruning;
 mod tt_probe;
@@ -4578,6 +4580,12 @@ pub struct SpecSearchInfo {
     pub spec_hits: u32,
     /// Number of depth iterations where speculation was launched.
     pub spec_total: u32,
+    /// Number of speculative tasks submitted during this invocation.
+    pub spec_tasks_spawned: usize,
+    /// Tasks still running when this result was constructed (must be zero).
+    pub spec_tasks_remaining: usize,
+    /// Time spent waiting for speculative tasks after requesting final abort.
+    pub spec_join_wait_us: u64,
     /// MultiPV results: [(move, score)] ordered best-first. Index 0 == best_move.
     pub pv_list: Vec<(Move, i32)>,
     /// Legal principal-variation prefix reconstructed from exact TT entries.
@@ -4727,6 +4735,8 @@ impl SpeculativeSearcher {
             tt: self.tt.clone(),
             budget: state.budget.clone(),
             pool: self.spec_pool.clone(),
+            tasks_in_flight: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            tasks_spawned: std::sync::atomic::AtomicUsize::new(0),
         });
 
         // Watchdog: guarantee the search stops at the hard deadline regardless of
@@ -4857,6 +4867,14 @@ impl SpeculativeSearcher {
         }
 
         state.budget.abort_now();
+        // SpecGroup::drop only requests cancellation. A promoted task may still
+        // be running and touching the shared TT; wait before PV extraction and
+        // before USI can clear the TT for the next game.
+        let join_started = Instant::now();
+        spec_state.wait_for_tasks();
+        let spec_join_wait_us = join_started.elapsed().as_micros() as u64;
+        let spec_tasks_spawned = spec_state.tasks_spawned.load(Ordering::Relaxed);
+        let spec_tasks_remaining = spec_state.tasks_in_flight.load(Ordering::Acquire);
 
         let pv = if best_pv.is_empty() {
             extract_pv(&self.tt, board, best_move, done_depth)
@@ -4872,6 +4890,9 @@ impl SpeculativeSearcher {
             hashfull: self.tt.hashfull(),
             spec_hits,
             spec_total,
+            spec_tasks_spawned,
+            spec_tasks_remaining,
+            spec_join_wait_us,
             pv_list,
             pv,
             bestmove_changes,
@@ -7290,6 +7311,11 @@ mod see_tests {
         let elapsed = t0.elapsed();
         eprintln!("search_respects_time_limit: returned in {elapsed:?}");
         assert!(info.best_move.is_some(), "search returned no move");
+        assert!(info.spec_tasks_spawned > 0, "no speculative task ran");
+        assert_eq!(
+            info.spec_tasks_remaining, 0,
+            "search returned before task exit"
+        );
         // Generous ceiling for the debug build: the point is that it RETURNS
         // (a regressed hang never would), well short of a depth-99 search.
         assert!(

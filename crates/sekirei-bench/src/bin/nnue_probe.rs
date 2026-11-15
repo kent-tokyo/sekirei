@@ -1,8 +1,8 @@
 //! Small, side-effect-free NNUE checkpoint probe.
 //!
 //! This is a diagnostic, not a strength measurement.  It intentionally uses
-//! `read_weights` plus explicit evaluation so comparing two checkpoints in
-//! one process cannot be affected by the global `EvalFile` loader.
+//! format-specific private loaders plus explicit evaluation so comparing two
+//! checkpoints in one process cannot be affected by the global `EvalFile` loader.
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use sekirei_core::{
     board::Board,
     eval::{NnueOutputMode, evaluate_with_weights_mode},
+    halfkp::{self, HalfKpNetwork},
     nnue::read_weights,
 };
 
@@ -38,7 +39,8 @@ fn usage() -> &'static str {
         Without --sfen, probes startpos, material sensitivity, and king placement.\n\
         Reports score range, mean, variance, and deltas from the first probe; this is not a \
         strength test. --json emits one machine-readable JSON object. --strict exits non-zero \
-        for constant/near-constant output, missing material/side sensitivity, or non-deterministic reload."
+        for constant/near-constant output, missing material/side sensitivity, or non-deterministic reload. \
+        HalfKP strict mode also validates its file structure; SEKIRW01 layer-diversity checks do not apply to HalfKP."
 }
 
 fn parse_probe_args(args: &[String]) -> Result<Option<ParsedProbeArgs>, String> {
@@ -337,6 +339,82 @@ fn layer_quality_failures(weights: &sekirei_core::nnue::NnueWeights) -> Vec<&'st
     failures
 }
 
+/// Probe HalfKP with a private network, preserving the process-global
+/// evaluator for callers that compare checkpoints in one process. The strict
+/// verdict covers file structure, sampled outputs and deterministic reload;
+/// SEKIRW01's layer-diversity checks do not apply to this format.
+fn probe_halfkp(
+    path: &Path,
+    sfens: &[Probe],
+    json: bool,
+    strict: bool,
+    output_mode: NnueOutputMode,
+) -> Result<(), String> {
+    if output_mode != NnueOutputMode::Absolute {
+        return Err("HalfKP supports only --nnue-output absolute".to_string());
+    }
+    let weights = halfkp::read_network(path)
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    let evaluate = |net: &HalfKpNetwork, sfen: &str| -> Result<i32, String> {
+        let board = Board::from_sfen(sfen).map_err(|error| format!("SFEN: {error}"))?;
+        Ok(board.evaluate_halfkp(net, halfkp::DEFAULT_FV_SCALE))
+    };
+    let scores = sfens
+        .iter()
+        .map(|(_, sfen)| evaluate(&weights, sfen))
+        .collect::<Result<Vec<_>, _>>()?;
+    let reloaded = halfkp::read_network(path)
+        .map_err(|error| format!("failed to reload {}: {error}", path.display()))?;
+    let reload_deterministic = sfens
+        .iter()
+        .zip(&scores)
+        .all(|((_, sfen), &score)| evaluate(&reloaded, sfen) == Ok(score));
+    let mut failures = strict_failures(&scores, reload_deterministic);
+    failures.extend(probe_quality_failures(sfens, &scores));
+    if json {
+        let probes = sfens
+            .iter()
+            .zip(&scores)
+            .map(|((name, sfen), score)| {
+                format!(
+                    "{{\"name\":\"{}\",\"score_cp\":{},\"sfen\":\"{}\"}}",
+                    json_escape(name),
+                    score,
+                    json_escape(sfen)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let range = i64::from(scores.iter().copied().max().unwrap_or(0))
+            - i64::from(scores.iter().copied().min().unwrap_or(0));
+        println!(
+            "{{\"weights\":\"{}\",\"format\":\"HalfKP 256x2-32-32\",\"nnue_output\":\"absolute\",\"fv_scale\":{},\"strict_scope\":\"file_structure_sampled_outputs_reload\",\"probes\":[{}],\"score_range_cp\":{},\"reload_deterministic\":{},\"strict_pass\":{}}}",
+            json_escape(&path.display().to_string()),
+            halfkp::DEFAULT_FV_SCALE,
+            probes,
+            range,
+            reload_deterministic,
+            failures.is_empty()
+        );
+    } else {
+        println!("weights: {}", path.display());
+        println!("format: HalfKP 256x2-32-32");
+        println!("fv_scale: {}", halfkp::DEFAULT_FV_SCALE);
+        for ((name, sfen), score) in sfens.iter().zip(&scores) {
+            println!("{name}: score_cp={score} sfen=\"{sfen}\"");
+        }
+        println!("reload_deterministic: {reload_deterministic}");
+        println!("strict_pass: {}", failures.is_empty());
+    }
+    if strict && !failures.is_empty() {
+        return Err(format!(
+            "strict HalfKP probe failed: {}",
+            failures.join(", ")
+        ));
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
     let Some(parsed) = parse_probe_args(&args)? else {
@@ -350,6 +428,12 @@ fn main() -> Result<(), String> {
         strict,
         output_mode,
     } = parsed;
+
+    if halfkp::is_halfkp_file(&weights_path)
+        .map_err(|error| format!("failed to inspect {}: {error}", weights_path.display()))?
+    {
+        return probe_halfkp(&weights_path, &sfens, json, strict, output_mode);
+    }
 
     let weights = read_weights(&weights_path)
         .map_err(|error| format!("failed to read {}: {error}", weights_path.display()))?;

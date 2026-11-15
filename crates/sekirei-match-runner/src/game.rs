@@ -15,6 +15,7 @@ pub(crate) enum Outcome {
 pub(crate) enum EndReason {
     Resign,
     Win,
+    InvalidDeclaration,
     IllegalMove,
     Repetition,
     PerpetualCheck(Color),

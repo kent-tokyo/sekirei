@@ -39,6 +39,7 @@ use sekirei_core::sfen::RepetitionOutcome;
 use sekirei_core::{
     board::Board,
     color::Color,
+    entering_king::{EnteringKingRule, check_declaration},
     movegen::{generate_legal_moves, is_in_check},
     piece::PieceKind,
     sfen::{PositionHistory, board_to_sfen, move_from_usi, move_to_usi},
@@ -64,6 +65,7 @@ struct Args {
     engine_options1: Vec<String>,
     engine_options2: Vec<String>,
     transcript_file: Option<PathBuf>,
+    entering_king_rule: EnteringKingRule,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -85,6 +87,7 @@ fn parse_args() -> Result<Args, String> {
     let mut engine_options1 = Vec::new();
     let mut engine_options2 = Vec::new();
     let mut transcript_file = None;
+    let mut entering_king_rule = EnteringKingRule::NoEnteringKing;
     let mut i = 0;
 
     while i < argv.len() {
@@ -169,6 +172,18 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 transcript_file = Some(PathBuf::from(get(&argv, i)?));
             }
+            "--entering-king-rule" => {
+                i += 1;
+                entering_king_rule = match get(&argv, i)?.as_str() {
+                    "off" => EnteringKingRule::NoEnteringKing,
+                    "csa27" => EnteringKingRule::CsaRule27,
+                    value => {
+                        return Err(format!(
+                            "--entering-king-rule: invalid value {value:?}; expected off or csa27"
+                        ));
+                    }
+                };
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -195,6 +210,7 @@ fn parse_args() -> Result<Args, String> {
         engine_options1,
         engine_options2,
         transcript_file,
+        entering_king_rule,
     })
 }
 
@@ -218,6 +234,7 @@ fn print_usage() {
     eprintln!("  --output <dir>       write USI game records to this directory");
     eprintln!("  --csa-output <dir>   write replay-validated CSA games for training");
     eprintln!("  --max-moves <n>      max moves before declaring draw (default: 512)");
+    eprintln!("  --entering-king-rule <off|csa27>  validate 27-point declarations (default: off)");
     eprintln!("  --positions <file>   startpos/raw SFEN lines with optional moves prefix");
     eprintln!(
         "  --games-per-position <n>  play N games per position (covers all; overrides --games)"
@@ -250,19 +267,28 @@ fn notify_gameover(e1: &mut UsiEngine, e2: &mut UsiEngine, outcome: Outcome) -> 
 /// Sekirei comment so the training reader can reconstruct the exact board.
 /// Engine/protocol faults and capped games are deliberately rejected: assigning
 /// them a WDL label would poison self-play data.
+#[cfg(test)]
 fn game_to_csa(start_pos: &str, moves: &[String], reason: EndReason) -> Result<String, String> {
+    game_to_csa_with_rule(start_pos, moves, reason, EnteringKingRule::NoEnteringKing)
+}
+
+fn game_to_csa_with_rule(
+    start_pos: &str,
+    moves: &[String],
+    reason: EndReason,
+    entering_king_rule: EnteringKingRule,
+) -> Result<String, String> {
     let result = match reason {
         EndReason::Resign => "%TORYO",
         EndReason::Repetition | EndReason::PerpetualCheck(_) => "%SENNICHITE",
-        EndReason::Win => {
-            return Err("USI win declaration has no move to encode as CSA %KACHI".to_string());
-        }
+        EndReason::Win => "%KACHI",
         EndReason::MaxMoves => {
             return Err(
                 "max-moves draw is not a CSA game result suitable for training".to_string(),
             );
         }
         EndReason::IllegalMove
+        | EndReason::InvalidDeclaration
         | EndReason::EngineError
         | EndReason::TimeForfeit
         | EndReason::ClockLoss => {
@@ -318,6 +344,22 @@ fn game_to_csa(start_pos: &str, moves: &[String], reason: EndReason) -> Result<S
             piece
         );
         board.do_move(mv);
+    }
+    if reason == EndReason::Win {
+        if opening.prefix_moves.is_empty() && moves.is_empty() {
+            return Err("zero-move declaration has no training position to replay".to_string());
+        }
+        if entering_king_rule != EnteringKingRule::CsaRule27
+            || !check_declaration(&board, entering_king_rule).eligible()
+        {
+            return Err("unverified entering-king declaration cannot be saved as CSA".to_string());
+        }
+        let side = if board.side_to_move == Color::Black {
+            "black"
+        } else {
+            "white"
+        };
+        let _ = writeln!(text, "'sekirei_kachi_turn: {side}");
     }
     text.push_str(result);
     text.push('\n');
@@ -662,6 +704,7 @@ fn run_game(
     byoyomi_ms: u64,
     fischer: Option<(u64, u64)>,
     max_moves: usize,
+    entering_king_rule: EnteringKingRule,
     start_pos: &str, // startpos or raw SFEN, each with an optional moves prefix
     game_num: usize,
     transcript: &mut Transcript,
@@ -777,10 +820,10 @@ fn run_game(
         };
         let mv_str = go_result.bestmove;
         let search_info = go_result.info;
+        let elapsed_ms = started.elapsed().as_millis() as u64;
         if let (Some(c), Some((_, inc))) = (clocks.as_mut(), fischer) {
-            let used = started.elapsed().as_millis() as u64;
             let Some(updated_clock) =
-                fischer_clock_after_move(c[side_idx], inc, used, CLOCK_MARGIN_MS)
+                fischer_clock_after_move(c[side_idx], inc, elapsed_ms, CLOCK_MARGIN_MS)
             else {
                 transcript.log_move(
                     game_num,
@@ -823,6 +866,13 @@ fn run_game(
             return (outcome, moves, EndReason::Resign);
         }
         if mv_str == "win" {
+            let has_time = match clocks {
+                Some(c) => c[side_idx] > 0,
+                None => byoyomi_ms > 0 && elapsed_ms <= byoyomi_ms.saturating_add(CLOCK_MARGIN_MS),
+            };
+            let valid = has_time
+                && position_history.outcome_at_current_position().is_none()
+                && check_declaration(&board, entering_king_rule).eligible();
             transcript.log_move(
                 game_num,
                 ply,
@@ -831,15 +881,22 @@ fn run_game(
                 &sfen_before,
                 0,
                 &mv_str,
-                "win",
+                if valid { "win" } else { "invalid-declaration" },
                 Some(&search_info),
             );
-            let outcome = if e1_turn {
-                Outcome::E1Win
-            } else {
-                Outcome::E2Win
+            let outcome = match (e1_turn, valid) {
+                (true, true) | (false, false) => Outcome::E1Win,
+                (false, true) | (true, false) => Outcome::E2Win,
             };
-            return (outcome, moves, EndReason::Win);
+            return (
+                outcome,
+                moves,
+                if valid {
+                    EndReason::Win
+                } else {
+                    EndReason::InvalidDeclaration
+                },
+            );
         }
 
         // Verify legality
@@ -1087,9 +1144,14 @@ fn result_summary_text(
     let los = elo::los(e1_wins, draws, e2_wins);
     let diversity = diversity_stats(game_moves);
     let duplicates = duplicate_stats(game_keys);
+    let entering_rule = match args.entering_king_rule {
+        EnteringKingRule::NoEnteringKing => "off",
+        EnteringKingRule::CsaRule27 => "csa27",
+    };
     format!(
         r#"{{
   "status": {status:?},
+  "entering_king_rule": {entering_rule:?},
   "engine1": {e1_label:?},
   "engine1_command": {:?},
   "engine1_args": {:?},
@@ -1214,6 +1276,10 @@ fn persist_csa_manifest(
         "engine2": {"command": &args.engine2_path, "args": &args.args2, "options": &args.engine_options2},
         "byoyomi_ms": args.byoyomi_ms,
         "max_moves": args.max_moves,
+        "entering_king_rule": match args.entering_king_rule {
+            EnteringKingRule::NoEnteringKing => "off",
+            EnteringKingRule::CsaRule27 => "csa27",
+        },
     });
     let bytes = serde_json::to_vec_pretty(&manifest).map_err(std::io::Error::other)?;
     write_atomic(&dir.join("manifest.json"), &bytes)
@@ -2230,6 +2296,7 @@ fn main() {
             args.byoyomi_ms,
             args.fischer,
             args.max_moves,
+            args.entering_king_rule,
             start_pos,
             game_num,
             &mut transcript,
@@ -2248,7 +2315,10 @@ fn main() {
 
         if matches!(
             reason,
-            EndReason::IllegalMove | EndReason::EngineError | EndReason::TimeForfeit
+            EndReason::IllegalMove
+                | EndReason::EngineError
+                | EndReason::TimeForfeit
+                | EndReason::InvalidDeclaration
         ) {
             invalid_games.push(format!("game{game_num:04}: {reason:?}"));
         }
@@ -2265,7 +2335,10 @@ fn main() {
         // this never retries the same game against the same fault.
         if matches!(
             reason,
-            EndReason::IllegalMove | EndReason::EngineError | EndReason::TimeForfeit
+            EndReason::IllegalMove
+                | EndReason::EngineError
+                | EndReason::TimeForfeit
+                | EndReason::InvalidDeclaration
         ) {
             let e1_at_fault = outcome == Outcome::E2Win;
             let e2_at_fault = outcome == Outcome::E1Win;
@@ -2337,14 +2410,19 @@ fn main() {
             Some(gpp) => pair_id(game_num, gpp),
             None => format!("game{game_num:04}"),
         };
-        let _ = writeln!(
-            veridict_records,
-            r#"{{"id":"{veridict_id}","result":"{veridict_result}"}}"#
-        );
+        // A false declaration is a protocol/rules fault, not a strength
+        // observation. Keep it in invalid_games but out of the WDL stream.
+        if reason != EndReason::InvalidDeclaration {
+            let _ = writeln!(
+                veridict_records,
+                r#"{{"id":"{veridict_id}","result":"{veridict_result}"}}"#
+            );
+        }
 
         let reason_tag = match reason {
             EndReason::Resign => "",
             EndReason::Win => " (jishogi)",
+            EndReason::InvalidDeclaration => " (invalid declaration)",
             EndReason::IllegalMove => " (illegal)",
             EndReason::Repetition => " (千日手)",
             EndReason::PerpetualCheck(Color::Black) => " (連続王手千日手: Black lose)",
@@ -2378,7 +2456,7 @@ fn main() {
             }
         }
         if let Some(dir) = &args.csa_output_dir {
-            match game_to_csa(start_pos, &moves, reason) {
+            match game_to_csa_with_rule(start_pos, &moves, reason, args.entering_king_rule) {
                 Ok(content) => {
                     let path = dir.join(format!("game{game_num:04}.csa"));
                     if let Err(error) = fs::write(&path, content) {
@@ -2622,6 +2700,7 @@ done"#
             1,
             None,
             1,
+            EnteringKingRule::NoEnteringKing,
             "startpos",
             7,
             &mut transcript,
@@ -2862,6 +2941,97 @@ done"#
             format!("V2.2\n'sekirei_initial_sfen: {base}\n+7776FU\n-3334FU\n+2726FU\n%TORYO\n")
         );
         assert!(game_to_csa("startpos moves 7g7e", &played, EndReason::Resign).is_err());
+    }
+
+    #[test]
+    fn csa_win_declaration_records_the_turn_for_both_sides() {
+        let black = "K1RPBPPP1/1GPGPSPS1/1NPNPLPL1/9/4k4/9/9/9/9 w - 1 moves 5e5f";
+        let white = "9/9/9/9/4K4/9/1npnplpl1/1gpgpsps1/k1rpbppp1 b - 1 moves 5e5d";
+        let cases = [
+            (
+                black,
+                "black",
+                include_str!("../tests/fixtures/entering_king_black.csa"),
+            ),
+            (
+                white,
+                "white",
+                include_str!("../tests/fixtures/entering_king_white.csa"),
+            ),
+        ];
+        for (sfen, side, expected) in cases {
+            let csa = game_to_csa_with_rule(sfen, &[], EndReason::Win, EnteringKingRule::CsaRule27)
+                .unwrap();
+            assert!(csa.contains(&format!("'sekirei_kachi_turn: {side}\n%KACHI\n")));
+            assert_eq!(csa, expected);
+            assert!(game_to_csa(sfen, &[], EndReason::Win).is_err());
+        }
+        assert!(
+            game_to_csa_with_rule("startpos", &[], EndReason::Win, EnteringKingRule::CsaRule27)
+                .is_err()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unqualified_bestmove_win_loses_without_a_training_record() {
+        let mut e1 = synthetic_engine("echo 'bestmove win'");
+        let mut e2 = synthetic_engine(":");
+        let mut transcript = Transcript(None);
+        let mut failures = MoveFailureJournal {
+            file: None,
+            path: None,
+        };
+        let (outcome, moves, reason) = run_game(
+            &mut e1,
+            &mut e2,
+            true,
+            1000,
+            None,
+            1,
+            EnteringKingRule::NoEnteringKing,
+            "startpos",
+            1,
+            &mut transcript,
+            &mut failures,
+        );
+        e1.kill();
+        e2.kill();
+        assert_eq!(outcome, Outcome::E2Win);
+        assert_eq!(reason, EndReason::InvalidDeclaration);
+        assert!(moves.is_empty());
+        assert!(
+            game_to_csa_with_rule("startpos", &moves, reason, EnteringKingRule::CsaRule27).is_err()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn late_byoyomi_declaration_is_invalid_even_with_response_grace() {
+        let mut e1 = synthetic_engine("sleep 1; echo 'bestmove win'");
+        let mut e2 = synthetic_engine(":");
+        let mut transcript = Transcript(None);
+        let mut failures = MoveFailureJournal {
+            file: None,
+            path: None,
+        };
+        let (outcome, _, reason) = run_game(
+            &mut e1,
+            &mut e2,
+            true,
+            100,
+            None,
+            1,
+            EnteringKingRule::CsaRule27,
+            "K1RPBPPP1/1GPGPSPS1/1NPNPLPL1/9/4k4/9/9/9/9 b - 1",
+            1,
+            &mut transcript,
+            &mut failures,
+        );
+        e1.kill();
+        e2.kill();
+        assert_eq!(outcome, Outcome::E2Win);
+        assert_eq!(reason, EndReason::InvalidDeclaration);
     }
 
     #[test]
