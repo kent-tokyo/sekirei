@@ -1,0 +1,16 @@
+{
+  "registration_sha256": "94a3b968dbdb14ad481b1465f8d94a2f7efba7dc49dff3f42fb9b21118411333",
+  "rows": [
+    {
+      "engine": "sekirei_o01_counted",
+      "id": "jsa-20261114",
+      "repeat": 1,
+      "status": "failed",
+      "error": "PermissionError(1, 'Operation not permitted')",
+      "process_reaped": true,
+      "sampled_group_rss_kib": 0,
+      "log_sha256": "ca0adaae0419e0c76559e5a3d4cb0fea779fc838729fa81ce2b8e03a47c8f918"
+    }
+  ],
+  "proofs": []
+}

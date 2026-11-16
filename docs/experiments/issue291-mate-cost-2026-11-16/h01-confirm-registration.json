@@ -1,0 +1,31 @@
+{
+  "id": "291-H01-CONFIRM-20261116",
+  "source_commit": "14586edaf3a5e9e03739c2fa39c9e3f48e2cd56c",
+  "candidate_patch_sha256": "3ed191aa4ff3bef1cb686bad93a100b4304a235d52594920cce2ba752d7e463d",
+  "development_summary_sha256": "d066e0e8a38364b1f7ff3d84e3bf20a5ef7286076dee5bcb3ea8f8186f485e4d",
+  "corpus_sha256": "cb43f45a3b866088a2e3405ad46c6829568476869a16dc8eb327e1ee0cc8cc68",
+  "runner_sha256": "1bc2667fe10726fe0092bdc7b9796f403d25cae9549c96f19a526acfbc1b0b15",
+  "reused_runner_sha256": "bb678f03f0e88f4fa866ada029f57620c633f46daf0f1420a9c498503fb03cba",
+  "binaries_sha256": {
+    "base": "afd88814ad1a320027d6403f7e5ca430fa122180a78f4974167225150c14ee73",
+    "candidate": "ee7176d96ea6bb360df312e81f9d032a63a070ce0a6835b48d1ef6084c1efc9d",
+    "proof": "a0dd3a8a8f1cdc31a458e676d1f6eea4666cdf4fcae7cd831f4191c507864a2a"
+  },
+  "rule": "All 9 cases x 3 paired runs same first/nodes and complete. At least 2 mate answers, all new proofs verified. Median sum >=10% faster, per-case time/RSS within registered regression limits.",
+  "limits": {
+    "cases": 9,
+    "repeats": 3,
+    "timing_runs": 54,
+    "proof_runs_max": 9,
+    "total_runs_max": 63,
+    "threads": 1,
+    "node_limit": 999999,
+    "max_ply": 25,
+    "solver_deadline_s": 8,
+    "external_deadline_s": 12,
+    "rss_bytes": 2147483648,
+    "output_bytes_per_run": 2097152,
+    "total_seconds": 600,
+    "stop": "first failed run or resource cap; preserve receipt; no retry"
+  }
+}

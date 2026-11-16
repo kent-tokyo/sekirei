@@ -1,0 +1,76 @@
+--- a/crates/sekirei-core/src/board.rs
++++ b/crates/sekirei-core/src/board.rs
+@@ -11,6 +11,26 @@
+ use crate::piece::{Piece, PieceKind};
+ use crate::square::Square;
+ use crate::zobrist;
++
++// Diagnostic-only phase counter. 0=unclassified, 1=check, 2=child hash,
++// 3=descent, 4=answer. Count every complete do_move_impl call exactly once.
++std::thread_local! {
++    static JSA_PHASE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
++    static JSA_COUNTS: std::cell::RefCell<[u64; 5]> = const { std::cell::RefCell::new([0; 5]) };
++}
++pub fn jsa_reset_counts() {
++    JSA_PHASE.with(|p| p.set(0));
++    JSA_COUNTS.with(|c| *c.borrow_mut() = [0; 5]);
++}
++pub fn jsa_counts() -> [u64; 5] { JSA_COUNTS.with(|c| *c.borrow()) }
++pub fn jsa_with_phase<T>(phase: usize, f: impl FnOnce() -> T) -> T {
++    JSA_PHASE.with(|p| {
++        let prior = p.replace(phase);
++        let result = f();
++        p.set(prior);
++        result
++    })
++}
+ 
+ mod quiet_halfkp;
+ pub(crate) use quiet_halfkp::QuietHalfKpToken;
+@@ -845,6 +865,8 @@
+         &mut self,
+         m: Move,
+     ) -> MoveToken {
++        let phase = JSA_PHASE.with(std::cell::Cell::get);
++        JSA_COUNTS.with(|c| c.borrow_mut()[phase] += 1);
+         self.invalidate_legality_cache();
+         let color = self.side_to_move;
+         let prev_hash = self.hash;
+--- a/crates/sekirei-core/src/mate.rs
++++ b/crates/sekirei-core/src/mate.rs
+@@ -633,7 +633,7 @@
+     let mut mate_move = None;
+     if solver.lookup(root.hash(), 0).0 == 0 {
+         for m in solver.children(&mut root, true) {
+-            let tok = root.do_move_for_search(m);
++            let tok = crate::board::jsa_with_phase(4, || root.do_move_for_search(m));
+             let proven = solver.lookup(root.hash(), 1).0 == 0;
+             root.undo_move_for_search(tok);
+             if proven {
+@@ -730,7 +730,7 @@
+             if move_gives_direct_check(board, m) {
+                 checks.push(m);
+             } else if m.from.is_some_and(|from| discoverers.contains(from)) {
+-                let tok = board.do_move_for_search(m);
++                let tok = crate::board::jsa_with_phase(1, || board.do_move_for_search(m));
+                 let check = is_in_check(board, board.side_to_move);
+                 board.undo_move_for_search(tok);
+                 if check {
+@@ -766,7 +766,7 @@
+         let child_hashes: Vec<u64> = moves
+             .iter()
+             .map(|&m| {
+-                let tok = board.do_move_for_search(m);
++                let tok = crate::board::jsa_with_phase(2, || board.do_move_for_search(m));
+                 let h = board.hash();
+                 board.undo_move_for_search(tok);
+                 h
+@@ -826,7 +826,7 @@
+                     th_dn.min(second.saturating_add(second / 4).saturating_add(1)),
+                 )
+             };
+-            let tok = board.do_move_for_search(moves[best]);
++            let tok = crate::board::jsa_with_phase(3, || board.do_move_for_search(moves[best]));
+             self.mid(board, child_pn, child_dn, !attacker, ply + 1);
+             board.undo_move_for_search(tok);
+         }

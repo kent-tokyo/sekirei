@@ -1,0 +1,172 @@
+diff --git a/crates/sekirei-core/src/board.rs b/crates/sekirei-core/src/board.rs
+index 1a7cef0..c8d31e7 100644
+--- a/crates/sekirei-core/src/board.rs
++++ b/crates/sekirei-core/src/board.rs
+@@ -276,6 +276,39 @@ impl Board {
+         self.hash
+     }
+ 
++    /// Predict the hash after a legal move without changing board state or
++    /// invalidating its legality cache. Callers must supply a generated legal
++    /// move; this does not validate the move or apply it.
++    #[inline]
++    pub(crate) fn hash_after_legal_move(&self, mv: Move) -> u64 {
++        let color = self.side_to_move;
++        let mut hash = self.hash ^ zobrist::side_key();
++        if let Some(from) = mv.from {
++            let moved = self.mailbox[from.index() as usize].expect("legal move has a source");
++            debug_assert_eq!(moved.color, color);
++            debug_assert_eq!(moved.kind, mv.piece_kind);
++            hash ^= zobrist::piece_key(from, color, moved.kind);
++            if let Some(captured) = self.mailbox[mv.to.index() as usize] {
++                let base = captured.kind.unpromoted();
++                let new_count = self.hand[color.index()].get(base) + 1;
++                hash ^= zobrist::piece_key(mv.to, captured.color, captured.kind);
++                hash ^= zobrist::hand_delta(color, base, new_count);
++            }
++            let destination_kind = if mv.promote {
++                moved.kind.promoted()
++            } else {
++                moved.kind
++            };
++            hash ^= zobrist::piece_key(mv.to, color, destination_kind);
++        } else {
++            let count = self.hand[color.index()].get(mv.piece_kind);
++            debug_assert!(count > 0);
++            hash ^= zobrist::hand_delta(color, mv.piece_kind, count);
++            hash ^= zobrist::piece_key(mv.to, color, mv.piece_kind);
++        }
++        hash
++    }
++
+     /// Add one piece of `kind` to `color`'s hand (used by SFEN parser).
+     pub(crate) fn add_hand_piece(&mut self, color: Color, kind: PieceKind) {
+         self.invalidate_legality_cache();
+@@ -1383,6 +1416,98 @@ impl Board {
+     }
+ }
+ 
++#[cfg(test)]
++mod hash_after_tests {
++    use super::*;
++    use crate::movegen::generate_legal_moves;
++    use crate::sfen::board_to_sfen;
++
++    #[test]
++    fn predicted_legal_child_hash_matches_move_and_full_recompute() {
++        let mut positions = [
++            Board::from_sfen("4k4/9/4+p4/9/4R4/9/9/9/4K4 b PLNSGBR 1")
++                .expect("legal test position"),
++            Board::startpos(),
++        ];
++        let mut checked = 0;
++        let mut saw_drop = [false; 7];
++        let mut saw_promotion = false;
++        let mut saw_promoted_capture = false;
++        let mut saw_white = false;
++        let mut saw_king_move = false;
++        for board in &mut positions {
++            let position_start = checked;
++            for step in 0..80 {
++                let moves = generate_legal_moves(board);
++                if moves.is_empty() || checked - position_start >= 5_000 {
++                    break;
++                }
++                for &mv in &moves {
++                    if checked - position_start >= 5_000 {
++                        break;
++                    }
++                    let before = board_to_sfen(board);
++                    let before_hash = board.hash;
++                    let before_acc = board.acc.clone();
++                    let before_hkp = board.hkp.clone();
++                    let before_hand = board.hand;
++                    let before_ply = board.ply;
++                    let predicted = board.hash_after_legal_move(mv);
++                    assert_eq!(board_to_sfen(board), before);
++                    assert_eq!(board.hash, before_hash);
++                    assert_eq!(board.acc, before_acc);
++                    assert_eq!(board.hkp, before_hkp);
++                    assert_eq!(board.hand, before_hand);
++                    assert_eq!(board.ply, before_ply);
++
++                    let mut child = board.clone();
++                    child.do_move_for_search(mv);
++                    assert_eq!(predicted, child.hash(), "move {mv:?} from {before}");
++                    let mailbox = child.mailbox.map(|piece| piece.map(|p| (p.color, p.kind)));
++                    let hand_counts = hand_counts_array(&child.hand);
++                    assert_eq!(
++                        predicted,
++                        zobrist::compute_hash(&mailbox, &hand_counts, child.side_to_move)
++                    );
++
++                    if mv.is_drop() {
++                        let hand_kinds = [
++                            PieceKind::Fu,
++                            PieceKind::Kyou,
++                            PieceKind::Kei,
++                            PieceKind::Gin,
++                            PieceKind::Kin,
++                            PieceKind::Kaku,
++                            PieceKind::Hisha,
++                        ];
++                        saw_drop[hand_kinds
++                            .iter()
++                            .position(|&kind| kind == mv.piece_kind)
++                            .unwrap()] = true;
++                    }
++                    saw_promotion |= mv.promote;
++                    saw_promoted_capture |=
++                        board.piece_at(mv.to).is_some_and(|p| p.kind.is_promoted());
++                    saw_white |= board.side_to_move == Color::White;
++                    saw_king_move |= mv.piece_kind == PieceKind::Ou;
++                    checked += 1;
++                }
++                let chosen = moves[(step * 31 + 7) % moves.len()];
++                board.do_move_for_search(chosen);
++            }
++        }
++        assert!(checked > 1000);
++        assert!(
++            saw_drop.into_iter().all(|seen| seen),
++            "all hand kinds must be covered"
++        );
++        assert!(saw_promotion);
++        assert!(saw_promoted_capture);
++        assert!(saw_white);
++        assert!(saw_king_move);
++    }
++}
++
+ /// Opaque token for the accumulator-skipping legality probe path.
+ pub(crate) struct LegalityMoveToken(MoveToken);
+ 
+diff --git a/crates/sekirei-core/src/mate.rs b/crates/sekirei-core/src/mate.rs
+index e2dbd0f..405de97 100644
+--- a/crates/sekirei-core/src/mate.rs
++++ b/crates/sekirei-core/src/mate.rs
+@@ -633,9 +633,7 @@ pub fn solve_mate(
+     let mut mate_move = None;
+     if solver.lookup(root.hash(), 0).0 == 0 {
+         for m in solver.children(&mut root, true) {
+-            let tok = root.do_move_for_search(m);
+-            let proven = solver.lookup(root.hash(), 1).0 == 0;
+-            root.undo_move_for_search(tok);
++            let proven = solver.lookup(root.hash_after_legal_move(m), 1).0 == 0;
+             if proven {
+                 mate_move = Some(m);
+                 break;
+@@ -765,12 +763,7 @@ impl Solver {
+         }
+         let child_hashes: Vec<u64> = moves
+             .iter()
+-            .map(|&m| {
+-                let tok = board.do_move_for_search(m);
+-                let h = board.hash();
+-                board.undo_move_for_search(tok);
+-                h
+-            })
++            .map(|&m| board.hash_after_legal_move(m))
+             .collect();
+         self.path.push(hash);
+         loop {

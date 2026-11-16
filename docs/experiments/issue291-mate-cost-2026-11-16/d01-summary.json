@@ -1,0 +1,85 @@
+{
+  "registration_sha256": "3c6f1557234fadc179f1fb6e8dc6999f546b3f9d9f04abae279a0e096d605272",
+  "receipt_sha256": "c2f80e1ac828741e84b6e30218607fa66fdb20da7bf3d73c6dfad624b970d8c6",
+  "elapsed_s": 0.863,
+  "cases": [
+    {
+      "id": "jsa-20261114",
+      "first": "3b2a",
+      "nodes": 46297,
+      "make_moves": 429395,
+      "phases": {
+        "unclassified": 0,
+        "check": 71,
+        "hash": 383027,
+        "descent": 46296,
+        "answer": 1
+      }
+    },
+    {
+      "id": "jsa-20261108",
+      "first": "1e3c+",
+      "nodes": 7660,
+      "make_moves": 38313,
+      "phases": {
+        "unclassified": 0,
+        "check": 4,
+        "hash": 30646,
+        "descent": 7659,
+        "answer": 4
+      }
+    },
+    {
+      "id": "jsa-20261107",
+      "first": "1a1b",
+      "nodes": 14,
+      "make_moves": 38,
+      "phases": {
+        "unclassified": 0,
+        "check": 0,
+        "hash": 24,
+        "descent": 13,
+        "answer": 1
+      }
+    },
+    {
+      "id": "jsa-20261105",
+      "first": "S*2b",
+      "nodes": 26115,
+      "make_moves": 146881,
+      "phases": {
+        "unclassified": 0,
+        "check": 193,
+        "hash": 120566,
+        "descent": 26114,
+        "answer": 8
+      }
+    },
+    {
+      "id": "jsa-20261103",
+      "first": "1e1c+",
+      "nodes": 2107,
+      "make_moves": 12335,
+      "phases": {
+        "unclassified": 0,
+        "check": 35,
+        "hash": 10193,
+        "descent": 2106,
+        "answer": 1
+      }
+    },
+    {
+      "id": "jsa-20261101",
+      "first": "4b3a",
+      "nodes": 580,
+      "make_moves": 5343,
+      "phases": {
+        "unclassified": 0,
+        "check": 40,
+        "hash": 4721,
+        "descent": 579,
+        "answer": 3
+      }
+    }
+  ]
+}

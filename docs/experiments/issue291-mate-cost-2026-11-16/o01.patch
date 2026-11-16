@@ -1,0 +1,40 @@
+--- a/crates/sekirei-core/src/mate.rs
++++ b/crates/sekirei-core/src/mate.rs
+@@ -772,6 +772,13 @@
+                 h
+             })
+             .collect();
++        // O01: break finite attacker pn ties by distance to the defending king.
++        // Keep move generation order for all other ties and every defender node.
++        let defender_king = if attacker {
++            board.king_square(board.side_to_move.flip())
++        } else {
++            None
++        };
+         self.path.push(hash);
+         loop {
+             let mut best = 0;
+@@ -796,8 +803,21 @@
+                     second = min;
+                     min = selected;
+                     best = i;
+-                } else if selected < second {
+-                    second = selected;
++                } else {
++                    if selected == min && selected < INF {
++                        if let Some(king) = defender_king {
++                            let distance = |index: usize| {
++                                moves[index].to.file_0().abs_diff(king.file_0())
++                                    .max(moves[index].to.rank_0().abs_diff(king.rank_0()))
++                            };
++                            if distance(i) < distance(best) {
++                                best = i;
++                            }
++                        }
++                    }
++                    if selected < second {
++                        second = selected;
++                    }
+                 }
+                 sum = (sum + summed).min(INF);
+             }

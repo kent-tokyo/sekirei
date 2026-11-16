@@ -1,0 +1,32 @@
+{
+  "id": "291-D02-20261116",
+  "source_commit": "14586edaf3a5e9e03739c2fa39c9e3f48e2cd56c",
+  "source_changes": "diagnostic driver only",
+  "driver_sha256": "ba493ec63dcf23b58aa0935dc035b1fdd120a149751abf6f5c3cfab56d4217f4",
+  "runner_sha256": "efc56f08571c46a23471c9752c0c61b8158148b6fa3743c33099e6152e35641c",
+  "plan_sha256": "e4ee5c5ab75160351727cede1e0e25ee331b41c47997a1a7688343ddc28fefa9",
+  "binary_sha256": "f1143d9ae8a033e03beb17ca67d6e9d6ab85152f29ce4cdec907f71a321abb25",
+  "corpus_sha256": "0e5c60502aadd4b07acd9b726324851cd8b1f994f0ef9e152e3140db23a6e474",
+  "case_id": "jsa-20261114",
+  "case_sfen": "5p1nl/6S1k/5R1sp/8+b/9/9/9/9/9 b GSLPrb3gs3n2l15p 1",
+  "sample_binary_sha256": "0527abd95ea1c5a2885489e0d6a76e06c69b66b8a69c7eab4f9276688815791b",
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "hypothesis": "Legal/check generation or lookup/aggregation consumes more CPU than full move application.",
+  "method": "One 2-second 1-ms stack sample during 100 sequential solves of the fixed 11/14 case.",
+  "acceptance": "Driver completes 100 calls with first=3b2a and nodes=46297 each; sample has usable symbols for at least one dominant stack; otherwise record inconclusive.",
+  "limits": {
+    "threads": 1,
+    "nnue": "inactive",
+    "calls": 100,
+    "node_limit_per_call": 999999,
+    "max_ply": 25,
+    "deadline_s_per_call": 8,
+    "external_timeout_s": 30,
+    "rss_bytes": 2147483648,
+    "output_bytes": 33554432,
+    "sample_duration_s": 2,
+    "sample_interval_ms": 1,
+    "stop": "First failure or unusable sample; do not repeat for pass."
+  }
+}

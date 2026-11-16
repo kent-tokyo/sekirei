@@ -1,0 +1,124 @@
+{
+  "registration_sha256": "e475c01b8ec8f342a7d9c9f13c8b1d62d885a184425b8c59508e192f0c18ad9e",
+  "receipt_sha256": "60f333cfde6ed9c94097e36f3c4ac57f35724e7b869eca6f0d7e181fc56a8b7e",
+  "elapsed_s": 3.005,
+  "cases": [
+    {
+      "id": "jsa-20261114",
+      "baseline_ms": 53.237,
+      "candidate_ms": 50.287833,
+      "baseline_range_ms": [
+        53.1185,
+        53.647708
+      ],
+      "candidate_range_ms": [
+        49.403333,
+        59.607667
+      ],
+      "baseline_rss_bytes": 9961472,
+      "candidate_rss_bytes": 9830400,
+      "original_moves": 429395,
+      "candidate_moves": 46367
+    },
+    {
+      "id": "jsa-20261108",
+      "baseline_ms": 5.371792,
+      "candidate_ms": 5.156625,
+      "baseline_range_ms": [
+        5.221125,
+        5.500875
+      ],
+      "candidate_range_ms": [
+        5.092208,
+        5.435167
+      ],
+      "baseline_rss_bytes": 4915200,
+      "candidate_rss_bytes": 4767744,
+      "original_moves": 38313,
+      "candidate_moves": 7663
+    },
+    {
+      "id": "jsa-20261107",
+      "baseline_ms": 0.042958,
+      "candidate_ms": 0.032208,
+      "baseline_range_ms": [
+        0.039958,
+        0.044708
+      ],
+      "candidate_range_ms": [
+        0.030375,
+        0.035959
+      ],
+      "baseline_rss_bytes": 3768320,
+      "candidate_rss_bytes": 3555328,
+      "original_moves": 38,
+      "candidate_moves": 13
+    },
+    {
+      "id": "jsa-20261105",
+      "baseline_ms": 20.879583,
+      "candidate_ms": 19.977166,
+      "baseline_range_ms": [
+        20.45075,
+        21.75175
+      ],
+      "candidate_range_ms": [
+        19.878333,
+        20.450792
+      ],
+      "baseline_rss_bytes": 7176192,
+      "candidate_rss_bytes": 7045120,
+      "original_moves": 146881,
+      "candidate_moves": 26307
+    },
+    {
+      "id": "jsa-20261103",
+      "baseline_ms": 1.4635,
+      "candidate_ms": 1.428417,
+      "baseline_range_ms": [
+        1.446375,
+        1.502791
+      ],
+      "candidate_range_ms": [
+        1.388958,
+        1.474125
+      ],
+      "baseline_rss_bytes": 4358144,
+      "candidate_rss_bytes": 4210688,
+      "original_moves": 12335,
+      "candidate_moves": 2141
+    },
+    {
+      "id": "jsa-20261101",
+      "baseline_ms": 0.525208,
+      "candidate_ms": 0.476584,
+      "baseline_range_ms": [
+        0.496125,
+        0.536666
+      ],
+      "candidate_range_ms": [
+        0.471583,
+        0.491
+      ],
+      "baseline_rss_bytes": 4259840,
+      "candidate_rss_bytes": 4046848,
+      "original_moves": 5343,
+      "candidate_moves": 619
+    }
+  ],
+  "median_sum_ms": {
+    "base": 81.520041,
+    "candidate": 77.358833
+  },
+  "improved_cases": 6,
+  "worsened_cases": 0,
+  "omit_worst_case": {
+    "id": "jsa-20261114",
+    "baseline_ms": 28.283041,
+    "candidate_ms": 27.071
+  },
+  "time_pass": false,
+  "time_regressions": [],
+  "rss_regressions": [],
+  "verdict": "NO_PASS"
+}
