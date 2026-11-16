@@ -1,0 +1,34 @@
+{
+  "id": "291-H01-20261116",
+  "source_commit": "14586edaf3a5e9e03739c2fa39c9e3f48e2cd56c",
+  "candidate_patch_sha256": "3ed191aa4ff3bef1cb686bad93a100b4304a235d52594920cce2ba752d7e463d",
+  "prepare_sha256": "f01b7da4d7d0ee21c52a2fdae91ede70127e0c4d8760c84300433b8c35d5c8aa",
+  "runner_sha256": "ab66f2218bc9f9583601c7f2e0e00b1f72f6f5a96b51b9b56e6198f1161920e3",
+  "reused_runner_sha256": "bb678f03f0e88f4fa866ada029f57620c633f46daf0f1420a9c498503fb03cba",
+  "binaries_sha256": {
+    "base": "afd88814ad1a320027d6403f7e5ca430fa122180a78f4974167225150c14ee73",
+    "candidate": "ee7176d96ea6bb360df312e81f9d032a63a070ce0a6835b48d1ef6084c1efc9d",
+    "candidate_counted": "e5eb35ddd0fcfa9e480fd3a91e756655add947f68fd65e006b0ca471aae08164",
+    "candidate_proof": "a0dd3a8a8f1cdc31a458e676d1f6eea4666cdf4fcae7cd831f4191c507864a2a"
+  },
+  "corpus_sha256": "0e5c60502aadd4b07acd9b726324851cd8b1f994f0ef9e152e3140db23a6e474",
+  "d01_summary_sha256": "a14a80826e58cc2a1dfacde12f8852b5120762e1b2017d3d5a5449ff3d707ccd",
+  "old_proof_receipt_sha256": "9593227e6a62bbdc92edf6e753e1bf105e6b3d2b34032cb1f6b6543671850937",
+  "rule": "Same first/nodes/full moves/all phases; six new verified proof trees. Median-sum time improves >=10%, no per-case regression >max(10%,0.1ms), RSS <=max(10%,1MiB).",
+  "limits": {
+    "threads": 1,
+    "search_nodes": 999999,
+    "max_ply": 25,
+    "solver_deadline_s": 8,
+    "external_deadline_s": 12,
+    "rss_bytes": 2147483648,
+    "output_bytes_per_run": 2097152,
+    "counted_runs": 18,
+    "timing_runs": 60,
+    "proof_runs": 6,
+    "total_runs": 84,
+    "total_seconds": 1200,
+    "no_extension": true,
+    "stop": "first error or cap; preserve receipts"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "291-D01-20261116",
+  "source_commit": "14586edaf3a5e9e03739c2fa39c9e3f48e2cd56c",
+  "source_patch_sha256": "43325e81655d612e34f293eb6a70020c4bada0f7b9f68b80917bf60d1b94efb9",
+  "prepare_sha256": "1b72c22b286b760b53e05f79e44315f6b36f6a4a07118ec3373760593845bbe6",
+  "runner_sha256": "6b016d579133bbed52d3206335909aa6cbcdc8c61a9ae0c79f524510aa9dc652",
+  "reused_runner_sha256": "bb678f03f0e88f4fa866ada029f57620c633f46daf0f1420a9c498503fb03cba",
+  "binary_sha256": "757428e18036cd2b93407c5246714b08e78db6b87a42b9d188f9d6a40ba4b1ae",
+  "corpus_sha256": "0e5c60502aadd4b07acd9b726324851cd8b1f994f0ef9e152e3140db23a6e474",
+  "prior_receipt_sha256": "12d06b022475d2ad973a0dcce88ae6c217f0496f1115b07006bf9da2c3bc256a",
+  "hypothesis": "Child hash probes account for a material share of full move applications.",
+  "rule": "All six cases x three repeats match prior first/nodes/total; five disjoint phases sum to total and unclassified=0.",
+  "limits": {
+    "cases": 6,
+    "repeats": 3,
+    "runs": 18,
+    "threads": 1,
+    "node_limit": 999999,
+    "max_ply": 25,
+    "solver_deadline_s": 8,
+    "external_deadline_s": 12,
+    "rss_bytes": 2147483648,
+    "output_bytes_per_run": 2097152,
+    "total_seconds": 300,
+    "stop": "first mismatch or failed run; no retries"
+  }
+}

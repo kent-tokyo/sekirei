@@ -1,0 +1,74 @@
+{
+  "schema": "sekirei.issue291-h01-confirmation.v1",
+  "selection": "All cases in PT65, PT66 and PT67 in source order; no outcome-based exclusion.",
+  "sources": [
+    {
+      "path": "docs/experiments/public_tsume_2026-11-15/corpus-pt65.json",
+      "sha256": "2b8ff90a0e54f3ff745818c88c3316536eff440a8bea28858cba34e8c742c148"
+    },
+    {
+      "path": "docs/experiments/public_tsume_2026-11-15/corpus-pt66.json",
+      "sha256": "023d138a564804c80afcdb8b6896b296f864fcc5c1e6f544e0bf3c288be0f7d2"
+    },
+    {
+      "path": "docs/experiments/public_tsume_2026-11-15/corpus-pt67.json",
+      "sha256": "0ed0434a9c49e3a63f850a9ecdd872ca8fdbc7f1322c78acc1e8491156e2a620"
+    }
+  ],
+  "cases": [
+    {
+      "id": "pt65-7",
+      "source_url": "https://tsumeshogi.com/problems/y_lmsyrb84",
+      "sfen": "4K4/5PkLp/6p2/4p2PP/7N1/9/9/9/9 b RGNr2b3g4s2n3l12p 1",
+      "listed_ply": 13
+    },
+    {
+      "id": "pt65-9",
+      "source_url": "https://tsumeshogi.com/problems/2frbor958v",
+      "sfen": "ln5pk/1r4G2/2pG1pL1s/p6P1/4psPN1/PSPP5/1P1p1b3/1KG4+p1/LN6r b SPbgnl4p 1",
+      "listed_ply": 17
+    },
+    {
+      "id": "pt65-24",
+      "source_url": "https://tsumeshogi.com/problems/pts7ssn-tp",
+      "sfen": "6p1k/6bR1/6K1N/9/9/9/9/9/9 b BPr4g4s3n4l16p 1",
+      "listed_ply": 15
+    },
+    {
+      "id": "pt66-6",
+      "source_url": "https://tsumeshogi.com/problems/pgt1mj6ikq",
+      "sfen": "7kl/3n5/2n3p2/4K1L1B/3+B1N1N1/7r1/9/9/9 b r4g4s2l17p 1",
+      "listed_ply": 17
+    },
+    {
+      "id": "pt66-13",
+      "source_url": "https://tsumeshogi.com/problems/asipdynfmk",
+      "sfen": "6p1k/7lB/6K2/8p/9/9/9/9/9 b S2N3P2rb4g3s2n3l13p 1",
+      "listed_ply": 19
+    },
+    {
+      "id": "pt66-14",
+      "source_url": "https://tsumeshogi.com/problems/migumgysm0",
+      "sfen": "5k3/5sppS/1K1S3NB/4rL3/5gP2/8N/9/9/9 b GNrb2gsn3l15p 1",
+      "listed_ply": 17
+    },
+    {
+      "id": "pt67-15",
+      "source_url": "https://tsumeshogi.com/problems/jlyg0bwfn2",
+      "sfen": "9/3bn2k1/4Gl1N1/4+R4/8n/5+p1K1/9/9/9 b R2Lb3g4snl17p 1",
+      "listed_ply": 25
+    },
+    {
+      "id": "pt67-9",
+      "source_url": "https://tsumeshogi.com/problems/lgoldo4sxn",
+      "sfen": "ln7/1+bbP5/k2+P5/1P1R5/1pG+r5/9/1K7/9/9 b 4S3g3n3l14p 1",
+      "listed_ply": 29
+    },
+    {
+      "id": "pt67-18",
+      "source_url": "https://tsumeshogi.com/problems/49smnkg_p3",
+      "sfen": "1bl1nnn2/r1+P+P+P+P+P1+P/1sP4kP/2R6/1+B1pg4/3s5/2+p4K1/9/9 b 3g2sn3l8p 1",
+      "listed_ply": 25
+    }
+  ]
+}

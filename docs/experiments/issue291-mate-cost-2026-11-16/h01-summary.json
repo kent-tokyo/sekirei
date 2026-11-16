@@ -1,0 +1,124 @@
+{
+  "registration_sha256": "4a102cd636957d3428fc5c60121d4de3b1d9d22fb963dfbda74e4e96262cbe35",
+  "receipt_sha256": "b62bae9292a0a39b083eab230cdaa9128258ef544add0bd241981b611801245e",
+  "elapsed_s": 2.892,
+  "cases": [
+    {
+      "id": "jsa-20261114",
+      "baseline_ms": 52.96875,
+      "candidate_ms": 36.727833,
+      "baseline_range_ms": [
+        52.397416,
+        53.714667
+      ],
+      "candidate_range_ms": [
+        36.209792,
+        44.76875
+      ],
+      "baseline_rss_bytes": 9961472,
+      "candidate_rss_bytes": 10043392,
+      "original_moves": 429395,
+      "candidate_moves": 429395
+    },
+    {
+      "id": "jsa-20261108",
+      "baseline_ms": 5.274167,
+      "candidate_ms": 3.929292,
+      "baseline_range_ms": [
+        5.21025,
+        5.421958
+      ],
+      "candidate_range_ms": [
+        3.877917,
+        3.977125
+      ],
+      "baseline_rss_bytes": 4898816,
+      "candidate_rss_bytes": 4980736,
+      "original_moves": 38313,
+      "candidate_moves": 38313
+    },
+    {
+      "id": "jsa-20261107",
+      "baseline_ms": 0.0415,
+      "candidate_ms": 0.043917,
+      "baseline_range_ms": [
+        0.040583,
+        0.044584
+      ],
+      "candidate_range_ms": [
+        0.03775,
+        0.048959
+      ],
+      "baseline_rss_bytes": 3768320,
+      "candidate_rss_bytes": 3784704,
+      "original_moves": 38,
+      "candidate_moves": 38
+    },
+    {
+      "id": "jsa-20261105",
+      "baseline_ms": 20.704875,
+      "candidate_ms": 15.141542,
+      "baseline_range_ms": [
+        20.289459,
+        20.783416
+      ],
+      "candidate_range_ms": [
+        15.034375,
+        15.499584
+      ],
+      "baseline_rss_bytes": 7045120,
+      "candidate_rss_bytes": 7258112,
+      "original_moves": 146881,
+      "candidate_moves": 146881
+    },
+    {
+      "id": "jsa-20261103",
+      "baseline_ms": 1.493542,
+      "candidate_ms": 1.146625,
+      "baseline_range_ms": [
+        1.428416,
+        1.71775
+      ],
+      "candidate_range_ms": [
+        1.109167,
+        1.15825
+      ],
+      "baseline_rss_bytes": 4341760,
+      "candidate_rss_bytes": 4407296,
+      "original_moves": 12335,
+      "candidate_moves": 12335
+    },
+    {
+      "id": "jsa-20261101",
+      "baseline_ms": 0.505958,
+      "candidate_ms": 0.410125,
+      "baseline_range_ms": [
+        0.492875,
+        0.546041
+      ],
+      "candidate_range_ms": [
+        0.403375,
+        0.420625
+      ],
+      "baseline_rss_bytes": 4276224,
+      "candidate_rss_bytes": 4276224,
+      "original_moves": 5343,
+      "candidate_moves": 5343
+    }
+  ],
+  "median_sum_ms": {
+    "base": 80.988792,
+    "candidate": 57.399333999999996
+  },
+  "improved_cases": 5,
+  "worsened_cases": 1,
+  "omit_worst_case": {
+    "id": "jsa-20261114",
+    "baseline_ms": 28.020042,
+    "candidate_ms": 20.671501
+  },
+  "time_pass": true,
+  "time_regressions": [],
+  "rss_regressions": [],
+  "verdict": "ADVANCE_TO_INDEPENDENT_CONFIRMATION"
+}

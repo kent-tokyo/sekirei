@@ -1,0 +1,13 @@
+{
+  "registration_sha256": "2d3993a28881acd97b6a0138b785bcfa64b774a40b873be1ac4869f5a0cb8502",
+  "status": "complete",
+  "driver_exit": 0,
+  "driver_stdout": "ready\ncomplete calls=100 elapsed_ns=5308834333\n",
+  "driver_stderr": "",
+  "sample_exit": 0,
+  "sample_stdout": "",
+  "sample_stderr": "Sampling process 77112 for 2 seconds with 1 millisecond of run time between samples\nSampling completed, processing symbols...\nSample analysis of process 77112 written to file /Users/k_tanabe/Documents/Projects/sekirei/data/runs/issue291-d02-20261116/sample.txt\n",
+  "sample_sha256": "cd45a5b4b2236a4ef9b9ea87023b206c313e64144994dddd056681e2b567dc06",
+  "sample_bytes": 134871,
+  "elapsed_s": 5.705
+}

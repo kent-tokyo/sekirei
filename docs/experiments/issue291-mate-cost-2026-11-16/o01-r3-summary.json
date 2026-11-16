@@ -1,0 +1,130 @@
+{
+  "registration_sha256": "103f6f3c5afac66c78656abbea6506720a5b5cb49cfc84ac98e93d92e20f4840",
+  "receipt_sha256": "c36c808ce279ea73abee5e1a249ff9f0ab8fa2439a6dd226b8c7bd0c09242805",
+  "elapsed_s": 3.263,
+  "cases": [
+    {
+      "id": "jsa-20261114",
+      "baseline_ms": 51.906583,
+      "candidate_ms": 52.85875,
+      "baseline_range_ms": [
+        51.21025,
+        53.52825
+      ],
+      "candidate_range_ms": [
+        51.657959,
+        59.055708
+      ],
+      "baseline_rss_bytes": 9814016,
+      "candidate_rss_bytes": 9879552,
+      "original_moves": 429395,
+      "candidate_moves": 415616
+    },
+    {
+      "id": "jsa-20261108",
+      "baseline_ms": 5.304,
+      "candidate_ms": 4.797875,
+      "baseline_range_ms": [
+        5.257167,
+        5.346708
+      ],
+      "candidate_range_ms": [
+        4.688875,
+        5.111917
+      ],
+      "baseline_rss_bytes": 4915200,
+      "candidate_rss_bytes": 4882432,
+      "original_moves": 38313,
+      "candidate_moves": 32747
+    },
+    {
+      "id": "jsa-20261107",
+      "baseline_ms": 0.045625,
+      "candidate_ms": 0.042792,
+      "baseline_range_ms": [
+        0.040291,
+        0.051542
+      ],
+      "candidate_range_ms": [
+        0.039959,
+        0.054458
+      ],
+      "baseline_rss_bytes": 3768320,
+      "candidate_rss_bytes": 3768320,
+      "original_moves": 38,
+      "candidate_moves": 38
+    },
+    {
+      "id": "jsa-20261105",
+      "baseline_ms": 20.532708,
+      "candidate_ms": 22.187333,
+      "baseline_range_ms": [
+        20.46,
+        20.642708
+      ],
+      "candidate_range_ms": [
+        21.964208,
+        22.358333
+      ],
+      "baseline_rss_bytes": 7176192,
+      "candidate_rss_bytes": 7110656,
+      "original_moves": 146881,
+      "candidate_moves": 146258
+    },
+    {
+      "id": "jsa-20261103",
+      "baseline_ms": 1.439417,
+      "candidate_ms": 1.575041,
+      "baseline_range_ms": [
+        1.433209,
+        1.468917
+      ],
+      "candidate_range_ms": [
+        1.534375,
+        1.590167
+      ],
+      "baseline_rss_bytes": 4358144,
+      "candidate_rss_bytes": 4374528,
+      "original_moves": 12335,
+      "candidate_moves": 12316
+    },
+    {
+      "id": "jsa-20261101",
+      "baseline_ms": 0.498,
+      "candidate_ms": 0.564792,
+      "baseline_range_ms": [
+        0.496417,
+        0.5285
+      ],
+      "candidate_range_ms": [
+        0.55,
+        0.577333
+      ],
+      "baseline_rss_bytes": 4243456,
+      "candidate_rss_bytes": 4227072,
+      "original_moves": 5343,
+      "candidate_moves": 5377
+    }
+  ],
+  "median_sum_ms": {
+    "base": 79.726333,
+    "candidate": 82.026583
+  },
+  "improved_cases": 2,
+  "worsened_cases": 4,
+  "omit_worst_case": {
+    "id": "jsa-20261114",
+    "baseline_ms": 27.81975,
+    "candidate_ms": 29.167832999999998
+  },
+  "full_moves": {
+    "base": 632305,
+    "candidate": 612352
+  },
+  "moves_pass": false,
+  "move_regressions": [],
+  "time_pass": false,
+  "time_regressions": [],
+  "rss_regressions": [],
+  "verdict": "NO_PASS"
+}

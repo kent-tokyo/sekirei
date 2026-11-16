@@ -1,0 +1,128 @@
+--- a/crates/sekirei-core/src/mate.rs
++++ b/crates/sekirei-core/src/mate.rs
+@@ -8,6 +8,47 @@
+ //! bounded by a node limit and a ply limit and returns a proven first move.
+ 
+ use std::collections::HashMap;
++use std::hash::{BuildHasherDefault, Hasher};
++// These tables live only for one bounded mate search. Zobrist keys are already
++// dispersed; HashMap still compares full keys when hash buckets collide.
++#[derive(Default)]
++struct MateHasher(u64);
++
++impl Hasher for MateHasher {
++    #[inline]
++    fn finish(&self) -> u64 {
++        let mut x = self.0;
++        x ^= x >> 30;
++        x = x.wrapping_mul(0xbf58476d1ce4e5b9);
++        x ^= x >> 27;
++        x = x.wrapping_mul(0x94d049bb133111eb);
++        x ^ (x >> 31)
++    }
++
++    #[inline]
++    fn write(&mut self, bytes: &[u8]) {
++        for &byte in bytes {
++            self.0 = (self.0 ^ u64::from(byte))
++                .rotate_left(27)
++                .wrapping_mul(0x9e3779b185ebca87);
++        }
++    }
++
++    #[inline]
++    fn write_u64(&mut self, value: u64) {
++        self.0 = (self.0 ^ value)
++            .rotate_left(27)
++            .wrapping_mul(0x9e3779b185ebca87);
++    }
++
++    #[inline]
++    fn write_u32(&mut self, value: u32) {
++        self.write_u64(u64::from(value));
++    }
++}
++
++type MateMap<K, V> = HashMap<K, V, BuildHasherDefault<MateHasher>>;
++
+ use web_time::Instant;
+ 
+ use crate::board::Board;
+@@ -598,9 +639,9 @@
+ }
+ 
+ struct Solver {
+-    table: HashMap<(u64, u32), (u64, u64, bool)>,
+-    solved: HashMap<u64, SolvedBounds>,
+-    terminals: HashMap<u64, (u64, u64)>,
++    table: MateMap<(u64, u32), (u64, u64, bool)>,
++    solved: MateMap<u64, SolvedBounds>,
++    terminals: MateMap<u64, (u64, u64)>,
+     path: Vec<u64>,
+     nodes: u64,
+     node_limit: u64,
+@@ -618,9 +659,9 @@
+     deadline: Option<Instant>,
+ ) -> MateResult {
+     let mut solver = Solver {
+-        table: HashMap::new(),
+-        terminals: HashMap::new(),
+-        solved: HashMap::new(),
++        table: MateMap::default(),
++        terminals: MateMap::default(),
++        solved: MateMap::default(),
+         path: Vec::new(),
+         nodes: 0,
+         node_limit,
+@@ -998,9 +1039,9 @@
+         return result;
+     }
+     let mut solver = Solver {
+-        table: HashMap::new(),
+-        terminals: HashMap::new(),
+-        solved: HashMap::new(),
++        table: MateMap::default(),
++        terminals: MateMap::default(),
++        solved: MateMap::default(),
+         path: Vec::new(),
+         nodes: 0,
+         // Legacy Solver counts the rejected visit. Reserve that one visit so
+@@ -1276,9 +1317,9 @@
+         for remaining in [0, 1] {
+             let mut board = original.clone();
+             let mut solver = Solver {
+-                table: HashMap::new(),
+-                solved: HashMap::new(),
+-                terminals: HashMap::new(),
++                table: MateMap::default(),
++                solved: MateMap::default(),
++                terminals: MateMap::default(),
+                 path: Vec::new(),
+                 nodes: 0,
+                 node_limit: 10_000,
+@@ -1439,9 +1480,9 @@
+     // not performance qualification.
+     fn bounds_test_solver(max_ply: u32) -> Solver {
+         Solver {
+-            table: HashMap::new(),
+-            terminals: HashMap::new(),
+-            solved: HashMap::new(),
++            table: MateMap::default(),
++            terminals: MateMap::default(),
++            solved: MateMap::default(),
+             path: Vec::new(),
+             nodes: 0,
+             node_limit: 10_000,
+@@ -1891,9 +1932,9 @@
+     #[test]
+     fn attacker_moves_are_exactly_the_checks() {
+         let solver = Solver {
+-            table: HashMap::new(),
+-            terminals: HashMap::new(),
+-            solved: HashMap::new(),
++            table: MateMap::default(),
++            terminals: MateMap::default(),
++            solved: MateMap::default(),
+             path: Vec::new(),
+             nodes: 0,
+             node_limit: 0,
