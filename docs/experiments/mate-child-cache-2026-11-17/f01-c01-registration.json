@@ -1,0 +1,47 @@
+{
+  "id": "MATE-F01-C01-20261117",
+  "registered_utc": "2026-11-16T23:13:07.481666+00:00",
+  "source_commit": "9f3539f29d6ab85fbe75a733953f271e633eca7f",
+  "hashes": {
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/mate-child-cache-2026-11-17/F01_CONFIRM_PLAN.md": "2459def54121e4d563f5422023ac641bd25c203dd4222a33aa9856ee32cf7dbf",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/mate-child-cache-2026-11-17/run_f01_c01.py": "32e1926b24c5582b36c3c67e8150a106f6eba25da16e8b28314a1efd963cf2f0",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/mate-child-cache-2026-11-17/facts.patch": "91c62840daa1da680ac93eace25a8c6eec15e97a607b7ee6acbd333fe9739ec4",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/issue291-mate-cost-2026-11-16/h01-confirmation-corpus.json": "cb43f45a3b866088a2e3405ad46c6829568476869a16dc8eb327e1ee0cc8cc68",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/jsa_tsume_2026-11-16/komoring_comparison/run_comparison.py": "bb678f03f0e88f4fa866ada029f57620c633f46daf0f1420a9c498503fb03cba",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/jsa_tsume_2026-11-16/check_artifacts.py": "2e82407e8c9febdd6db34e93ee8d04229a83ae01ab4ddf46f45e2f2e845edb01",
+    "/private/tmp/sekirei-child-cache-20261117-base/target/release/examples/jsa_search": "40ad251db4bf814feb78c3fae9326132a8cc1031a336dc1ab0b64d12384f432d",
+    "/private/tmp/sekirei-child-cache-20261117-facts/target/release/examples/jsa_search": "40e376b2ef1869291c165cdca20335b0da65e35964c862746b85e3184fdc7182",
+    "/private/tmp/sekirei-child-cache-20261117-facts/target/release/examples/jsa_proof": "e3c8dd5c9169ca09678325a1228e8dbbf91759f45f79e90570a8472a18357d4a",
+    "/private/tmp/sekirei-child-cache-20261117-base/target/release/examples/jsa_check": "321b647bcecedb68f254f88f446caa6ce9d4ba89e07e920f580ade840fe90b9f",
+    "/private/tmp/sekirei-child-cache-20261117-base/crates/sekirei-core/src/mate.rs": "d37b41e5851644f5064adda1190dfea2259a19185d95d932daef9f194c385ca6",
+    "/private/tmp/sekirei-child-cache-20261117-facts/crates/sekirei-core/src/mate.rs": "5a9aa798802fb6d575c3a4f55af9c20b616fff8baffcf03360b61eb0f235edf7",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/public_tsume_2026-11-15/corpus-pt65.json": "2b8ff90a0e54f3ff745818c88c3316536eff440a8bea28858cba34e8c742c148",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/public_tsume_2026-11-15/corpus-pt66.json": "023d138a564804c80afcdb8b6896b296f864fcc5c1e6f544e0bf3c288be0f7d2",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/public_tsume_2026-11-15/corpus-pt67.json": "0ed0434a9c49e3a63f850a9ecdd872ca8fdbc7f1322c78acc1e8491156e2a620"
+  },
+  "admission": {
+    "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "ac_power": true,
+    "memory_free_percent": 66,
+    "disk_free_bytes": 15745036288,
+    "competing_jobs": []
+  },
+  "limits": {
+    "cases": 9,
+    "repeats": 5,
+    "search_runs": 90,
+    "proof_runs_max": 9,
+    "checker_runs_max": 9,
+    "total_runs_max": 108,
+    "total_seconds": 900,
+    "threads": 1,
+    "evaluator": "none",
+    "node_limit": 999999,
+    "max_ply": 25,
+    "solver_deadline_s": 8,
+    "outer_deadline_s": 12,
+    "rss_bytes": 2147483648,
+    "output_bytes_per_run": 2097152
+  },
+  "rule": "All paired first moves/nodes and all candidate proofs must match/verify; at least 2 mate answers; median-sum and omit-largest improve; at least 6/9 cases improve; each time regression <= max(10%,0.1ms) and RSS increase <= max(10%,1MiB). No extension or pooling."
+}

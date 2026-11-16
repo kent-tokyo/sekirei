@@ -1,0 +1,10 @@
+{
+  "status": "complete",
+  "stdout": "complete calls=100 elapsed_ns=3742758042\n",
+  "elapsed_s": 4.155295375006972,
+  "sampled_peak_rss_kib": 10752,
+  "process_reaped": true,
+  "sample_exit": 0,
+  "sample_sha256": "1bf2301576d4b8ac3cfcda772fec7eb10250c66dd7f232c7d41ab6f0b0f985f0",
+  "registration_sha256": "bc99068dd971de6a8320e1201aa7066fcac16a251da76da23c8ec105725f726e"
+}

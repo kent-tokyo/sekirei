@@ -1,0 +1,62 @@
+   Compiling crossbeam-utils v0.8.21
+   Compiling crossbeam-epoch v0.9.20
+   Compiling crossbeam-deque v0.8.6
+   Compiling rayon-core v1.13.0
+   Compiling either v1.16.0
+   Compiling rayon v1.12.0
+   Compiling web-time v1.1.0
+   Compiling sekirei-core v0.5.4 (/private/tmp/sekirei-child-cache-20261117-facts/crates/sekirei-core)
+    Finished `release` profile [optimized] target(s) in 2m 19s
+     Running unittests src/lib.rs (target/release/deps/sekirei_core-7718e57fa829eee4)
+
+running 39 tests
+test mate::tests::attacker_moves_are_exactly_the_checks ... ok
+test mate::tests::bounded_disproof_is_shared_only_toward_smaller_remaining ... ok
+test mate::tests::complete_bounded_analysis_corrects_the_mislabelled_issue_fixture ... ok
+test mate::tests::complete_bounded_analysis_distinguishes_completed_no_mate ... ok
+test mate::tests::complete_bounded_analysis_finds_all_shortest_mate_in_one_moves ... ok
+test mate::tests::complete_bounded_analysis_finds_unique_five_and_reuses_intermediate_position ... ok
+test mate::tests::complete_bounded_analysis_never_promotes_a_partial_result ... ok
+test mate::tests::complete_bounded_analysis_reports_three_instead_of_requested_five ... ok
+test mate::tests::complete_mate_in_one_distinguishes_zero_one_and_multiple_solutions ... ok
+test mate::tests::complete_mate_in_one_finds_a_drop ... ok
+test mate::tests::complete_mate_in_one_finds_discovered_checks ... ok
+test mate::tests::complete_mate_in_one_finds_distant_promotion_and_non_promotion ... ok
+test mate::tests::complete_mate_in_one_keeps_pawn_drop_mate_illegal ... ok
+test mate::tests::complete_mate_in_one_rejects_an_initial_check ... ok
+test mate::tests::complete_mate_in_one_reports_missing_and_duplicate_kings ... ok
+test mate::tests::complete_search_propagates_exhausted_child_budgets_and_restores_board ... ok
+test mate::tests::completed_proof_is_shared_only_toward_larger_remaining ... ok
+test mate::tests::contradictory_completed_bounds_disable_range_reuse_and_taint_fallback ... ok
+test mate::tests::discovered_check_candidates_find_the_single_blocker ... ok
+test mate::tests::existence_proof_and_replay_respect_three_ply_boundary ... ok
+test mate::tests::existence_proof_handles_fourth_public_diagram_within_fixed_budget ... ignored, run explicitly in CI without coverage instrumentation
+test mate::tests::existence_proof_handles_three_public_diagrams ... ok
+test mate::tests::existence_proof_replays_one_ply_and_respects_separate_limits ... ok
+test mate::tests::existence_proof_replays_white_drop_and_promotion ... ok
+test mate::tests::existence_proof_validates_problem_position_and_deadline ... ok
+test mate::tests::finds_head_gold_drop_mate ... ok
+test mate::tests::finds_mate_in_one ... ok
+test mate::tests::mate_hasher_byte_writes_preserve_stream_order ... ok
+test mate::tests::no_mate_without_checks ... ok
+test mate::tests::optional_attacker_king_policy_handles_both_sides_and_uchifuzume ... ok
+test mate::tests::optional_attacker_king_policy_keeps_other_validation_and_two_king_legality ... ok
+test mate::tests::optional_attacker_king_policy_solves_the_original_seven_ply_diagram ... ok
+test mate::tests::proof_distance_counts_futile_interpositions_and_keeps_bounds_distinct ... ok
+test mate::tests::proof_replay_rejects_repeated_path_and_restores_board ... ok
+test mate::tests::proof_table_preserves_three_ply_mate_after_shallow_prewarm ... ok
+test mate::tests::shared_facts_keep_terminal_priority_and_both_fields ... ok
+test mate::tests::solved_dependency_requires_the_relevant_independent_children ... ok
+test mate::tests::tainted_and_unfinished_results_stay_in_the_exact_depth_table ... ok
+test mate::tests::verification_rejects_illegal_pawn_drop_mate_and_missing_reply ... ok
+
+test result: ok. 38 passed; 0 failed; 1 ignored; 0 measured; 491 filtered out; finished in 0.57s
+
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running unittests src/lib.rs (target/release/deps/sekirei_core-7718e57fa829eee4)
+
+running 1 test
+test mate::tests::existence_proof_handles_fourth_public_diagram_within_fixed_budget ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 529 filtered out; finished in 1.25s
+

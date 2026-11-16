@@ -1,0 +1,137 @@
+{
+  "cases": [
+    {
+      "id": "jsa-20261114",
+      "baseline_ms": 37.797,
+      "candidate_ms": 34.345416,
+      "baseline_range_ms": [
+        37.142458,
+        54.820292
+      ],
+      "candidate_range_ms": [
+        34.086667,
+        50.832458
+      ],
+      "baseline_rss": 9994240,
+      "candidate_rss": 10092544,
+      "make_moves": 429395,
+      "lookup_calls": 846616,
+      "baseline_map_reads": 2536867,
+      "candidate_map_reads": 1690609
+    },
+    {
+      "id": "jsa-20261108",
+      "baseline_ms": 3.951709,
+      "candidate_ms": 3.769958,
+      "baseline_range_ms": [
+        3.92875,
+        3.9795
+      ],
+      "candidate_range_ms": [
+        3.704167,
+        3.793167
+      ],
+      "baseline_rss": 4964352,
+      "candidate_rss": 5013504,
+      "make_moves": 38313,
+      "lookup_calls": 72801,
+      "baseline_map_reads": 216349,
+      "candidate_map_reads": 143732
+    },
+    {
+      "id": "jsa-20261107",
+      "baseline_ms": 0.040958,
+      "candidate_ms": 0.043083,
+      "baseline_range_ms": [
+        0.037791,
+        0.051916
+      ],
+      "candidate_range_ms": [
+        0.04,
+        0.05025
+      ],
+      "baseline_rss": 3801088,
+      "candidate_rss": 3801088,
+      "make_moves": 38,
+      "lookup_calls": 65,
+      "baseline_map_reads": 181,
+      "candidate_map_reads": 117
+    },
+    {
+      "id": "jsa-20261105",
+      "baseline_ms": 15.460416,
+      "candidate_ms": 14.414708,
+      "baseline_range_ms": [
+        15.087,
+        15.620875
+      ],
+      "candidate_range_ms": [
+        14.37925,
+        14.613417
+      ],
+      "baseline_rss": 7225344,
+      "candidate_rss": 7405568,
+      "make_moves": 146881,
+      "lookup_calls": 298402,
+      "baseline_map_reads": 891964,
+      "candidate_map_reads": 594024
+    },
+    {
+      "id": "jsa-20261103",
+      "baseline_ms": 1.133042,
+      "candidate_ms": 1.10175,
+      "baseline_range_ms": [
+        1.097708,
+        1.138584
+      ],
+      "candidate_range_ms": [
+        1.094166,
+        1.110917
+      ],
+      "baseline_rss": 4374528,
+      "candidate_rss": 4423680,
+      "make_moves": 12335,
+      "lookup_calls": 23281,
+      "baseline_map_reads": 69587,
+      "candidate_map_reads": 46351
+    },
+    {
+      "id": "jsa-20261101",
+      "baseline_ms": 0.409666,
+      "candidate_ms": 0.417084,
+      "baseline_range_ms": [
+        0.403875,
+        0.430958
+      ],
+      "candidate_range_ms": [
+        0.393833,
+        0.420125
+      ],
+      "baseline_rss": 4276224,
+      "candidate_rss": 4308992,
+      "make_moves": 5343,
+      "lookup_calls": 9706,
+      "baseline_map_reads": 29079,
+      "candidate_map_reads": 19380
+    }
+  ],
+  "time_ms": {
+    "base": 58.792791,
+    "candidate": 54.091999
+  },
+  "map_reads": {
+    "base": 3744027,
+    "candidate": 2494213
+  },
+  "improved": 4,
+  "worsened": 2,
+  "without_worst": {
+    "id": "jsa-20261114",
+    "base_ms": 20.995791000000004,
+    "candidate_ms": 19.746583
+  },
+  "time_regressions": [],
+  "rss_regressions": [],
+  "verdict": "NO_PASS",
+  "receipt_sha256": "fe88c8c0114a73c2679e9e9dc648d51423ace04ffe95dbabaab613bf242b8d2a"
+}

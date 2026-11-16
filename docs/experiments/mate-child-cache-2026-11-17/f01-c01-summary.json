@@ -1,0 +1,178 @@
+{
+  "registration_sha256": "b1e6a8990d500716310324a6ef0ca52fe30eebdf2fb035810947bacfb9615b51",
+  "receipt_sha256": "f4e640d068ffc0434b83f5a806ad15494a83abec3a6fc78b36672b65e5f7c566",
+  "elapsed_s": 17.877,
+  "process_count": 106,
+  "cases": [
+    {
+      "id": "pt65-7",
+      "first": "R*3a",
+      "nodes": 4663,
+      "base_ms": 2.558292,
+      "candidate_ms": 2.5265,
+      "base_range_ms": [
+        2.53025,
+        2.606
+      ],
+      "candidate_range_ms": [
+        2.497167,
+        2.565333
+      ],
+      "base_rss_bytes": 4587520,
+      "candidate_rss_bytes": 4669440
+    },
+    {
+      "id": "pt65-9",
+      "first": "P*1b",
+      "nodes": 1553,
+      "base_ms": 0.966459,
+      "candidate_ms": 0.956459,
+      "base_range_ms": [
+        0.934083,
+        0.972125
+      ],
+      "candidate_range_ms": [
+        0.936459,
+        0.975333
+      ],
+      "base_rss_bytes": 4423680,
+      "candidate_rss_bytes": 4440064
+    },
+    {
+      "id": "pt65-24",
+      "first": "1c2a+",
+      "nodes": 416,
+      "base_ms": 0.289833,
+      "candidate_ms": 0.290917,
+      "base_range_ms": [
+        0.289042,
+        0.298042
+      ],
+      "candidate_range_ms": [
+        0.287417,
+        0.2975
+      ],
+      "base_rss_bytes": 4014080,
+      "candidate_rss_bytes": 4030464
+    },
+    {
+      "id": "pt66-6",
+      "first": "5d5c",
+      "nodes": 114896,
+      "base_ms": 64.955958,
+      "candidate_ms": 61.236167,
+      "base_range_ms": [
+        64.527583,
+        68.106708
+      ],
+      "candidate_range_ms": [
+        60.567708,
+        62.0375
+      ],
+      "base_rss_bytes": 15597568,
+      "candidate_rss_bytes": 15466496
+    },
+    {
+      "id": "pt66-13",
+      "first": "N*2c",
+      "nodes": 789,
+      "base_ms": 0.429958,
+      "candidate_ms": 0.437666,
+      "base_range_ms": [
+        0.427625,
+        0.439708
+      ],
+      "candidate_range_ms": [
+        0.432666,
+        0.443416
+      ],
+      "base_rss_bytes": 4030464,
+      "candidate_rss_bytes": 4079616
+    },
+    {
+      "id": "pt66-14",
+      "first": "N*5c",
+      "nodes": 426663,
+      "base_ms": 298.829,
+      "candidate_ms": 282.298417,
+      "base_range_ms": [
+        294.097208,
+        300.505708
+      ],
+      "candidate_range_ms": [
+        278.877916,
+        284.185541
+      ],
+      "base_rss_bytes": 47939584,
+      "candidate_rss_bytes": 49840128
+    },
+    {
+      "id": "pt67-15",
+      "first": "R*4b",
+      "nodes": 570766,
+      "base_ms": 446.227542,
+      "candidate_ms": 409.955708,
+      "base_range_ms": [
+        441.893625,
+        449.841708
+      ],
+      "candidate_range_ms": [
+        406.396041,
+        415.069208
+      ],
+      "base_rss_bytes": 47939584,
+      "candidate_rss_bytes": 49659904
+    },
+    {
+      "id": "pt67-9",
+      "first": "none",
+      "nodes": 1000000,
+      "base_ms": 761.145167,
+      "candidate_ms": 716.5,
+      "base_range_ms": [
+        753.504667,
+        763.256625
+      ],
+      "candidate_range_ms": [
+        707.708833,
+        723.241
+      ],
+      "base_rss_bytes": 90750976,
+      "candidate_rss_bytes": 92733440
+    },
+    {
+      "id": "pt67-18",
+      "first": "3b2b",
+      "nodes": 42442,
+      "base_ms": 25.63675,
+      "candidate_ms": 24.103917,
+      "base_range_ms": [
+        25.556916,
+        26.063708
+      ],
+      "candidate_range_ms": [
+        23.530166,
+        24.151167
+      ],
+      "base_rss_bytes": 7356416,
+      "candidate_rss_bytes": 7258112
+    }
+  ],
+  "mate_answers": 8,
+  "no_answer": 1,
+  "median_sum_ms": {
+    "base": 1601.038959,
+    "candidate": 1498.305751
+  },
+  "improvement_percent": 6.416658846588372,
+  "improved_cases": 7,
+  "worsened_cases": 2,
+  "omit_worst_case": {
+    "id": "pt67-9",
+    "base_ms": 839.893792,
+    "candidate_ms": 781.8057510000001
+  },
+  "time_regressions": [],
+  "rss_regressions": [],
+  "verdict": "ADVANCE_TO_INTEGRATION_REVIEW"
+}
