@@ -1301,6 +1301,19 @@ mod tests {
     use crate::sfen::{move_from_usi, move_to_usi};
 
     #[test]
+    fn mate_hasher_byte_writes_preserve_stream_order() {
+        let mut together = MateHasher::default();
+        together.write(b"mate");
+        let mut split = MateHasher::default();
+        split.write(b"ma");
+        split.write(b"te");
+        let mut reordered = MateHasher::default();
+        reordered.write(b"team");
+        assert_eq!(together.finish(), split.finish());
+        assert_ne!(together.finish(), reordered.finish());
+    }
+
+    #[test]
     fn proof_table_preserves_three_ply_mate_after_shallow_prewarm() {
         let original = Board::from_sfen(SHORTEST_THREE_SFEN).unwrap();
         let before = crate::sfen::board_to_sfen(&original);
