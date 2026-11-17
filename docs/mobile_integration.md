@@ -19,12 +19,12 @@ The package is sequential and starts with material evaluation, but a caller can
 load one validated SEKIRW or HalfKP evaluator byte image before analysis. It
 does not bundle a weight or expose the native engine's multi-threaded search.
 
-## Dependency footprint
+## Dependencies
 
-The default engine binary's direct dependency chain is small: `sekirei-usi`
-uses `sekirei-core` and `rayon`; `sekirei-core` uses `rayon`. `lineprior
-0.12.6` is included only with the optional `opening-book` feature. This is not
-a transitive-license audit; inspect the resolved graph for a shipped app.
+The native engine depends on `sekirei-core` and `rayon`; core also uses
+`web-time`. The optional `opening-book` feature adds `lineprior`, `serde`,
+`serde_json`, and `sha2`. Inspect the resolved Cargo graph for the target app;
+this list is not a transitive-license audit.
 
 ## USI options relevant to resource-constrained deployment
 
@@ -41,16 +41,13 @@ a transitive-license audit; inspect the resolved graph for a shipped app.
 
 ## Memory
 
-A weight file is ≈1.24 MB (flat "A" architecture) or ≈10.0 MB
-(king-relative "B-small", currently experimental — see
-`docs/nnue_weights.md`) on disk, loaded once into a process-global
-`OnceLock`. `Hash` (TT size, MB) is the other controllable memory knob.
-Neither scales with position complexity or game length. Peak RSS, battery use,
-and thermal behavior have not been measured on iOS or Android. The B-small
-outcome summarized in
-[`design/nnue_architecture_next_candidate.md`](design/nnue_architecture_next_candidate.md)
-comes from desktop validation, not on-device inference, and must not be
-extrapolated to a phone without direct measurement.
+The optional r6 HalfKP file is 64,216,957 bytes (about 61.2 MiB), as recorded
+in its [release card](../weights/sekirei-halfkp-r6-v0.5.0.json). The historical
+flat file is about 1.24 MB. File size is not peak process memory: include the TT,
+search state, per-worker accumulators, and loading buffers in a device budget.
+Native weights are installed once per process; changing them needs a restart.
+`Hash` controls TT size. Peak RSS, battery use, and thermal behavior have not
+been measured on iOS or Android.
 
 ## Current limits
 
@@ -65,8 +62,5 @@ extrapolated to a phone without direct measurement.
   [`amateur_analysis_benchmark.md`](amateur_analysis_benchmark.md), but no
   result has been published.
 
-## Positioning
-
-Sekirei offers a Pure Rust, MIT OR Apache-2.0 codebase and a small browser
-surface. That is an integration property, not a playing-strength claim. See
-[`nnue_weights.md`](nnue_weights.md) for the evaluator evidence boundary.
+The former mobile benchmark proposal is covered by the
+[2026-11-16 plan reset](plans/README.md); no mobile qualification is scheduled.

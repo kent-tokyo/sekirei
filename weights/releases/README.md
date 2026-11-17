@@ -1,16 +1,19 @@
-# `nn_r6` release evidence
+# Historical `nn_r6` qualification
 
 `nn_r6` is attached to v0.5.0 as an optional GitHub Release asset. It remains
 separate from source crates and executables; material remains the fallback when
 no `EvalFile` is set. The asset is licensed under [CC BY 4.0](../../NNUE-LICENSE.md)
-and is not selected by default.
+and is not selected by default. Downloads, checksums, and loading instructions
+are in the [weight guide](../README.md); exact identities are in the
+[release card](../sekirei-halfkp-r6-v0.5.0.json).
 
 ## Qualification
 
 The strict release bundle is bound to engine commit
 `a60be2cdf2f17a2c8bfb9980536f452e8c19958e`, Hash 64, `SpecTopN=0`, material
 baseline, one second per move, and separate frozen colour-reversed opening
-corpora. It validates with `validate_nnue_release_artifact.py`.
+corpora. The release card records successful bundle validation against that
+commit, not qualification of a later checkout.
 
 | Threads | Search mode | Games | Wins-draws-losses | LLR | Verdict |
 |---:|---|---:|---|---:|---|

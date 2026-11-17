@@ -1,165 +1,71 @@
-# NNUE weights: use, compatibility, and licensing
+# NNUE weights
 
-An NNUE weight file is a data artifact, separate from Sekirei's source code.
-The source is available under MIT OR Apache-2.0; every distributed weight must
-carry its own model card, checksum, provenance, strength-gate scope, and
-license. Local training data and unpublished checkpoints remain outside Git.
+Sekirei uses material evaluation unless a weight is explicitly loaded. Weight
+files are separate from the MIT OR Apache-2.0 source. Each needs its own license,
+checksum, provenance, and evidence. Private data and unpublished weights stay
+outside Git.
 
-## Distributed artifact
+## Available weights
 
-[`weights/sekirei-nnue-v0.3.38.bin`](../weights/sekirei-nnue-v0.3.38.bin) is
-the optional flat evaluator published for 0.3.38. Its adjacent model card
-pins the SHA-256, training provenance, output mode, strict-health result, and
-historical local gate.
+| Artifact | Format and setting | Evidence and use |
+|---|---|---|
+| `sekirei-halfkp-r6-v0.5.0.bin` (`nn_r6`) | HalfKP(Friend) 256x2-32-32, `FV_SCALE=24` | Optional v0.5.0 asset; independent 1T/4T gates against material evaluation on a pinned native build. |
+| `sekirei-nnue-v0.3.38.bin` | Flat `SEKIRW01`, `NnueOutput=absolute` | Historical optional artifact for compatibility and experiments. |
+| `nn_r3` | HalfKP 256x2-32-32, `FV_SCALE=24` | Historical local candidate; binary not distributed in Git. |
 
-It is retained for compatibility and experimentation, not as a blanket
-strength recommendation. On the current engine, a small local comparison
-against material evaluation scored 1/32 at 1 second per move and 2/32 at
-5 seconds per move. Those settings were separate and are not a default-choice
-gate, external rating, or comparison with another engine.
+Use [weights/README.md](../weights/README.md) for downloads, checksums, and
+loading commands. Both distributed weights are CC BY 4.0. The r6
+[qualification record](../weights/releases/README.md) gives exact source,
+settings, and results. Its material gates do not establish an external rating,
+a default-selection decision, or WASM/mobile qualification.
 
-Without `EvalFile` or a command-line checkpoint, Sekirei uses its material
-fallback. It does not silently select or substitute a model.
+The flat weight's [model card](../weights/sekirei-nnue-v0.3.38.json) records a
+2026-09-21 diagnostic: 1 win in 32 games at one second per move and 2 wins in
+32 at five seconds against material evaluation. These separate historical
+settings are not measurements of the current checkout. The
+[r3 card](../weights/candidates/sekirei-halfkp-r3.json) and
+[gate record](experiments/nnue_r3_material_gate_v0.3.68/README.md) likewise
+apply only to their recorded builds and conditions.
 
-## Optional `nn_r6` artifact
+## Loading and compatibility
 
-`nn_r6` is an optional HalfKP(Friend) 256x2-32-32 artifact. It uses
-`FV_SCALE=24`, is not embedded in a crate, and is not selected automatically.
+Set an absolute `EvalFile` path before `isready`, or pass the path as the first
+command-line argument. Confirm the load acknowledgement. An initial load
+failure leaves material evaluation active; changing an already loaded file
+requires a new engine process.
 
-The v0.5.0 evidence bundle is bound to source commit
-`a60be2cdf2f17a2c8bfb9980536f452e8c19958e`. It passed independent,
-colour-reversed one-second material-only paired-trinomial gates: 1T
-57-1-4 over 62 games (LLR 3.023878) and 4T 59-0-5 over 64 games (LLR
-3.032299). Its model card, redacted training and whole-game hold-out
-manifests, and raw gate evidence pass
-`validate_nnue_release_artifact.py` against that exact commit.
+| Build family | Header | Required layout |
+|---|---|---|
+| Default flat | `SEKIRW01`, legacy `JANOSW03` | 2420 inputs, L1 256, L2 32 |
+| Experimental `king_relative_b_small` | `SEKIRW02` | 20564 inputs, L1 256, L2 32; no released weight |
+| Experimental flat widths | `SEKIRW01` | Exact selected `nnue_l1_128` / `nnue_l1_384` and `nnue_l2_16` / `nnue_l2_64` dimensions |
 
-These native fixed-condition gates are not an external rating, a default-choice
-decision, or a WebAssembly/mobile qualification. Verify the release-asset
-checksum and the CC BY 4.0 terms before use. The [weight card](../weights/sekirei-halfkp-r6-v0.5.0.json)
-names both v0.5.0 release assets and their checksums.
-
-### Original r6 training rows
-
-The frozen private manifest for the original r6 self-play rows has SHA-256
-`e916768450de96e6562a691e08cb4a5278de76ec1b8ab38d0bf243ec4e0661a6`
-and identifies 32 raw shards. As of 2026-11-14, those shards are **unavailable
-for new experiments**: the checked Mac and SSD locations contain no verified
-copy, and the older cloud workspace has no known session locator ([recovery
-audit](https://github.com/kent-tokyo/sekirei/issues/284#issuecomment-6872041961)). This is an
-access result, not evidence that the original bytes were deleted. It does not
-revise the r6 weight's completed qualification. Do not describe a regenerated
-set as the original r6 training corpus.
-
-`sekirei-selfplay-teacher-20261114-v1` is reserved as a **new, not yet
-generated** self-play teacher corpus for future work. Before use, record its
-own engine/source identity, generation recipe and seeds, shard hashes, row
-schema, and independent split; do not inherit any r6 raw-shard identity or
-claim that the data are equivalent. Any later recovery of the original r6
-shards must use their frozen hashes and a separate restoration receipt.
-
-For every future frozen training corpus, record either a tested restoration
-receipt with an access-controlled archive locator and verified hashes, or an
-explicit `not retained` status. A manifest that only names an old workspace
-path does not make its raw inputs reusable.
-
-## Historical `nn_r3` candidate
-
-`nn_r3` is a historical in-house HalfKP 256x2-32-32 candidate used with
-`FV_SCALE=24`. It was trained for one epoch from `nn_r2` on gen33--40
-self-play. Its recorded candidate comparison does not establish current-main
-compatibility, an external rating, or a default-adoption decision.
-
-## Loading a weight
-
-```bash
-sekirei /absolute/path/to/sekirei-nnue-v0.3.38.bin
-```
-
-For a USI GUI, set `EvalFile` to an absolute path and
-`NnueOutput=absolute` before `isready`. Verify the checksum and CC BY 4.0
-terms in [`weights/README.md`](../weights/README.md) first.
-
-## Exact build compatibility
-
-The loader verifies both an 8-byte magic value and the exact expected byte
-length. A mismatched architecture or width is rejected rather than parsed
-silently.
-
-| Build family | Magic | Dimensions | Status |
-|---|---|---|---|
-| Flat default | `SEKIRW01` (also legacy `JANOSW03`) | input 2420, L1 256, L2 32 | Historical optional 0.3.38 artifact. |
-| King-relative B-small | `SEKIRW02` | input 20564, L1 256, L2 32 | Experimental; no released weight. |
-| Flat width diagnostics | `SEKIRW01` | `nnue_l1_128` / `nnue_l1_384` and `nnue_l2_16` / `nnue_l2_64` | Unreleased experiment builds; a file must match the exact selected dimensions. |
-
-The `king_relative_b_small` feature changes the feature layout and requires a
-separately trained file. Width features likewise change the required file
-length even though they retain the flat magic. `JANOSW02` is not supported.
-
-## Training export precision
-
-The in-house trainer exports feature-transformer weights and biases as i16
-at scale 64, rounded to the nearest integer (halfway cases away from zero).
-Values retain the existing symmetric clamp at +/-32767. For finite values
-within that range, the parameter error is at most 1/128 in training units.
-L2 and output parameters remain f32.
-
-This affects newly exported files and their checksums; existing files load
-as before. It does not establish a playing-strength improvement. Record the
-training commit when comparing checkpoints across export implementations.
+The loader checks the header and exact length. `JANOSW02` is unsupported;
+feature-layout and width changes require a matching trained file.
+The trainer exports feature-transformer parameters as i16 at scale 64, rounded
+halfway away from zero and clamped to ±32767; L2/output parameters remain f32.
+Record the training commit when comparing exports.
 
 ## External HalfKP networks
 
-`EvalFile` (and the first command-line argument) also accepts the common
-external `HalfKP(Friend) 256x2-32-32` format. A file is treated as HalfKP when
-it starts with the version word `0x7AF32F16`; its structural hashes and exact
-byte length must then match, or it is rejected. Only one evaluator can be
-active per process.
+`EvalFile` also accepts HalfKP(Friend) 256x2-32-32. The version word
+`0x7AF32F16`, structural hashes, and exact length must match. `FV_SCALE`
+divides the integer output (default 16, range 1–128), then scores are clamped
+to ±30,000. `NnueOutput` does not affect HalfKP; it always supplies a full score.
+Only one evaluator can be active per process.
 
-- The score is the integer network output divided by `FV_SCALE` (USI option,
-  default 16, range 1..=128), clamped to +/-30,000. Some published networks
-  recommend a different divisor.
-- `NnueOutput` does not apply: HalfKP output is always a complete score.
-- The implementation is written independently from the format description.
-  Sekirei neither bundles nor redistributes any external network; each file's
-  own license governs its use. Record provenance with the
-  [`external_eval_manifest_v1` validator](../scripts/validate_external_eval_manifest.py)
-  when a file is used for measurements.
+External files retain their own licenses and are not bundled. Record measurement
+provenance with [validate_external_eval_manifest.py](../scripts/validate_external_eval_manifest.py).
+The `halfkp_oracle` example generates deterministic random test networks and
+checks incremental accumulators against full recomputation; compare its output
+with a separate reference using [check_halfkp_oracle.py](../scripts/check_halfkp_oracle.py).
+This checks interoperability, not strength.
 
-Interoperability is checked with deterministic random networks that anyone can
-regenerate, so no third-party file is needed:
+## Release evidence
 
-```bash
-cargo run --release -p sekirei-core --example halfkp_oracle -- write-net /tmp/hk/nn.bin 1
-cargo run --release -p sekirei-core --example halfkp_oracle -- dump /tmp/hk/nn.bin 3000 1 > /tmp/hk/sekirei.tsv
-python3 scripts/check_halfkp_oracle.py --engine /path/to/reference-engine \
-  --option EvalDir=/tmp/hk --tsv /tmp/hk/sekirei.tsv
-```
-
-`dump` also asserts that the incremental accumulator equals a full rebuild at
-every visited node. The reference engine must print `eval = <int>` for the
-`eval` command.
-
-## Evidence for a release weight
-
-The B-small implementation passed mechanical load and inference checks, but
-has no successful paired strength gate. Unreleased diagnostics do not make a
-checkpoint distributable or stronger than material evaluation.
-
-A proposed HalfKP release weight needs a `sekirei.nnue-model-card.v2` card.
-The [validator](../scripts/validate_nnue_release_artifact.py) checks its
-artifact hash, license, training and whole-game hold-out manifests, exact
-engine identity, and raw 1T/4T current-engine gate references. Each gate must
-pin its opening corpus, material baseline, candidate load acknowledgement,
-and paired-trinomial result. Keep its terminal receipt. A `PASS` requires the
-preregistered bounds and complete colour-reversed pairs; a 4T
-`NON_REGRESSION` also requires a margin declared before play.
-
-The validator checks the bundle's schema, references, hashes, and declared
-results. It does not replay SPRT, prove the source-to-binary relationship,
-audit every raw log claim, or authorize default adoption. Preserve the
-original records for review. A short depth diagnostic cannot replace a
-current-engine gate. Validate against the exact release source commit:
+A HalfKP release bundle uses a `sekirei.nnue-model-card.v2` card with artifact
+hash, license, training and whole-game hold-out manifests, exact engine identity,
+and raw 1T/4T gate records. Validate the assembled bundle against its source:
 
 ```bash
 python3 scripts/validate_nnue_release_artifact.py model-card.json \
@@ -167,22 +73,25 @@ python3 scripts/validate_nnue_release_artifact.py model-card.json \
   --expected-engine-commit <full-40-hex-commit>
 ```
 
-Use [`export_nnue_gate_evidence.py`](../scripts/export_nnue_gate_evidence.py)
-on each retained terminal receipt to create the 1T and 4T summaries. Keep
-the raw match JSON, opening corpus, manifests, and receipts in the bundle;
-calculate the card's reference hashes only after assembling it. The exporter
-cannot create a gate or infer a license.
+The validator checks schema, references, hashes, and declared results. It does
+not replay SPRT, prove source-to-binary identity, or authorize adoption. Keep
+raw match data, frozen openings, and terminal receipts; use
+[export_nnue_gate_evidence.py](../scripts/export_nnue_gate_evidence.py) to derive
+summaries. A gate must meet its original paired decision rule. An experimental
+release with missing conditions requires an explicit record of those gaps and
+remains optional; distribution requires separate authorization.
 
-An experimental opt-in asset may be released only with an explicit record of
-its missing v2 conditions. It must stay non-default and must not be described
-as a recommended checkpoint until a complete v2 bundle validates against the
-engine commit being released.
+## Retained data status
 
-Training can use a separately operated external teacher, but its license and
-the dataset terms must be assessed by the person distributing the resulting
-weights. Sekirei does not convert arbitrary external NNUE formats into its
-own format.
+The original r6 private manifest has SHA-256
+`e916768450de96e6562a691e08cb4a5278de76ec1b8ab38d0bf243ec4e0661a6` and names
+32 raw shards. The 2026-11-14 [recovery audit](https://github.com/kent-tokyo/sekirei/issues/284#issuecomment-6872041961)
+found no verified Mac/SSD copy or usable locator for the old cloud workspace.
+This records unavailable inputs, not deletion, and does not change the completed
+r6 qualification. Regenerated data cannot inherit those shard identities.
 
-See [`design/nnue_architecture_next_candidate.md`](design/nnue_architecture_next_candidate.md)
-for the historical architecture decision record and internal `ROADMAP.md` for
-active unpublished work.
+The reserved `sekirei-selfplay-teacher-20261114-v1` corpus was not generated.
+Its proposed work is closed by the 2026-11-16 plan reset. Any future corpus needs
+its own recipe, hashes, independent split, and tested restoration receipt or an
+explicit `not retained` status. The
+[architecture note](design/nnue_architecture_next_candidate.md) is historical.

@@ -1,42 +1,37 @@
-# Denryu offline rehearsal
+# Offline CSA rehearsal
 
-This rehearsal checks the packaged `sekirei-csa` process without a public
-server or external evaluator. It uses the tournament clock shape (Black 180
-seconds, White 600 seconds, two-second increment), alternates sides, and
-injects one client restart after game 7.
+This tool checks two packaged `sekirei-csa` processes against a loopback server.
+The default fixture alternates sides over 14 records, restarts the client after
+record 7, and uses Black 180 s / White 600 s with a 2 s increment. It uses no
+external evaluator. This is an available operation check, not a scheduled task;
+the 2026-11-16 reset closes the former tournament plan.
 
-## Run
+## Run and inspect
 
-Build the exact executable that will be deployed, then create a new evidence
-directory:
+From the repository root, use the exact executable under review and a new
+output directory:
 
 ```bash
 cargo build --release -p sekirei-csa
 python3 scripts/run_denryu_rehearsal.py \
   --binary target/release/sekirei-csa \
-  --output data/rehearsals/denryu-$(date +%Y%m%d-%H%M%S)
+  --output data/rehearsals/denryu-RUN_ID
 ```
 
-A successful run prints `PASS` and writes `rehearsal-manifest.json`. Keep that
-directory with the tournament build. The manifest must report 14 records, two
-reaped child processes, monotonically increasing status transitions, and the
-final cumulative count of 14.
+`PASS` writes `rehearsal-manifest.json`. For the default fixture, verify 14
+records, two reaped children, monotonically increasing cumulative counts, and
+final count 14. Preserve the output directory with the binary identity.
+This does not establish strength or replace a real tournament connection test.
 
-## Recovery checklist
+## Recovery reference
 
-1. Do not reuse a non-terminal or ambiguous attempt count. Read it from the
-   retained status or phase manifest and verify its schema first.
-2. Keep the same executable, evaluator, configuration, and requested game ID.
-   If any identity changes, start a new batch and evidence directory.
-3. Restart with `--completed-attempts N --max-games LIMIT`; never lower the
-   cumulative ceiling or infer `N` from the number of filenames alone.
-4. Append to the same status journal, but write the new process manifest and
-   atomic status snapshot to a new phase directory.
-5. After the terminal status, wait for the process and verify it was reaped.
-   A supervisor may restart only retryable transport failures; protocol,
-   recording, authentication, and limit-completion states are terminal.
-6. Preserve CSA records, manifests, status journal, stderr, and all SHA-256
-   values. Credentials must never appear in these files.
+Use `--completed-attempts N --max-games LIMIT` only when retained terminal
+status or a phase manifest verifies `N`; filenames alone are insufficient.
+Preserve binary, evaluator, configuration, and requested game identity. Changed
+identities need a new batch. Keep the cumulative ceiling and append to the same
+status journal, with a new phase directory for each process manifest/snapshot.
 
-The loopback fixture is an operational gate, not strength evidence and not a
-substitute for a final connection test against the tournament server.
+Verify process exit and retain CSA, status, stderr, and hashes without
+credentials. Only retryable transport failures permit protocol recovery;
+authentication, protocol, recording, and completed-limit states are terminal.
+These mechanics do not authorize restarting a plan closed for review.

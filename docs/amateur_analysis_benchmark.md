@@ -1,8 +1,10 @@
 # Amateur-game analysis benchmark
 
-This document defines a reproducible record format for comparing analysis
-quality. It originated in [issue #44](https://github.com/kent-tokyo/sekirei/issues/44).
-No benchmark result has been published.
+This is a record-format reference, originating in
+[issue #44](https://github.com/kent-tokyo/sekirei/issues/44), not an active trial.
+No benchmark result has been published. The unexecuted mobile gate was removed
+from the active plan on 2026-11-16. Start at the [benchmark index](benchmarks.md)
+to choose a measurement.
 
 ## Scope
 
@@ -67,25 +69,8 @@ The schema documents the contract; the exporter does not currently run a JSON
 Schema validator. Preserve the manifest and validate records before publishing
 derived metrics.
 
-## Mobile analysis readiness gate
-
-The first mobile gate must use positions from whole amateur games that were
-not used for training, tuning, or candidate selection. Freeze the corpus and
-its SHA-256 before opening results. Run these lanes with one immutable
-evaluator and record its exact byte hash:
-
-1. a deeper native USI reference run;
-2. a native USI run at the proposed mobile node budget; and
-3. a WebAssembly run at the same mobile node budget, with the same evaluator
-   bytes loaded explicitly.
-
-The native reference is an internal consistency reference, not independent
-ground truth. It can measure candidate-move agreement and evaluation
-stability, but cannot establish blunder-detection precision or recall by
-itself. Those metrics require a separately frozen annotation source.
-
-Before the confirmatory run, preregister the corpus, lane settings, accepted
-evaluator hash, minimum usable-record rate, latency budget, top-1/top-3
-agreement thresholds, and treatment of mate, timeout, and incomplete records.
-Report native and WebAssembly latency separately. Do not select a model on
-this corpus and then reuse the same results as its final mobile gate.
+For a future native/WASM comparison, use identical evaluator bytes and node
+budgets, record latency separately, and keep final confirmation games apart
+from training and selection. A deeper native search is an internal consistency
+reference; it does not supply independent blunder annotations or qualify a
+mobile product by itself.

@@ -1,65 +1,63 @@
-# Sekirei NNUE artifacts
+# NNUE downloads and loading
 
-`sekirei-nnue-v0.3.38.bin` is an available **optional** evaluator originally
-published for Sekirei 0.3.38. It is not part of any crate package or
-executable: keep the file beside the engine, verify its checksum, then load it
-through `EvalFile` or the first command-line argument.
+Weights are optional and separate from the executable. Without a loaded weight,
+Sekirei uses material evaluation. Run the commands below from the repository
+root. Format and release-evidence rules are in [NNUE weights](../docs/nnue_weights.md).
+
+## HalfKP r6
+
+Download the v0.5.0 [compressed weight](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.0/sekirei-halfkp-r6-v0.5.0.bin.xz)
+and [evidence bundle](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.0/sekirei-halfkp-r6-v0.5.0-bundle.tar.xz).
+Verify both against the [release card](sekirei-halfkp-r6-v0.5.0.json):
+
+| File | SHA-256 |
+|---|---|
+| `.bin.xz` | `01623e1146293a3aa30a299d250865750d7b166a416cc46f2d1b8db3a48cbb8f` |
+| Decompressed `.bin` | `634bdf527e7306045c8278df1d5311777561dfb09c1ebe6829ff3f4d883cc469` |
+| `-bundle.tar.xz` | `b9e8c05a5a277e52c742a0461d26714a276c5d23b03ca264072aa3f6855a026c` |
+
+Configure the USI GUI with the decompressed file's absolute path and
+`FV_SCALE=24`. The equivalent commands to send to a fresh engine are:
+
+```text
+usi
+setoption name EvalFile value /absolute/path/sekirei-halfkp-r6-v0.5.0.bin
+setoption name FV_SCALE value 24
+isready
+```
+
+Confirm the weight-load acknowledgement and `info string FV_SCALE 24`.
+`NnueOutput` does not change HalfKP scores. The [qualification record](releases/README.md)
+applies to its pinned 1T/4T native builds and conditions; r6 is not the default
+and has no general external-rating or WASM/mobile qualification.
+
+## Historical flat weight
+
+The repository contains [sekirei-nnue-v0.3.38.bin](sekirei-nnue-v0.3.38.bin)
+and its [model card](sekirei-nnue-v0.3.38.json):
 
 ```bash
-shasum -a 256 sekirei-nnue-v0.3.38.bin
+shasum -a 256 weights/sekirei-nnue-v0.3.38.bin
 # 154ad1e4c8335b5e51a87af946d50a6789fbaf2d2568af58e85c6431e9d3797a
-
-sekirei sekirei-nnue-v0.3.38.bin
+sekirei weights/sekirei-nnue-v0.3.38.bin
 ```
 
-For USI GUIs, set `EvalFile` to the file's absolute path before `isready`.
-Use `NnueOutput=absolute`, which is the format declared in the adjacent model
-card. If the weight cannot be loaded, the engine reports the error and remains
-on material evaluation; it never silently substitutes a different checkpoint.
+For a GUI, set `EvalFile` to the absolute path and `NnueOutput=absolute`
+before `isready`. This artifact is retained for compatibility and experiments;
+its historical results do not make it a recommended current weight.
 
-The historical 0.3.38 paired gate remains recorded in the model card. It does
-not establish an advantage over the current material-only evaluator. In a
-current-engine local diagnostic, B scored 1/32 at 1 second per move and 2/32
-at 5 seconds per move against material-only evaluation. This small comparison
-does not formally select a default, but the checkpoint remains available for
-compatibility and experimentation rather than as a blanket strength
-recommendation.
+An initial load failure reports an error and leaves material evaluation active.
+To switch an already loaded weight, restart the engine. It never automatically
+selects a different checkpoint.
 
-The binary and its model card are versioned release artifacts. They are
-licensed under [CC BY 4.0](../NNUE-LICENSE.md), separately from Sekirei's
-MIT OR Apache-2.0 source code. Retain the Sekirei / Kentaro Tanabe attribution
-when redistributing or adapting the artifact.
+## Licensing and historical candidates
 
-## Optional `nn_r6` artifact
+Both distributed weights are [CC BY 4.0](../NNUE-LICENSE.md), separate from the
+MIT OR Apache-2.0 source. Preserve each model card's attribution when
+redistributing or adapting its artifact.
 
-`nn_r6` is a CC BY 4.0 optional release asset for v0.5.0. Its strict model
-card binds the artifact, licence, redacted attestations, and independent 1T/4T
-material-gate evidence. It is not a crate payload or default evaluator. The
-[release evidence](releases/README.md) states its exact scope.
-
-Download the [compressed weight](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.0/sekirei-halfkp-r6-v0.5.0.bin.xz)
-and its [evidence bundle](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.0/sekirei-halfkp-r6-v0.5.0-bundle.tar.xz)
-from the v0.5.0 release. Verify the SHA-256 values in
-[`sekirei-halfkp-r6-v0.5.0.json`](sekirei-halfkp-r6-v0.5.0.json) before use.
-
-## Historical local candidate: `nn_r3`
-
-`nn_r3` is a historical local HalfKP candidate. Its exact identity and evidence
-boundary are recorded in
-[`candidates/sekirei-halfkp-r3.json`](candidates/sekirei-halfkp-r3.json).
-The binary is not stored in Git, bundled, selected by default, or recommended
-for distribution. In addition to the 480-game result against `nn_r2`, it passed
-two pinned v0.3.68 material gates at 500 ms and 1 second per move. Those local
-results do not establish compatibility with current main, an external rating,
-or a default-adoption decision; the chained estimate against `gen9` is not a
-direct measurement. See the
-[`nn_r3` gate record](../docs/experiments/nnue_r3_material_gate_v0.3.68/README.md)
-for the exact conditions and evidence boundary.
-
-If the local artifact is available, verify it before any diagnostic:
-
-```bash
-python3 scripts/validate_nnue_candidate_card.py \
-  weights/candidates/sekirei-halfkp-r3.json \
-  --artifact data/selfplay/nnue/claude061/nn_r3.bin
-```
+The local `nn_r3` binary is not distributed in Git. Its
+[candidate card](candidates/sekirei-halfkp-r3.json) and
+[historical gate](../docs/experiments/nnue_r3_material_gate_v0.3.68/README.md)
+retain its identity and limited evidence; they do not authorize a new trial,
+distribution, or default adoption.

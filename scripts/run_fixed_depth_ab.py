@@ -1,56 +1,33 @@
 #!/usr/bin/env python3
-"""Fixed-depth A/B comparison driver for the remote (GitHub Actions) gate.
+r"""Compare fixed-depth search results from two pinned engine binaries.
 
-Design: ROADMAP.md's fixed-depth comparison contract. Motivation: local
-CPU/swap contention repeatedly blocked any engine-vs-engine evaluation this
-session -- this tool moves
-the CPU-heavy part (building and running two engine binaries at a fixed
-search depth) to a GitHub Actions runner instead, leaving local CPU
-untouched. It does NOT play engine-vs-engine games, does NOT compute Elo,
-and is not a substitute for a real strength gate -- it only compares two
-binaries' search behavior (bestmove/score/nodes) at a fixed depth on a fixed
-position corpus, which is far more robust to host load than a wall-clock
-match (a slow host makes a fixed-depth search take longer, not search less).
+This tool records bestmove, score, nodes, and timing on a fixed corpus. It
+does not play matches or establish Elo or playing strength. It runs wherever
+invoked, including locally or in GitHub Actions. Historical plans are closed
+by the 2026-11-16 reset; available commands are not scheduled work.
 
-Subcommands, run separately (once per binary, then once to compare) so
-each binary only needs to exist when it's actually being driven -- the
-calling workflow builds base, runs it, builds candidate (overwriting the
-same target/release/sekirei path), runs it, then compares the two already-
-saved JSON result files:
+Run each binary separately, then compare the saved JSON results:
 
     run_fixed_depth_ab.py run --binary <path> --corpus <corpus.json> \
-      --depth 8 --threads 1 --spec-top-n 3 --output <out.json> \
+      --depth 8 --threads 1 --spec-top-n 0 --output <out.json> \
       --label base
-
-  Add `--weights <weights.bin>` to `run` or `repeat` to pass a fixed
-  checkpoint as the engine's argv[1] and record it in the result manifest.
 
   run_fixed_depth_ab.py compare --base <base.json> --candidate <candidate.json> \
       --output-dir <dir>   # writes results.tsv and summary.md there
 
-Without `--weights`, both binaries fall back to
-`sekirei_core::nnue`'s deterministic LCG-default evaluation. With
-`--weights`, the same fixed checkpoint is passed as argv[1] to both binaries
-and its path is recorded in each result manifest. Neither mode is a real
-playing-strength signal; both are fixed, reproducible structural comparisons
-of search correctness, bestmove stability, node counts, and (where captured)
-timing at a fixed depth.
+Without `--weights`, a current Sekirei binary uses material evaluation.
+Older binaries must be checked separately. `--weights` passes a checkpoint
+as argv[1] and records its path; use the same artifact for both runs. This
+driver does not configure FV_SCALE, so use a runner with explicit evaluator
+options when a HalfKP weight requires a non-default scale (r6 needs 24).
 
-`run`/`compare` assume a fixed-depth search is DETERMINISTIC for a given
-binary -- true at `SpecTopN=0`, false at `SpecTopN>0` (SpeculativeSearcher
-runs its own concurrent thread pool independent of the `Threads` option, so
-its background workers write the shared TT with scheduling-dependent
-ordering -- repeated SpecTopN>0 runs can have scheduling-dependent
-5-6/21 bestmove diffs and node-ratio swings up to 5.79x). A single-shot
-`run`+`compare` at SpecTopN>0 cannot distinguish a candidate's real effect
-from that noise floor.
-
-`repeat`/`analyze-repeatability`/`compare-repeatability` measure that noise
-floor directly -- WITHIN-binary variance across N repeats of the same
-binary/config, for base and candidate independently, then side by side:
+Single-run comparisons require repeatable behavior. Parallel or speculative
+search can vary with scheduling; pin the actual backend and verify repeated
+runs. SpecTopN alone does not identify the backend in current SearchMode=Auto.
+Use the repeatability commands to compare within-binary variance:
 
   run_fixed_depth_ab.py repeat --binary <path> --corpus <corpus.json> \
-      --depth 9 --threads 1 --spec-top-n 3 --repeats 3 \
+      --depth 9 --threads 4 --spec-top-n 0 --repeats 3 \
       --output <base_repeat.json> --label base
 
   run_fixed_depth_ab.py analyze-repeatability --input <base_repeat.json> \

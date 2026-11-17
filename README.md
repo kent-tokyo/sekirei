@@ -3,150 +3,83 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.5.4-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.4)
+[![Release](https://img.shields.io/badge/release-v0.5.5-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.5)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
-[![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
+[![License](https://img.shields.io/crates/l/sekirei.svg)](LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.5.4` uses
-material evaluation by default. Optional NNUE weights require an explicit
-file path; see [weights and evidence](docs/nnue_weights.md). This release adds
-opt-in 27-point entering-king declarations at the root in USI, CSA, and local
-matches, plus bounded stop and task-drain diagnostics. The rules-aware search
-reference is not connected to ordinary USI search. No playing-strength gain
-has been established. Changes are in the
-[changelog](CHANGELOG.md).
+Sekirei is an experimental Pure Rust shogi engine. Version `0.5.5`
+provides a native USI engine, CSA client, match runner, and browser API.
+It uses material evaluation by default; NNUE requires an explicit weight file.
 
-## Quick start
+## Run the engine
 
 ```bash
 cargo install sekirei
 sekirei
 ```
 
-Or run the current checkout:
+Register the executable in a USI-compatible GUI. To run this checkout:
 
 ```bash
-git clone https://github.com/kent-tokyo/sekirei.git
-cd sekirei
 cargo run --release -p sekirei
 ```
 
-Register `sekirei` in a USI-compatible GUI. Without `EvalFile`, the engine
-uses material evaluation. External HalfKP 256x2-32-32 files use `FV_SCALE`
-and remain subject to their own licenses. The optional `nn_r6` weight needs
-`FV_SCALE=24`; its pinned 1T/4T material gates do not establish an external
-rating or general playing-strength gain. Loading and evidence details are in
-[NNUE weights](docs/nnue_weights.md).
+Send `usi` to list options. For one-worker diagnostics, set `Threads=1`
+and `SpecTopN=0`. With `MultiPV=1`, `SearchMode=Auto` uses sequential
+search for one worker and Lazy SMP for multiple workers.
 
-## Components
+To use the optional `nn_r6` weight, set `EvalFile` to its path,
+`NnueOutput=absolute`, and `FV_SCALE=24`.
+See [weight setup and evidence](docs/nnue_weights.md) for downloads,
+checksums, supported formats, and the scope of its qualification.
 
-- Shogi rules, SFEN/USI notation, alpha-beta/PVS, quiescence search, move
-  ordering, and a lock-free transposition table.
-- Optional speculative search, Lazy SMP, NNUE training/evaluation, MCTS, and
-  df-pn. Experimental modes are not strength claims.
-- CSA/Floodgate and local USI match tooling. Core search and evaluation use no
-  `unsafe` code.
+## What is available
 
-| Command | Package | Purpose |
-|---|---|---|
-| `sekirei` | `sekirei` | USI engine |
-| `sekirei-csa` | `sekirei-csa` | CSA/Floodgate client |
-| `sekirei-match` | `sekirei-match-runner` | USI match runner |
-| `train` | `sekirei-train` | NNUE training |
+| Interface | Purpose |
+|---|---|
+| `sekirei` | USI engine: alpha-beta/PVS, quiescence search, lock-free TT |
+| `sekirei-csa` | CSA/Floodgate client |
+| `sekirei-match` | Local matches between USI engines |
+| `sekirei-train` package | NNUE training; run with `cargo run --release -p sekirei-train -- --help` |
+| [sekirei-wasm](crates/sekirei-wasm/README.md) | SFEN, legal moves, bounded single-worker analysis, MultiPV, mate analysis |
 
-The `usi` command lists every engine option. `SearchMode=Auto` selects
-sequential search for one worker and Lazy SMP for multiple workers. For
-deterministic diagnostics, use `Threads=1` and `SpecTopN=0`.
+Install the browser package with `npm install sekirei-wasm@0.5.5`.
+It accepts caller-supplied evaluator bytes and bundles no weights.
+Package identity is recorded in the [distribution guide](docs/releases/npm_wasm.md).
 
-### Browser / WebAssembly
+Opening books require the `opening-book` Cargo feature, `BookFile`, and
+`UseBook=true`; no default book is shipped. The optional 27-point entering-king
+declaration works at the root. Its rules-aware reference search is not
+connected to ordinary USI or parallel search. Experimental search modes and
+local diagnostics do not establish playing-strength gains.
 
-[`sekirei-wasm`](crates/sekirei-wasm/README.md) provides SFEN parsing, legal
-moves, validated move application, bounded one-worker search with an optional
-caller-supplied evaluator, up to four MultiPV lines, and bounded shortest-mate
-analysis. Install the verified v0.5.4 ES-module package with
-`npm install sekirei-wasm@0.5.4`, or pin the
-[GitHub Release archive](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.4/sekirei-wasm-0.5.4.tgz).
-See the [distribution record](docs/releases/npm_wasm.md) for package identity
-and verification.
-
-## Build and verify
+## Build and check
 
 ```bash
 cargo build --release
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-bash scripts/check_rust_coverage.sh
-python3 scripts/check_release_metadata.py --allow-planned-release-manifest
-python3 scripts/check_release_manifest_layout.py
 ```
 
-The coverage command requires `cargo-llvm-cov 0.8.7`,
-`llvm-tools-preview`, and `jq`; it enforces the 98% line-coverage gate.
-The current release manifest stays in the repository root and older ones in
-the [archive](docs/releases/manifests/README.md). CI checks published
-`sekirei-core` API compatibility against v0.3.73.
+See [development checks](docs/development.md) for focused tests, coverage,
+and release metadata checks. Use the [script index](scripts/README.md) for
+matches, training, and operational tools.
 
-The [8T](docs/experiments/compiler_pgo_8t_v0.4.2/README.md),
-[4T](docs/experiments/compiler_pgo_4t_v0.4.1/README.md), and
-[own-HalfKP 8T](docs/experiments/own_halfkp_pgo_8t_v0.4.4/README.md)
-PGO reports give the pinned binaries, workloads, and uncertainty. These
-measurements do not describe ordinary Cargo builds or playing strength.
+## Project status and documentation
 
-## Matches and training
-
-Use `sekirei-match` for local USI matches. Durable offline self-play requires
-explicit weights and opening positions:
-
-```bash
-python3 scripts/run_local_selfplay.py --games 1000 \
-  --weights /path/to/weights.bin \
-  --positions data/gate/openings_standard.sfen
-```
-
-Runs store manifests, records, CSA, and search data under ignored `data/runs/`.
-Same-engine results are regression evidence, not Floodgate or human ratings.
-See the [script index](scripts/README.md) for match and gate tooling.
-
-The 27-point entering-king root declaration is opt-in. In a local match,
-`--entering-king-rule csa27` enables the runner's adjudication; pass
-`--engine-option1 EnteringKingRule=CSARule27` and
-`--engine-option2 EnteringKingRule=CSARule27` to enable it in both Sekirei
-engines. The CSA client uses `--entering-king-rule csa27`. Defaults remain off.
-The rules-aware reference search in `sekirei-core` is not used by USI, V1/V2,
-or parallel search; it does not enable in-search declaration handling.
-The [implementation record](docs/plans/denryu7-implementation-2026-11-15.md)
-separates protocol regression checks from tournament and strength evidence.
-
-For NNUE training, run `cargo run --release -p sekirei-train -- --help`.
-Data and weights remain outside Git. Recipes, hashes, resume rules, and
-whole-game split requirements are in the [script index](scripts/README.md).
-
-Opening-book support is build-time and runtime opt-in:
-
-```bash
-cargo build --release -p sekirei --features opening-book
-# Then set BookFile and UseBook=true.
-```
-
-No default book is shipped. Book and training workflows retain hashed
-manifests so inputs, settings, and outputs can be audited.
-
-## Documentation
+On 2026-11-16, all ongoing and pending improvement plans were closed for
+reassessment at the owner's request. No next experiment is scheduled by these
+documents. Existing results, rejected candidates, and unused confirmation
+inputs remain preserved. See the [plan review](docs/plans/README.md).
 
 - [Documentation index](DOCUMENTATION.md)
-- [Current r6 improvement trial history](docs/experiments/nnue_r6_progress_2026-11-13/README.md)
-- [Changelog](CHANGELOG.md) and [archived history](CHANGELOG_ARCHIVE.md)
+- [Benchmarks and evidence](docs/benchmarks.md)
+- [Changelog](CHANGELOG.md)
 
-Implementation, tests, measurements, and released artifacts are separate
-claims. Historical reports keep their original version and scope unless they
-are explicitly revalidated.
+## License
 
-## License and attribution
-
-Source code is [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE); retain
-[NOTICE](NOTICE). NNUE files are separate CC BY 4.0 artifacts; see
-[NNUE-LICENSE.md](NNUE-LICENSE.md). The attribution text in `NOTICE` is
-recommended when redistributing Sekirei, but it is not an additional
-advertising clause. Do not imply official endorsement without permission.
+Source: [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE); retain [NOTICE](NOTICE).
+Project-distributed NNUE artifacts have separate terms in
+[NNUE-LICENSE.md](NNUE-LICENSE.md). External weights retain their own licenses.
