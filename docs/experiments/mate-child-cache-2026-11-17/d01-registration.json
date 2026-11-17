@@ -1,0 +1,26 @@
+{
+  "id": "CHILD-CACHE-20261117-DIAGNOSTIC",
+  "registered_utc": "2026-11-16T22:04:05.307688+00:00",
+  "source": "9f3539f29d6ab85fbe75a733953f271e633eca7f",
+  "hashes": {
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/mate-child-cache-2026-11-17/PLAN.md": "764194a541f5f0a2bb0f89501da8b35b7c32fe3b4f7d93bfdf25633eee7f0a5b",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/mate-child-cache-2026-11-17/run.py": "e26d49d7457fa857a84c17c029fd7436bd1e0025190482da6562de3feaa01830",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/mate-child-cache-2026-11-17/prepare.py": "ae859097e8cc01010459024f60bd71929f3065cadbb6f8c4e94a19db70076f8b",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/mate-child-cache-2026-11-17/cache.inc.rs": "95687051ad4d013d4506cb845505d62e0f2a77c37ad5cea0ac74ec3c95da92fb",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/mate-child-cache-2026-11-17/cache_tests.inc.rs": "af8f0155637af7304d2985282248757da67413425c64a64afe9cd22a4e6ba218",
+    "/Users/k_tanabe/Documents/Projects/sekirei/data/runs/jsa-tsume-20261116/corpus.json": "0e5c60502aadd4b07acd9b726324851cd8b1f994f0ef9e152e3140db23a6e474",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/jsa_tsume_2026-11-16/komoring_comparison/run_comparison.py": "bb678f03f0e88f4fa866ada029f57620c633f46daf0f1420a9c498503fb03cba",
+    "/private/tmp/sekirei-child-cache-20261117-shadow/target/release/examples/jsa_search": "4763ae141e1db82f1c5abe41fbbaf8046fd197300a5606fb3f646037795cbae2",
+    "/Users/k_tanabe/Documents/Projects/sekirei/data/runs/mate-child-cache-20261117/shadow.patch": "d84a74ec4850da64ac929f7f7f87a6762c6c0d8df235f7a1ecd40221a286b0ed"
+  },
+  "threads": 1,
+  "evaluator": "none",
+  "search_nodes": 999999,
+  "max_ply": 25,
+  "search_seconds": 8,
+  "outer_seconds": 12,
+  "rss_bytes": 2147483648,
+  "solver_runs_cap": 6,
+  "total_seconds": 1200,
+  "no_extension": true
+}

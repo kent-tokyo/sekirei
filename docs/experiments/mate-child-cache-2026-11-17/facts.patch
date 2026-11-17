@@ -1,0 +1,162 @@
+--- a/crates/sekirei-core/src/mate.rs
++++ b/crates/sekirei-core/src/mate.rs
+@@ -638,10 +638,15 @@
+     }
+ }
+ 
++#[derive(Default)]
++struct PositionFacts {
++    terminal: Option<(u64, u64)>,
++    bounds: SolvedBounds,
++}
++
+ struct Solver {
+     table: MateMap<(u64, u32), (u64, u64, bool)>,
+-    solved: MateMap<u64, SolvedBounds>,
+-    terminals: MateMap<u64, (u64, u64)>,
++    facts: MateMap<u64, PositionFacts>,
+     path: Vec<u64>,
+     nodes: u64,
+     node_limit: u64,
+@@ -660,8 +665,7 @@
+ ) -> MateResult {
+     let mut solver = Solver {
+         table: MateMap::default(),
+-        terminals: MateMap::default(),
+-        solved: MateMap::default(),
++        facts: MateMap::default(),
+         path: Vec::new(),
+         nodes: 0,
+         node_limit,
+@@ -696,11 +700,12 @@
+     }
+ 
+     fn lookup_with_dependency(&self, hash: u64, ply: u32) -> (u64, u64, bool) {
+-        if let Some(&(pn, dn)) = self.terminals.get(&hash) {
++        let facts = self.facts.get(&hash);
++        if let Some((pn, dn)) = facts.and_then(|entry| entry.terminal) {
+             return (pn, dn, false);
+         }
+         let remaining = self.max_ply.saturating_sub(ply);
+-        let bounds = self.solved.get(&hash);
++        let bounds = facts.map(|entry| &entry.bounds);
+         let conflicted = bounds.is_some_and(|entry| entry.conflicted);
+         if let Some(entry) = bounds.filter(|entry| !entry.conflicted) {
+             if entry
+@@ -731,7 +736,7 @@
+         if path_dependent || self.aborted || (pn != 0 && dn != 0) {
+             return;
+         }
+-        let entry = self.solved.entry(hash).or_default();
++        let entry = &mut self.facts.entry(hash).or_default().bounds;
+         if entry.conflicted {
+             return;
+         }
+@@ -797,7 +802,7 @@
+         if moves.is_empty() {
+             // No checks: the attack fails. No replies to a check: mate.
+             let value = if attacker { (INF, 0) } else { (0, INF) };
+-            self.terminals.insert(hash, value);
++            self.facts.entry(hash).or_default().terminal = Some(value);
+             return;
+         }
+         if attacker && ply >= self.max_ply {
+@@ -1040,8 +1045,7 @@
+     }
+     let mut solver = Solver {
+         table: MateMap::default(),
+-        terminals: MateMap::default(),
+-        solved: MateMap::default(),
++        facts: MateMap::default(),
+         path: Vec::new(),
+         nodes: 0,
+         // Legacy Solver counts the rejected visit. Reserve that one visit so
+@@ -1301,6 +1305,22 @@
+     use crate::sfen::{move_from_usi, move_to_usi};
+ 
+     #[test]
++    fn shared_facts_keep_terminal_priority_and_both_fields() {
++        let mut solver = bounds_test_solver(7);
++        solver.save_result(123, 2, 0, INF, false);
++        let bound = solver.facts.get(&123).unwrap().bounds.proof_min_remaining;
++        solver.facts.entry(123).or_default().terminal = Some((INF, 0));
++        assert_eq!(solver.lookup_with_dependency(123, 2), (INF, 0, false));
++        assert_eq!(
++            solver.facts.get(&123).unwrap().bounds.proof_min_remaining,
++            bound
++        );
++        solver.save_result(123, 2, INF, 0, false);
++        assert!(solver.facts.get(&123).unwrap().bounds.conflicted);
++        assert_eq!(solver.lookup_with_dependency(123, 2), (INF, 0, false));
++    }
++
++    #[test]
+     fn mate_hasher_byte_writes_preserve_stream_order() {
+         let mut together = MateHasher::default();
+         together.write(b"mate");
+@@ -1331,8 +1351,7 @@
+             let mut board = original.clone();
+             let mut solver = Solver {
+                 table: MateMap::default(),
+-                solved: MateMap::default(),
+-                terminals: MateMap::default(),
++                facts: MateMap::default(),
+                 path: Vec::new(),
+                 nodes: 0,
+                 node_limit: 10_000,
+@@ -1494,8 +1513,7 @@
+     fn bounds_test_solver(max_ply: u32) -> Solver {
+         Solver {
+             table: MateMap::default(),
+-            terminals: MateMap::default(),
+-            solved: MateMap::default(),
++            facts: MateMap::default(),
+             path: Vec::new(),
+             nodes: 0,
+             node_limit: 10_000,
+@@ -1573,16 +1591,16 @@
+         solver.save_result(11, 4, 0, INF, true);
+         assert_eq!(solver.lookup_with_dependency(11, 4), (0, INF, true));
+         assert_eq!(solver.lookup(11, 3), (1, 1));
+-        assert!(!solver.solved.contains_key(&11));
++        assert!(!solver.facts.contains_key(&11));
+         solver.save_result(12, 4, INF, 0, true);
+         assert_eq!(solver.lookup_with_dependency(12, 4), (INF, 0, true));
+         assert_eq!(solver.lookup(12, 5), (1, 1));
+-        assert!(!solver.solved.contains_key(&12));
++        assert!(!solver.facts.contains_key(&12));
+         solver.save_result(13, 4, 2, 9, false);
+         assert_eq!(solver.lookup_with_dependency(13, 4), (2, 9, false));
+         assert_eq!(solver.lookup(13, 3), (1, 1));
+         assert_eq!(solver.lookup(13, 5), (1, 1));
+-        assert!(!solver.solved.contains_key(&13));
++        assert!(!solver.facts.contains_key(&13));
+     }
+ 
+     #[test]
+@@ -1608,13 +1626,13 @@
+         let mut solver = bounds_test_solver(7);
+         solver.save_result(21, 4, 0, INF, false); // mate within remaining three
+         solver.save_result(21, 3, INF, 0, false); // incompatible no mate within four
+-        assert!(solver.solved.get(&21).unwrap().conflicted);
++        assert!(solver.facts.get(&21).unwrap().bounds.conflicted);
+         assert_eq!(solver.lookup_with_dependency(21, 4), (0, INF, true));
+         assert_eq!(solver.lookup_with_dependency(21, 3), (INF, 0, true));
+         assert_eq!(solver.lookup_with_dependency(21, 2), (1, 1, true));
+         assert_eq!(solver.lookup_with_dependency(21, 5), (1, 1, true));
+         solver.save_result(21, 6, INF, 0, false);
+-        assert!(solver.solved.get(&21).unwrap().conflicted);
++        assert!(solver.facts.get(&21).unwrap().bounds.conflicted);
+         assert_eq!(solver.lookup_with_dependency(21, 7), (1, 1, true));
+     }
+ 
+@@ -1946,8 +1964,7 @@
+     fn attacker_moves_are_exactly_the_checks() {
+         let solver = Solver {
+             table: MateMap::default(),
+-            terminals: MateMap::default(),
+-            solved: MateMap::default(),
++            facts: MateMap::default(),
+             path: Vec::new(),
+             nodes: 0,
+             node_limit: 0,

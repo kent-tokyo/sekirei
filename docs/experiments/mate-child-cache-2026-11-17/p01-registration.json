@@ -1,0 +1,19 @@
+{
+  "id": "MATE-P01-20261117",
+  "registered_utc": "2026-11-16T22:07:06.470024+00:00",
+  "source": "9f3539f29d6ab85fbe75a733953f271e633eca7f",
+  "sfen": "5p1nl/6S1k/5R1sp/8+b/9/9/9/9/9 b GSLPrb3gs3n2l15p 1",
+  "hashes": {
+    "/private/tmp/sekirei-child-cache-20261117-profile/target/release/examples/profile_driver": "d9f8077e3e18e3fdb0a62e17b6622becaa93896976578ae2e2185f70b97b3602",
+    "/private/tmp/sekirei-child-cache-20261117-profile/crates/sekirei-core/src/mate.rs": "d37b41e5851644f5064adda1190dfea2259a19185d95d932daef9f194c385ca6",
+    "/private/tmp/sekirei-child-cache-20261117-profile/crates/sekirei-core/examples/profile_driver.rs": "ba493ec63dcf23b58aa0935dc035b1fdd120a149751abf6f5c3cfab56d4217f4",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/mate-child-cache-2026-11-17/PROFILE_PLAN.md": "88ecf07bbdbc1a13e60b476155726f7e2f7979af206115b7a3d64dd217b67340",
+    "/Users/k_tanabe/Documents/Projects/sekirei/docs/experiments/mate-child-cache-2026-11-17/run_profile.py": "451790972a61538befe2c23a945ce079fec3f5de401de1e8111d656c25839e3b",
+    "/usr/bin/sample": "0527abd95ea1c5a2885489e0d6a76e06c69b66b8a69c7eab4f9276688815791b"
+  },
+  "calls": 100,
+  "sample_seconds": 2,
+  "interval_ms": 1,
+  "outer_seconds": 30,
+  "rss_kib": 2097152
+}

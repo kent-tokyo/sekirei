@@ -1,0 +1,2 @@
+Preparation stopped before any build/search: direct rustfmt default edition rejected existing Rust2024 let-chains. Fixed explicit --edition2024 for candidate files; baseline is not reformatted. Archived baseline files restored from fixed9f3539f.
+Shadow preparation stopped before build/search: unanchored import needle also matched test-module imports. Anchored to column0; preserved failed preparation directory.
