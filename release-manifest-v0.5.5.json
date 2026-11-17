@@ -42,9 +42,15 @@
     "asset": "sekirei-wasm-0.5.5.tgz",
     "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.5.5/sekirei-wasm-0.5.5.tgz",
     "status": "verified",
-    "npm_registry_status": "not_published",
+    "npm_registry_status": "published",
     "sha256": "8ad2482b8dd917dda3363df2e25ba90fdee267e2fb3fcd38264380f032438f47",
-    "size": 570930
+    "size": 570930,
+    "npm_publish_attempt": {
+      "workflow_run": "44101197039",
+      "result": "verified"
+    },
+    "npm_registry_version": "0.5.5",
+    "npm_registry_integrity": "sha512-KcWgjPgSyQGmHzKDy2uVyhgaf33ItUVhJ3U9XggYAZnNoT4xiNS7jwnwZXdeGO3A5bVmV6GyVVmEQAv/2m2CiQ=="
   },
   "internal_measurement": {
     "spec_top_n": 0,

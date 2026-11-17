@@ -1,9 +1,8 @@
 # npm distribution for `sekirei-wasm`
 
 The [v0.5.5 release manifest](../../release-manifest-v0.5.5.json) records the
-verified crates.io publication and GitHub Release archive hash. The npm
-publication status and registry integrity will be added after its workflow
-completes.
+verified crates.io and npm publications, registry integrity, and GitHub Release
+archive hash. Install it with `npm install sekirei-wasm@0.5.5`.
 
 The GitHub Release `sekirei-wasm-X.Y.Z.tgz` remains the primary, hashed release
 asset. The npm workflow publishes that same archive and then compares every
