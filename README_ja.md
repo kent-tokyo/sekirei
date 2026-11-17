@@ -3,68 +3,55 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.5.4-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.4)
+[![Release](https://img.shields.io/badge/release-v0.5.5-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.5.5)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
-[![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
+[![License](https://img.shields.io/crates/l/sekirei.svg)](LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.5.4`は
-既定で駒得評価を使います。NNUE重みを使う場合はファイルを明示します。今回の変更は
-任意設定の27点法入玉宣言をUSI・CSA・ローカル対局のrootで扱い、停止応答と
-投機task終了を上限付きで診断できるようにしたものです。規則付き参照探索は
-通常のUSI探索へ未接続で、棋力向上は確認されていません。対応形式と測定範囲は
-[NNUE重み](docs/nnue_weights.md)、リリースごとの変更は
-[変更履歴](CHANGELOG.md)を参照してください。
+SekireiはPure Rustで実装した実験的な将棋エンジンです。`0.5.5`はUSIエンジン、
+CSAクライアント、対局ランナー、ブラウザAPIを提供します。
+既定は駒得評価で、NNUEを使うには重みファイルの指定が必要です。
 
-## まず動かす
+## エンジンを動かす
 
 ```bash
 cargo install sekirei
 sekirei
 ```
 
-最新のソースを実行する場合：
+実行ファイルをUSI対応GUIへ登録します。このcheckoutを動かす場合：
 
 ```bash
-git clone https://github.com/kent-tokyo/sekirei.git
-cd sekirei
 cargo run --release -p sekirei
 ```
 
-生成された`sekirei`をUSI対応GUIへ登録します。`EvalFile`を指定しない場合は
-駒得評価を使います。外部HalfKP 256x2-32-32には`FV_SCALE`を設定し、各ファイルの
-ライセンスに従ってください。任意利用の`nn_r6`重みには`FV_SCALE=24`が必要です。
-固定条件の1T・4T material gateは、外部レートや一般的な棋力向上を示しません。
-読み込み方と証跡は[NNUE重み](docs/nnue_weights.md)を参照してください。
+USIの`usi`で全オプションを確認できます。1ワーカーの診断では
+`Threads=1`、`SpecTopN=0`を指定します。`MultiPV=1`のとき、
+`SearchMode=Auto`は1ワーカーで逐次探索、複数ワーカーでLazy SMPを使います。
 
-## 構成
+任意の`nn_r6`重みを使う場合は、`EvalFile`にパスを指定し、
+`NnueOutput=absolute`、`FV_SCALE=24`を設定します。
+取得先、ハッシュ、対応形式、確認済みの範囲は[NNUE重み](docs/nnue_weights.md)を参照してください。
 
-- 将棋ルール、SFEN/USI表記、alpha-beta/PVS、静止探索、手順序、lock-free TT。
-- 任意の投機探索、Lazy SMP、NNUE学習・評価、MCTS、df-pn。実験機能は
-  棋力を保証しません。
-- CSA/FloodgateとローカルUSI対局のツール。コアの探索・評価に`unsafe`を
-  使っていません。
+## 利用できる機能
 
-| コマンド | パッケージ | 用途 |
-|---|---|---|
-| `sekirei` | `sekirei` | USIエンジン |
-| `sekirei-csa` | `sekirei-csa` | CSA/Floodgateクライアント |
-| `sekirei-match` | `sekirei-match-runner` | USI対局ランナー |
-| `train` | `sekirei-train` | NNUE学習 |
+| インターフェース | 用途 |
+|---|---|
+| `sekirei` | USIエンジン。alpha-beta/PVS、静止探索、lock-free TT |
+| `sekirei-csa` | CSA/Floodgateクライアント |
+| `sekirei-match` | USIエンジン同士のローカル対局 |
+| `sekirei-train`パッケージ | NNUE学習。`cargo run --release -p sekirei-train -- --help`で引数を確認 |
+| [sekirei-wasm](crates/sekirei-wasm/README.md) | SFEN、合法手、上限付き1ワーカー解析、MultiPV、詰み解析 |
 
-USIの`usi`で全オプションを確認できます。`SearchMode=Auto`は1ワーカーで
-逐次探索、複数ワーカーでLazy SMPを選びます。決定論的な診断では
-`Threads=1`、`SpecTopN=0`を使います。
+ブラウザ用パッケージは`npm install sekirei-wasm@0.5.5`で導入します。
+評価器のバイト列を呼出側から渡せますが、重みは同梱しません。
+配布物の照合は[配布ガイド](docs/releases/npm_wasm.md)にまとめています。
 
-### ブラウザ / WebAssembly
-
-[`sekirei-wasm`](crates/sekirei-wasm/README.md)は、SFEN解析、合法手、
-検証付き着手、呼出側が渡す任意評価器を使う上限付き1ワーカー探索、最大4本の
-MultiPV、最短詰み解析を提供します。検証済みのv0.5.4 ESモジュールは
-`npm install sekirei-wasm@0.5.4`で導入できます。配布ファイルを固定する場合は
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.5.4/sekirei-wasm-0.5.4.tgz)
-を利用してください。版とファイルの照合方法は[配布記録](docs/releases/npm_wasm.md)にあります。
+定跡はCargoの`opening-book`機能と、`BookFile`・`UseBook=true`の指定が必要です。
+既定の定跡は同梱しません。任意設定の27点法入玉宣言はrootで扱います。
+規則付き参照探索は通常のUSI・並列探索へ未接続です。
+実験的な探索機能や局所診断による棋力向上は確認されていません。
 
 ## ビルドと検証
 
@@ -72,73 +59,23 @@ MultiPV、最短詰み解析を提供します。検証済みのv0.5.4 ESモジ�
 cargo build --release
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-bash scripts/check_rust_coverage.sh
-python3 scripts/check_release_metadata.py --allow-planned-release-manifest
-python3 scripts/check_release_manifest_layout.py
 ```
 
-カバレッジ確認には`cargo-llvm-cov 0.8.7`、`llvm-tools-preview`、`jq`が
-必要です。再利用可能なRustコードと配布するUSI実行系の行カバレッジを98%以上に
-固定します。現行リリースのmanifestはリポジトリ直下に置き、過去分は
-[アーカイブ](docs/releases/manifests/README.md)に保存します。CIでは公開ライブラリ
-`sekirei-core`のAPIをv0.3.73と比較します。
+対象を絞ったテスト、カバレッジ、公開メタデータの確認は[開発手順](docs/development.md)、
+対局・学習・運用ツールは[スクリプト索引](scripts/README.md)を参照してください。
 
-PGOの[8T](docs/experiments/compiler_pgo_8t_v0.4.2/README.md)、
-[4T](docs/experiments/compiler_pgo_4t_v0.4.1/README.md)、
-[自前HalfKP 8T](docs/experiments/own_halfkp_pgo_8t_v0.4.4/README.md)の
-各報告には、固定したバイナリ、測定条件、不確実性を記録しています。通常の
-Cargoビルドや棋力の測定値として扱わないでください。
+## 現在の状態と文書
 
-## 対局と学習
-
-ローカルUSI対局には`sekirei-match`を使います。記録を残す自己対局では、
-重みと開始局面を明示します。
-
-```bash
-python3 scripts/run_local_selfplay.py --games 1000 \
-  --weights /path/to/weights.bin \
-  --positions data/gate/openings_standard.sfen
-```
-
-実行結果はGit管理外の`data/runs/`に保存します。同一エンジンの自己対局は
-学習・回帰用であり、Floodgateや人間のレートではありません。対局・ゲートの
-ツールは[スクリプト索引](scripts/README.md)を参照してください。
-
-27点法の入玉宣言は任意設定です。ローカル対局ではrunnerに
-`--entering-king-rule csa27`を渡し、両エンジンにも
-`--engine-option1 EnteringKingRule=CSARule27`と
-`--engine-option2 EnteringKingRule=CSARule27`を指定します。CSAクライアントは
-`--entering-king-rule csa27`を使います。既定はOFFです。`sekirei-core`の
-規則付き参照探索はUSI・V1/V2・並列探索へ未接続で、探索中の入玉宣言には
-対応していません。[実装記録](docs/plans/denryu7-implementation-2026-11-15.md)に
-局所検証と未検証の範囲を記録しています。
-
-NNUE学習の引数は`cargo run --release -p sekirei-train -- --help`で確認できます。
-データと重みはGit外に保存します。レシピ、ハッシュ、再開条件、対局単位の分割条件は
-[スクリプト索引](scripts/README.md)にまとめています。
-
-定跡はビルド時・実行時とも明示的に有効化します。
-
-```bash
-cargo build --release -p sekirei --features opening-book
-# 続いてBookFileを設定し、UseBook=trueにします。
-```
-
-既定の定跡は同梱しません。定跡生成と学習では、入力・設定・出力を確認できる
-ハッシュ付きマニフェストを保存します。
-
-## 文書
+2026-11-16、ユーザーの指示で進行中・保留中の強化計画をすべて終了し、見直しに戻しました。
+次の実験予定はありません。過去の結果、不通過候補、未使用の確認入力は保持しています。
+分野ごとの到達点は[計画の棚卸し](docs/plans/README.md)にまとめています。
 
 - [文書索引](DOCUMENTATION.md)
-- [変更履歴](CHANGELOG.md)と[過去の詳細履歴](CHANGELOG_ARCHIVE.md)
+- [ベンチマークと検証範囲](docs/benchmarks.md)
+- [変更履歴](CHANGELOG.md)
 
-実装、テスト、測定、公開成果物は別の根拠です。過去の実験文書は、明示的に
-再検証しない限り、記録された版と条件にだけ適用します。
+## ライセンス
 
-## ライセンスと帰属表示
-
-ソースコードは[MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE)です。
-[NOTICE](NOTICE)の帰属表示を保持してください。NNUE重みはCC BY 4.0の別成果物です。
-詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。`NOTICE`の表示例は
-推奨であり、追加の広告条項ではありません。許可なく公式・承認済みと誤認させる
-表示をしてはいけません。
+ソースは[MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE)です。[NOTICE](NOTICE)を保持してください。
+本プロジェクトが配布するNNUE成果物には[別の条件](NNUE-LICENSE.md)が適用されます。
+外部重みは各ファイルのライセンスに従います。

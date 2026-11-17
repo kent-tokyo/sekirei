@@ -1,11 +1,9 @@
-# Sekirei documentation
+# Sekireiの文書
 
-Start with the [documentation index](../DOCUMENTATION.md) for current
-contracts, release records, design notes, and dated experiments. The
-[English](../README.md) and [Japanese](../README_ja.md) READMEs describe the
-current release.
+[文書索引](../DOCUMENTATION.md)から、利用・開発手順と過去の記録を探せます。
 
-Experimental reports apply only to their recorded revision and conditions.
-They do not change the default engine or establish a general speed or strength
-claim. Keep unpublished NNUE candidate records and local run artifacts out of
-the public repository.
+- [計画の棚卸し](plans/README.md)：2026-11-16に全進行計画をリセット。次の実験は未選定。
+- [ベンチマーク](benchmarks.md)：測定方法と、結果から言える範囲。
+- [実験記録](experiments/README.md)：事前条件・判定・出典を保持する履歴。
+
+過去資料は記載された版・条件での記録です。そこに残る継続指示は現在の計画に引き継ぎません。

@@ -1,10 +1,12 @@
-# Historical run-specific scripts
+# Historical scripts and reference
 
-Scripts here retain the exact commands and inputs for completed experiments.
-They are not general-purpose entry points. Run them only after checking that
-their pinned inputs, binaries, and output directories are available and match
-the original experiment.
+These files preserve earlier tool usage and run-specific commands. They are
+not current plans. The 2026-11-16 review closes unfinished work; nothing here
+authorizes a continuation, retry, or new match.
 
-- `extend_gate_sprt.sh`: continuation of the July 2026 conflict-mask SPRT run.
+- [Former script reference](script-index-before-2026-11-16.md): detailed
+  schemas, diagnostic behavior, and operating rules retained when the main
+  [index](../README.md) was shortened. Check current code before new use.
+- `extend_gate_sprt.sh`: July 2026 conflict-mask SPRT continuation script.
   Its fixed `data/runs/20260717_longrun_conflict_mask` inputs remain protected
-  from `cleanup_runs.sh` by the recursive script-reference scan.
+  by the recursive reference scan in `cleanup_runs.sh`.

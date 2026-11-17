@@ -1,42 +1,25 @@
 # Sekirei Explorer
 
-A static, client-only viewer for pre-computed Sekirei analysis records —
-**not** a live engine. It cannot compute a new analysis: no WASM, no
-backend, no server. It only parses SFEN position strings and USI move
-notation and renders whatever JSON/JSONL file you give it (or one of the
-three bundled illustrative samples).
+A static viewer for saved Sekirei JSON/JSONL analysis records. It parses SFEN
+and USI notation and displays the supplied analysis; it does not run an engine.
 
-## Open it
+## Open and check
 
-No build step. Open `index.html` directly in a browser (double-click it,
-or `file:///path/to/explorer/index.html`). Nothing here requires Cargo,
-npm, or a local server.
+Open [index.html](index.html) directly in a browser. No build, Cargo, npm, or
+server is required. For the self-check, open `index.html?selftest=1` and inspect
+the browser console or page title for `PASS` / `FAIL`.
 
-For the self-check output, open `index.html?selftest=1` and check the
-browser console / page title (`PASS`/`FAIL`).
+## Data and limits
 
-## Status
+- Three bundled samples have illustrative scores/PVs, not measured engine
+  output. Their positions come from tracked Rust tests; source references are
+  in [explorer.js](explorer.js) and [samples.js](samples.js).
+- Imported records follow the [analysis schema](../schemas/analysis_record_v1.schema.json)
+  and [record-format guide](../docs/amateur_analysis_benchmark.md). The viewer's
+  parser is tolerant; validate data separately before publishing metrics.
+- PV moves appear as a token list; board playback is not implemented.
+- No tracked workflow deploys this directory to GitHub Pages.
 
-- **Not deployed by this repository** — no tracked workflow publishes this
-  directory to GitHub Pages.
-- Bundled sample analyses are **illustrative, not measured** — no real
-  engine run produced their scores/PVs. Only the three underlying
-  positions are real (sourced from this project's own tracked Rust test
-  fixtures — see `explorer.js`'s comments and `samples.js` for exact
-  citations); no bulk SFEN corpus is committed to this repository.
-- No production-recommended NNUE weight file exists for Sekirei yet —
-  see [`../docs/nnue_weights.md`](../docs/nnue_weights.md).
-- No official mobile FFI layer exists yet — see
-  [`../docs/mobile_integration.md`](../docs/mobile_integration.md).
-- The JSON shape follows the tracked
-  [`analysis_record_v1`](../schemas/analysis_record_v1.schema.json) schema and
-  the [analysis benchmark contract](../docs/amateur_analysis_benchmark.md).
-  The viewer uses a tolerant client-side parser for those records.
-
-## Known gaps
-
-- No "step through the PV on the board" feature — PV moves are shown as a
-  plain token list, not animated on the board. See the `ponytail:`
-  comment in `explorer.js` for the reasoning and the upgrade path.
-- Only three hand-picked demo positions are bundled (no bulk SFEN corpus
-  is committed to this repository).
+For live browser analysis, use the [WASM API](../crates/sekirei-wasm/README.md).
+The [plan reset](../docs/plans/README.md) closes old upgrade proposals;
+this viewer has no scheduled expansion.

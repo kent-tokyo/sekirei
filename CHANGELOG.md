@@ -4,6 +4,22 @@ This file summarizes recent releases. The
 [archived detailed history](CHANGELOG_ARCHIVE.md)
 preserves older per-change notes.
 
+## [0.5.5] – 2026-11-17
+
+Version 0.5.5 improves the internal proof-table layout used by bounded mate
+analysis and reorganizes the public documentation. The default material
+evaluator and ordinary search policy are unchanged. The local mate diagnostics
+do not establish a playing-strength gain.
+
+### Changed
+
+- Use a local integer hasher for mate proof tables and keep terminal facts and
+  solved bounds in separate tables. This changes their storage and lookup cost,
+  without changing the public mate-analysis API or the definition of a proof.
+- Organize usage, development, benchmark, experiment, and historical-plan
+  documentation around the current 2026-11-16 plan reset. Preserve the original
+  experiment results and unused confirmation inputs.
+
 ## [0.5.4] – 2026-11-15
 
 Version 0.5.4 adds opt-in 27-point entering-king declaration handling at the
