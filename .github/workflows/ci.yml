@@ -68,6 +68,21 @@ jobs:
         # without the compile-time feature that would force both arms ON.
         run: cargo test -p sekirei-core --features tune --lib search::v2::tests::probcut_see_bound_preserves_material_search_and_reaches_comparator -- --ignored --exact --nocapture --test-threads=1
 
+  probcut-see-reuse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Feature compilation and exact-value cache boundaries
+        run: |
+          cargo clippy -p sekirei-core -p sekirei --all-targets --features probcut_see_reuse -- -D warnings
+          cargo test -p sekirei-core --features probcut_see_reuse --lib probcut_see_cache -- --test-threads=1
+      - name: Isolated fixed-tree and saved-SEE proof
+        run: cargo test --release -p sekirei-core --features tune --lib search::v2::probcut_see_reuse_test::probcut_see_reuse_preserves_tree_and_saves_exact_calls -- --ignored --exact --nocapture --test-threads=1
+
   wasm:
     runs-on: ubuntu-latest
     steps:

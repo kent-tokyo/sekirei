@@ -618,6 +618,9 @@ search_params! {
     /// move only for non-positive SEE thresholds (1). Default off; exact
     /// values, move order and pruning predicates are unchanged.
     V2_SEE_BOUND_CACHE = 0, 0, 1;
+    /// Reuse one exact non-TT ProbCut SEE during ordinary tactical classification.
+    /// Default off pending independent speed qualification.
+    V2_PC_SEE_REUSE = 0, 0, 1;
     /// SEARCH_V2 depth adjustment by the reduction of the move that led to
     /// the node (1) or none (0).
     V2_HINDSIGHT = 0, 0, 1;
