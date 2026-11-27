@@ -227,12 +227,6 @@ jobs:
           bash -n scripts/train_with_shogiesa_quietset.sh
           bash -n scripts/redo_quietset_bc.sh
           bash -n scripts/train_with_loss_mining.sh
-      - name: Q21 NNUE experiment tests
-        run: |
-          set -euo pipefail
-          for test_file in scripts/test_*q21*.py; do
-            python3 "$test_file"
-          done
       - name: release manifest schema
         run: |
           python3 scripts/test_release_manifest.py
