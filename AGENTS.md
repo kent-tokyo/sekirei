@@ -1,45 +1,84 @@
 # Sekirei agent instructions
 
-## Current scope — 2026-11-16
+Read this file first. It is the only current rulebook for agents; when another
+document disagrees, this file wins. Older rules are kept for reference in
+[docs/agent-instructions/](docs/agent-instructions/README.md) and are not in force.
 
-The user reset all ongoing and pending improvement plans to reconsider why the engine is not getting stronger. No improvement experiment is currently selected. Do not resume an old plan, trial, training run, match, or autonomous improvement loop from a historical “next step.” This applies to local `ROADMAP.md`, `tasks/`, `docs/plans/`, design notes, and experiment records. See [the review](docs/plans/README.md). Preserve original verdicts, inputs, weights, and unused confirmation sets.
+## Goal and current direction (2026-11-27)
 
-The long-term goal remains stronger Pure Safe Rust shogi play, ultimately surpassing engines such as Suisho and Hisui, within this Mac's resources. It is not authorization to restart the closed plans. New work follows the user's revised objective.
+Make Sekirei, a Pure Safe Rust shogi engine, play stronger on this Mac. The
+long-term target is to beat engines such as Suisho and Hisui.
 
-## Work and report
+The user approved this order of work:
 
-- Read [README.md](README.md), [the document index](DOCUMENTATION.md), and the relevant code before treating a capability as missing. The local roadmap holds current scope; dated records hold evidence.
-- Within an authorized objective, continue useful bounded work autonomously. Rank evaluation, search, time use, opening play, and faster builds by expected strength benefit, evidence, and cost. Candidate counts and implementation counts are not success metrics.
-- Before an expensive experiment, state the hypothesis, smallest useful check, and limits. Register its ID, source/binary/evaluator/input identities, decision rule, and stop rule before observing results. Reuse existing scripts and contracts.
-- Use a small number of bounded sub-agents for independent work when useful. Assign a question, owned files, inputs, checks, and budget. One coordinator owns integration and resource admission; parallel review does not authorize parallel engine jobs.
-- Verify artifacts with applicable tests or receipts. Keep implementation, correctness, speed, move quality, and strength conclusions separate. Add infrastructure or formal methods only for a concrete gap.
-- Report concisely in Japanese: findings, uncertainty, and current state. During monitored long NNUE runs, report job state, completed pairs, registered statistic/verdict, and waits or termination at least every 30 minutes. Never imply background continuation without a verified job.
+1. **Yardstick.** Make the [standard strength test](docs/strength_testing.md)
+   cheap and routine (parallel games in the match runner, a fixed YaneuraOu gauge).
+2. **Simple process.** Every strength change is judged by that one test. No
+   per-experiment pre-contracts, hash-pinned plans or separate confirmation sets.
+3. **Evaluation.** Generate self-play teacher data and train a larger NNUE.
 
-## Safety and resources
+Plans in `docs/plans/`, experiment records, the local `ROADMAP.md` and `tasks/`
+are history. Do not resume a "next step" from them unless the user asks.
 
-- Core engine logic is Pure Rust: no `unsafe` or external C++ wrappers. Preserve legal moves, repetition rules, board/history restoration, and integer NNUE do/undo equality.
-- Keep the search-loop TT a fixed-size, lock-free atomic array without `Mutex` or `RwLock`; preserve coherent publication, generations, CAS, and valid scores.
-- Bound speculative tasks, propagate parent cancellation, check it promptly, and release resources through RAII. Measure actual termination; dropping a handle is insufficient.
-- Default to sequential, single-thread diagnostics and bounded training. Check active jobs, memory pressure, and disk capacity before heavy work. Fix time, threads, memory, output, and sample limits; do not silently extend them.
-- When timing conditions fail, label any permitted fixed-node or exploratory result separately. It cannot qualify speed or strength or be pooled with strict measurements.
-- Preserve failed evidence. A new recorded attempt after a verified technical fix or resource recovery may proceed within an authorized objective. Do not retry a statistical rejection to seek a pass.
-- Stop when the objective is verified, the user stops or changes scope, required authorization/input is missing, the budget is reached, or no meaningful feasible action remains. Record the reason; old resumption conditions do not override the current reset.
+## How to work
 
-## Experiments and adoption
+- Read the relevant code before assuming a feature is missing. The
+  [document index](DOCUMENTATION.md) lists where things are.
+- Within a task the user gave, keep going without asking for each step. Ask
+  before anything irreversible: releases, publishing weights, deleting data.
+- Prefer small changes that can be tested on their own. One idea per branch and PR.
+- Reuse existing scripts. Add new infrastructure only when a concrete need
+  blocks the work.
+- Report to the user in Japanese, briefly: what changed, the result, what is uncertain.
 
-- Freeze development inputs before selecting a candidate. Check integer correctness, move ranking, major errors, same-time cost, improvement/worsening counts, unresolved cases, and outlier sensitivity as relevant.
-- Keep training, development, and independent confirmation separate. Known failures are debugging inputs, not fresh qualification. Lower validation loss alone is insufficient for a match candidate.
-- New NNUE screens are preregistered and capped at 500 colour-reversed pairs. Freeze advancement/futility rules before play; use fresh-root confirmation only when warranted. Never extend, pool, or reinterpret completed trials.
-- Adoption and publication require their own independent qualification. Existing search experiments retain independent H1 requirements. Exploration, screen advancement, confirmation, adoption, and publication are separate decisions; no unqualified candidate becomes default.
-- Pin hardware, binary, evaluator/weight, settings, time, hash, threads, and corpus. Qualify 4T and 8T separately. Use a pinned YaneuraOu reference; distinguish NPS, useful work, same-time quality, and strength.
-- Use material-only evaluation and Sekirei-generated openings for search tuning/SPSA and search-change screens. Suisho5 executables, weights, evaluations, and derived labels may only measure Sekirei against YaneuraOu, with separate evidence; never use them for training, candidate selection, constants/defaults, or public artifacts.
-- Preserve M03's entry pass and `CONFIRMATION_NO_PASS` independently. Do not adopt M03, extend its completed match, or combine both stages into a new verdict.
+## Judging strength
 
-## Data, Git, and verification
+- A change that may affect playing strength is accepted or rejected only by the
+  [standard SPRT](docs/strength_testing.md): Sekirei vs Sekirei, both using the
+  r6 NNUE, paired SPRT with elo0=0, elo1=5, α=β=0.05, at most 10,000 games.
+- H1 accepted: the change may be merged. H0 accepted or cap reached: reject it.
+  Do not re-run the same change hoping for a pass; a revised change is a new test.
+- Changes meant to be strength-neutral (refactors, simplifications, speed-ups)
+  use the non-regression SPRT in the same document.
+- Tune and test search with the r6 NNUE, not material evaluation.
+- Track version-to-version progress with the fixed YaneuraOu gauge in the same
+  document. Do not compare numbers measured under different settings.
+- Node counts, NPS, validation loss and single-position results are diagnostics.
+  They can motivate a change but cannot accept one.
+- Suisho5 binaries, weights, evaluations and anything derived from them must not
+  be used for training, tuning, candidate selection, defaults or published
+  files. They may only be used to measure Sekirei.
 
-- Inspect Git status and relevant diffs; preserve unrelated work. Use an isolated checkout when qualification or publication requires reproducible inputs. Earlier release authorization does not authorize another release.
-- Codex owns self-NNUE generation, training, weights, and candidate evaluation within authorized work. Preserve prior trials and hold-outs. Keep learning data and private/unqualified weights out of GitHub.
-- Qualified weight publication needs separate authorization, license, hashes, and evidence. Archive retained cold data under `/Volumes/ESD-EPA/Projects/sekirei_data`; verify archive/restored hashes and restoration steps before deleting local copies. Delete only verified-unused regenerable caches after checking active users and references.
-- Follow [development checks](docs/development.md) for the change. Local tests, hosted CI, benchmarks, registry publication, and deployment are separate checks. The historical 64-core contention target (<5%) and 10,000,000 random-validation target require their own evidence, not a routine rerun.
-- Prefer capabilities already shipped by `lineprior`, `shogiesa-core`, or `veridict` over duplicate implementations.
-- Keep current instructions short. Preserve superseded instructions in [history](docs/agent-instructions/README.md) and detailed outcomes in their evidence files. Do not edit frozen artifacts to make old results fit new policy.
+## Engine invariants
+
+- Core engine logic is Pure Rust: no `unsafe`, no C/C++ wrappers.
+- Keep move legality, repetition rules, board/history restore and integer NNUE
+  do/undo equality exact. Run the relevant tests in
+  [docs/development.md](docs/development.md) after touching them.
+- The search TT stays a fixed-size, lock-free atomic array (no `Mutex`/`RwLock`),
+  with coherent publication, generations and valid scores.
+- Speculative or parallel tasks must stop when their parent is cancelled and
+  release resources via RAII.
+
+## Machine resources
+
+- Run one heavy job at a time (match, training, long build). Before starting,
+  check that no other match or training is running and that disk space is enough.
+- Matches use 1 search thread per engine and at most (physical cores − 1)
+  concurrent games.
+- If a run dies or the machine was overloaded, fix the cause and start a fresh
+  run. Keep the partial output; do not merge it into the new run.
+
+## Data, weights and Git
+
+- Check `git status` before editing and leave unrelated changes alone.
+- Never commit training data, private or unqualified weights, logs or credentials
+  (such as `FLOODGATE_TRIP`). Large data lives outside Git; cold archives go to
+  `/Volumes/ESD-EPA/Projects/sekirei_data`, with hashes checked before deleting
+  local copies.
+- Publishing a weight or a release needs the user's explicit approval each time.
+- Prefer features already in `lineprior`, `shogiesa-core` or `veridict` over
+  writing duplicates.
+- Do not edit past experiment records to fit new rules. Add new records instead.
+- Keep this file short. When a rule changes, update it here and note the change
+  in [docs/agent-instructions/README.md](docs/agent-instructions/README.md).
