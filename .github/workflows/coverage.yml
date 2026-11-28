@@ -1,20 +1,11 @@
 name: Coverage
 
 on:
+  # Not on pull_request: coverage runs after merge to main (user decision
+  # 2026-11-28) to free runner slots for PR CI.
   push:
     branches: [main]
     tags: ["v*"]
-  pull_request:
-    paths:
-      - "**/*.rs"
-      - "**/Cargo.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".cargo/**"
-      - "rust-toolchain"
-      - "rust-toolchain.toml"
-      - "scripts/check_rust_coverage.sh"
-      - ".github/workflows/coverage.yml"
   workflow_dispatch:
 
 # A newer push to the same PR or branch makes the older run obsolete. Cancel it
