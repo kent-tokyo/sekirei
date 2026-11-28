@@ -20,7 +20,8 @@ Self-play SPRT with the shared r6 weight::
         --sprt 0,5 --pairs 5000 --out-dir runs/sprt-example
 
 Options given with ``--option-both`` go to both engines. ``Threads=1`` and
-``Hash=64`` are sent to both engines unless overridden. The default
+``Hash=64`` are sent to both engines unless overridden; ``Hash`` is
+omitted for an engine given ``USI_Hash`` (YaneuraOu). The default
 concurrency is the number of performance cores minus one (macOS
 ``hw.perflevel0.physicalcpu``), or the CPU count minus one elsewhere.
 
@@ -80,6 +81,10 @@ def merge_options(specific: list[str], both: list[str]) -> list[str]:
             raise ValueError(f"USI option must be Name=Value: {option!r}")
         merged.pop(name, None)
         merged[name] = value
+    explicit = {option.partition("=")[0] for option in (*both, *specific)}
+    if "USI_Hash" in merged and "Hash" not in explicit:
+        # YaneuraOu-style engines name the option USI_Hash and reject Hash.
+        merged.pop("Hash", None)
     return [f"{name}={value}" for name, value in merged.items()]
 
 
