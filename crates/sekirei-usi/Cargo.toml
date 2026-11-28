@@ -34,6 +34,7 @@ nnue_l1_384 = ["sekirei-core/nnue_l1_384"]
 nnue_l1_128 = ["sekirei-core/nnue_l1_128"]
 nnue_l2_64 = ["sekirei-core/nnue_l2_64"]
 nnue_l2_16 = ["sekirei-core/nnue_l2_16"]
+halfkp_l1_512 = ["sekirei-core/halfkp_l1_512"]
 
 [dev-dependencies]
 tempfile = "3"

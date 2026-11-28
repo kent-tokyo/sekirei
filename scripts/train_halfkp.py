@@ -10,7 +10,7 @@ usage:
   python3 scripts/train_halfkp.py --data train.bin [more.bin ...] --out net.bin
       [--val-data validation.bin ...] [--epochs 1] [--batch 8192] [--lr 5e-4]
       [--lam 1.0] [--scale 600] [--fv-scale 24] [--device mps|cpu]
-      [--init prev.pt | --init-bin prev.bin] [--save state.pt] [--fact] [--max-train N]
+      [--init prev.pt | --init-bin prev.bin] [--save state.pt] [--fact] [--max-train N] [--half 256|512]
 
 Target: lam * sigmoid(score / scale) + (1 - lam) * (result + 1) / 2, loss the
 squared difference to sigmoid(prediction / scale), prediction in centipawns
@@ -28,6 +28,9 @@ with an explicitly supplied --fv-scale. This starts a fresh optimizer; it does
 not recover the original float state or resume its optimizer. Parameter values
 must survive trainer clamps and integer re-export unchanged. It cannot be
 combined with --init or an existing --ckpt resume file.
+
+--half 512 writes HalfKP 512x2-32-32, which only an engine built with
+`--features halfkp_l1_512` reads (each build rejects the other width).
 
 --fact adds a king-independent row per piece-square that is summed with every
 king's row during training and folded into them at export, so the file format
@@ -64,11 +67,35 @@ SLOTS = 38
 REC = np.dtype([("stm", "u1"), ("res", "i1"), ("score", "<i2"), ("kus", "u1"),
                 ("kthem", "u1"), ("fus", "<u2", SLOTS), ("fthem", "<u2", SLOTS)])
 
-# nn.bin structural hashes (HalfKP 256x2-32-32), as in sekirei_core::halfkp.
+# nn.bin structural hashes, as in sekirei_core::halfkp.
 VERSION = 0x7AF32F16
-TRANSFORMER_HASH = 0x5D69D7B8
-FILE_HASH = 0x3E5AA6EE
-NETWORK_HASH = FILE_HASH ^ TRANSFORMER_HASH
+M32 = 0xFFFFFFFF
+
+
+def structural_hashes(half):
+    """(transformer, network, file) hashes of HalfKP {half}x2-32-32."""
+    def rotate_fold(base, previous):
+        return ((base + HIDDEN) & M32) ^ (previous >> 1) ^ ((previous << 31) & M32)
+    transformer = (0x5D69D5B9 ^ 1) ^ (2 * half)
+    input_slice = 0xEC42E90D ^ (2 * half)
+    hidden1 = (0x538D24C7 + rotate_fold(0xCC03DAE4, input_slice)) & M32
+    hidden2 = (0x538D24C7 + rotate_fold(0xCC03DAE4, hidden1)) & M32
+    network = ((0xCC03DAE4 + 1) & M32) ^ (hidden2 >> 1) ^ ((hidden2 << 31) & M32)
+    return transformer, network, transformer ^ network
+
+
+TRANSFORMER_HASH, NETWORK_HASH, FILE_HASH = structural_hashes(HALF)
+assert (TRANSFORMER_HASH, FILE_HASH) == (0x5D69D7B8, 0x3E5AA6EE)
+
+
+def set_half(half):
+    """Select the feature-transformer width (256, or 512 for the
+    experimental engine build with the `halfkp_l1_512` feature)."""
+    global HALF, TRANSFORMER_HASH, NETWORK_HASH, FILE_HASH
+    if half not in (256, 512):
+        raise ValueError("--half must be 256 or 512")
+    HALF = half
+    TRANSFORMER_HASH, NETWORK_HASH, FILE_HASH = structural_hashes(half)
 
 # Integer ranges of the file format expressed in float units.
 FT_MAX = 6.0                   # |w| * 127 * 38 stays inside i16
@@ -309,7 +336,7 @@ def validate_io_paths(inputs, outputs):
 
 
 def export(net, path, fv_scale, note):
-    arch = f"Sekirei HalfKP 256x2-32-32 own training ({note})".encode()
+    arch = f"Sekirei HalfKP {HALF}x2-32-32 own training ({note})".encode()
     ft_w = net.ft.weight.detach().cpu().double().numpy()[:N_IN]
     if net.fact:
         p = net.ftp.weight.detach().cpu().double().numpy()[:PIECE]
@@ -489,7 +516,10 @@ def main():
     ap.add_argument("--max-train", type=int, default=0, help="use at most this many training positions")
     ap.add_argument("--ckpt-every", type=int, default=200, help="steps between checkpoints")
     ap.add_argument("--log-every", type=int, default=100)
+    ap.add_argument("--half", type=int, default=256, choices=(256, 512),
+                    help="feature-transformer width; 512 needs an engine built with --features halfkp_l1_512")
     args = ap.parse_args()
+    set_half(args.half)
     if args.init_bin and args.fv_scale is None:
         ap.error("--init-bin requires an explicitly supplied --fv-scale")
     if args.fv_scale is None:

@@ -46,7 +46,15 @@ pub const PIECE_FEATURES: usize = 1_548;
 /// Total `HalfKP` input features (81 king squares x 1,548).
 pub const INPUT_FEATURES: usize = 81 * PIECE_FEATURES;
 /// Feature-transformer outputs per perspective.
+///
+/// The experimental `halfkp_l1_512` build reads `HalfKP 512x2-32-32` files
+/// instead; the structural hashes below follow the width, so each build
+/// rejects the other width's files.
+#[cfg(not(feature = "halfkp_l1_512"))]
 pub const HALF_DIMS: usize = 256;
+/// Feature-transformer outputs per perspective (`halfkp_l1_512` build).
+#[cfg(feature = "halfkp_l1_512")]
+pub const HALF_DIMS: usize = 512;
 /// Hidden layer width.
 pub const HIDDEN: usize = 32;
 /// Default divisor applied to the final network output.
@@ -271,7 +279,7 @@ fn expect_hash(found: u32, expected: u32, section: &str) -> io::Result<()> {
         Ok(())
     } else {
         Err(invalid(&format!(
-            "unsupported HalfKP {section} hash {found:#010x} (expected {expected:#010x} for HalfKP 256x2-32-32)"
+            "unsupported HalfKP {section} hash {found:#010x} (expected {expected:#010x} for HalfKP {HALF_DIMS}x2-32-32)"
         )))
     }
 }
@@ -389,7 +397,8 @@ impl HalfKpNetwork {
         let out_weights = std::array::from_fn(|_| ranged(-127, 127) as i8);
         Self {
             architecture: format!(
-                "Features=HalfKP(Friend)[{INPUT_FEATURES}->{HALF_DIMS}x2],Network=AffineTransform[1<-32](ClippedReLU[32](AffineTransform[32<-32](ClippedReLU[32](AffineTransform[32<-512](InputSlice[512(0:512)])))))"
+                "Features=HalfKP(Friend)[{INPUT_FEATURES}->{HALF_DIMS}x2],Network=AffineTransform[1<-32](ClippedReLU[32](AffineTransform[32<-32](ClippedReLU[32](AffineTransform[32<-{l1_in}](InputSlice[{l1_in}(0:{l1_in})])))))",
+                l1_in = 2 * HALF_DIMS
             ),
             ft_bias: Box::new(ft_bias),
             ft_weights,
@@ -2537,10 +2546,18 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "halfkp_l1_512"))]
     #[test]
     fn structural_hash_matches_published_halfkp_256x2_32_32_value() {
         assert_eq!(TRANSFORMER_HASH, 0x5D69_D7B8);
         assert_eq!(FILE_HASH, 0x3E5A_A6EE);
+    }
+
+    #[cfg(feature = "halfkp_l1_512")]
+    #[test]
+    fn structural_hash_follows_the_512_wide_feature_transformer() {
+        assert_eq!(TRANSFORMER_HASH, (0x5D69_D5B9 ^ 1) ^ 1_024);
+        assert_ne!(FILE_HASH, 0x3E5A_A6EE, "a 512 build must reject 256 files");
     }
 
     #[test]
