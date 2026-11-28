@@ -69,10 +69,12 @@ matches, training, and operational tools.
 
 ## Project status and documentation
 
-On 2026-11-16, all ongoing and pending improvement plans were closed for
-reassessment at the owner's request. No next experiment is scheduled by these
-documents. Existing results, rejected candidates, and unused confirmation
-inputs remain preserved. See the [plan review](docs/plans/README.md).
+Current priority (2026-11-27): make strength measurement cheap and routine
+(parallel match games and a fixed YaneuraOu gauge), then train a larger NNUE.
+Every change that may affect strength is judged by the
+[standard strength test](docs/strength_testing.md). The working rules are in
+[AGENTS.md](AGENTS.md); earlier plans are summarized in the
+[plan review](docs/plans/README.md).
 
 - [Documentation index](DOCUMENTATION.md)
 - [Benchmarks and evidence](docs/benchmarks.md)

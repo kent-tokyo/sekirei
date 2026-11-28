@@ -66,9 +66,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## 現在の状態と文書
 
-2026-11-16、ユーザーの指示で進行中・保留中の強化計画をすべて終了し、見直しに戻しました。
-次の実験予定はありません。過去の結果、不通過候補、未使用の確認入力は保持しています。
-分野ごとの到達点は[計画の棚卸し](docs/plans/README.md)にまとめています。
+現在の優先事項（2026-11-27）は、棋力測定を安く日常的にすること（並列対局と固定YaneuraOuゲージ）、
+その後により大きなNNUEを学習することです。棋力に影響しうる変更は
+[標準の棋力テスト](docs/strength_testing.md)で採否を決めます。作業ルールは[AGENTS.md](AGENTS.md)、
+それ以前の計画の到達点は[計画の棚卸し](docs/plans/README.md)にあります。
 
 - [文書索引](DOCUMENTATION.md)
 - [ベンチマークと検証範囲](docs/benchmarks.md)
