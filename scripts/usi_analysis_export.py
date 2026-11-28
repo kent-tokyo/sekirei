@@ -66,10 +66,8 @@ def _safe_int(s):
 
 
 def sha256_of_file(path):
-    # Same approach as scripts/gate_phase_a2_weight_ab.py::sha256_of_file,
-    # duplicated locally rather than imported -- that module is a
-    # specialized gate script with unrelated module-level state, not a
-    # shared-utility module.
+    # Streamed SHA-256 of a file, kept local so this script has no imports
+    # from other scripts.
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
