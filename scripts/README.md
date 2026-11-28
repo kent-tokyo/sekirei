@@ -4,9 +4,9 @@ Use the Cargo binaries for normal play. This directory contains development,
 measurement, and release tools. Run commands from the repository root; inspect
 `--help` and choose a fresh ignored output directory before starting a run.
 
-**2026-11-16: all ongoing and deferred improvement plans are closed for review.**
-This index describes available tools, not work to resume. Past trials retain
-their original inputs, limits, and verdicts; see [AGENTS.md](../AGENTS.md).
+This index describes available tools, not work to resume. Strength changes
+are judged with the [standard strength test](../docs/strength_testing.md);
+working rules are in [AGENTS.md](../AGENTS.md).
 
 ## Documentation and release checks
 
@@ -106,10 +106,10 @@ and [compression](../docs/experiments/positions_compression_v0.4.1/README.md) re
 
 | Purpose | Tools |
 |---|---|
-| Paired local A/B or SPRT | `run_ab_match.py` |
+| Paired local A/B or SPRT ([standard test](../docs/strength_testing.md)) | `run_ab_match.py` |
 | Parallel colour-reversed pairs, SPRT or fixed-count Elo | `run_parallel_sprt.py` |
 | Offline self-play and replay audit | `run_local_selfplay.py`, `build_selfplay_ledger.py`, `profile_nnue_transcript.py` |
-| Material-only search tuning | `spsa.py` |
+| Search-parameter tuning (SPSA; material-only for now, r6 support not yet added) | `spsa.py` |
 | One-shot process observation | `run_observed_process.py` |
 | Host/capacity admission | `nnue_gate_host.py`, `gate_resource_preflight.py`, `guard_halfkp_capacity.py` |
 | Bounded Floodgate operation | `launch_floodgate_once.py`, `floodgate_supervisor.py` |

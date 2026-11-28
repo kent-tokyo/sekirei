@@ -40,7 +40,7 @@ WASM固有の検証は[WASM README](../crates/sekirei-wasm/README.md)を参照�
 ## 実験・公開の記録
 
 速度・指し手品質・棋力の確認は[ベンチマーク](benchmarks.md)で区別します。
-計画の現在の扱いは[棚卸し](plans/README.md)、資源・データ・採用のルールは
+変更の採否は[標準の棋力テスト](strength_testing.md)、資源・データのルールは
 [AGENTS.md](../AGENTS.md)にまとめています。
 
 リリースごとの変更は[CHANGELOG](../CHANGELOG.md)、配布物と公開確認は
