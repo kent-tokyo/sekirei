@@ -107,6 +107,7 @@ and [compression](../docs/experiments/positions_compression_v0.4.1/README.md) re
 | Purpose | Tools |
 |---|---|
 | Paired local A/B or SPRT ([standard test](../docs/strength_testing.md)) | `run_ab_match.py` |
+| Parallel colour-reversed pairs, SPRT or fixed-count Elo | `run_parallel_sprt.py` |
 | Offline self-play and replay audit | `run_local_selfplay.py`, `build_selfplay_ledger.py`, `profile_nnue_transcript.py` |
 | Search-parameter tuning (SPSA; material-only for now, r6 support not yet added) | `spsa.py` |
 | One-shot process observation | `run_observed_process.py` |
