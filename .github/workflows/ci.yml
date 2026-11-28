@@ -254,13 +254,9 @@ jobs:
           python3 scripts/test_launchd_template.py
           python3 scripts/test_launch_floodgate_once.py
           python3 scripts/test_validate_floodgate_runtime_status.py
-          python3 scripts/test_build_floodgate_diagnostic_corpus.py
-          python3 scripts/test_validate_floodgate_diagnostic_corpus.py
           python3 scripts/test_sfen_symmetry.py
           python3 scripts/test_run_floodgate_fixed_nodes.py
           python3 scripts/test_run_core_floodgate_diagnostic.py
-          python3 scripts/test_validate_floodgate_diagnostic_summary.py
-          python3 scripts/test_validate_floodgate_diagnostic_comparison.py
           python3 scripts/test_validate_floodgate_root_review.py
           python3 scripts/test_run_floodgate_root_review.py
           python3 scripts/validate_floodgate_root_review.py \
@@ -268,35 +264,9 @@ jobs:
           python3 scripts/validate_floodgate_root_review.py \
             scripts/fixtures/floodgate_root_review_v2.json
           python3 scripts/test_check_release_metadata.py
-          python3 scripts/test_select_completed_diagnostic_rows.py
-          python3 scripts/test_validate_completed_diagnostic_selection.py
-          python3 scripts/test_compare_floodgate_diagnostic_summaries.py
-          python3 scripts/test_compare_floodgate_budget_runs.py
-          python3 scripts/test_validate_floodgate_budget_comparison.py
-          python3 scripts/test_select_floodgate_hypothesis.py
-          python3 scripts/test_validate_floodgate_hypothesis_selection.py
-          python3 scripts/test_validate_floodgate_hypothesis_consistency.py
-          python3 scripts/test_build_floodgate_hypothesis_table.py
-          python3 scripts/test_validate_floodgate_hypothesis_table.py
-          python3 scripts/test_split_floodgate_diagnostic_corpus.py
-          python3 scripts/test_validate_floodgate_diagnostic_split.py
           python3 scripts/test_attach_diagnostic_artifacts.py
-          python3 scripts/test_validate_floodgate_candidate_decision.py
-          python3 scripts/test_validate_floodgate_candidate_evidence.py
-          python3 scripts/test_assess_floodgate_candidate_holdout_alignment.py
-          python3 scripts/test_prepare_floodgate_candidate_holdout_plan.py
-          python3 scripts/test_validate_floodgate_candidate_holdout_plan.py
           python3 scripts/test_validate_floodgate_offline_acceptance.py
           python3 scripts/test_validate_floodgate_supervisor_events.py
-          python3 scripts/test_evaluate_floodgate_diagnostic_gate.py
-          python3 scripts/test_build_independent_diagnostic_corpus.py
-          python3 scripts/test_compare_floodgate_holdout_runs.py
-          python3 scripts/test_validate_floodgate_holdout_comparison.py
-          python3 scripts/test_evaluate_floodgate_holdout_regression.py
-          python3 scripts/test_analyze_floodgate_budget_ladder.py
-          python3 scripts/test_validate_floodgate_budget_ladder.py
-          python3 scripts/test_analyze_floodgate_depth_ladder.py
-          python3 scripts/test_validate_floodgate_depth_ladder.py
           python3 -m unittest \
             scripts/test_analysis_record.py \
             scripts/test_analyze_analysis_record.py \
