@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to the same PR or branch makes the older run obsolete. Cancel it
+# so it stops holding hosted-runner slots; runs queue behind each other
+# otherwise (2026-11-28: PR runs waited up to an hour before starting).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
