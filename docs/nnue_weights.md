@@ -39,6 +39,7 @@ requires a new engine process.
 | Default flat | `SEKIRW01`, legacy `JANOSW03` | 2420 inputs, L1 256, L2 32 |
 | Experimental `king_relative_b_small` | `SEKIRW02` | 20564 inputs, L1 256, L2 32; no released weight |
 | Experimental flat widths | `SEKIRW01` | Exact selected `nnue_l1_128` / `nnue_l1_384` and `nnue_l2_16` / `nnue_l2_64` dimensions |
+| Experimental `halfkp_l1_512` | HalfKP `0x7AF32F16`, file hash `0x3E5AA02E` | HalfKP 512x2-32-32; no released weight. Train with `train_halfkp.py --half 512` |
 
 The loader checks the header and exact length. `JANOSW02` is unsupported;
 feature-layout and width changes require a matching trained file.

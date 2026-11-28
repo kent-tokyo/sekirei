@@ -378,5 +378,35 @@ class QuantizedWarmStartTest(unittest.TestCase):
             os.unlink(alias)
 
 
+@unittest.skipUnless(HAVE_DEPS, "requires torch and numpy")
+class WidthTest(unittest.TestCase):
+    def tearDown(self):
+        th.set_half(256)
+
+    def test_hashes_match_the_engine_for_both_widths(self):
+        # Values from sekirei_core::halfkp (default and halfkp_l1_512 builds).
+        self.assertEqual(th.structural_hashes(256)[2], 0x3E5AA6EE)
+        self.assertEqual(th.structural_hashes(512)[2], 0x3E5AA02E)
+
+    def test_512_export_has_the_512_layout_and_round_trips(self):
+        th.set_half(512)
+        net = th.Net(24)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "n512.bin")
+            th.export(net, path, 24, "test")
+            data = open(path, "rb").read()
+            self.assertEqual(struct.unpack("<I", data[4:8])[0], 0x3E5AA02E)
+            arch_len = int.from_bytes(data[8:12], "little")
+            self.assertIn(b"512x2-32-32", data[12:12 + arch_len])
+            expected = (12 + arch_len + 4 + 512 * 2 + th.N_IN * 512 * 2 + 4
+                        + th.HIDDEN * 4 + th.HIDDEN * 1024 + th.HIDDEN * 4
+                        + th.HIDDEN * th.HIDDEN + 4 + th.HIDDEN)
+            self.assertEqual(len(data), expected)
+
+    def test_rejects_unsupported_width(self):
+        with self.assertRaises(ValueError):
+            th.set_half(384)
+
+
 if __name__ == "__main__":
     unittest.main()

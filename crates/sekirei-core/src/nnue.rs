@@ -283,7 +283,10 @@ impl EvalFileFormat {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Sekirei => "SEKIRW01",
+            #[cfg(not(feature = "halfkp_l1_512"))]
             Self::HalfKp => "HalfKP 256x2-32-32",
+            #[cfg(feature = "halfkp_l1_512")]
+            Self::HalfKp => "HalfKP 512x2-32-32",
         }
     }
 }
