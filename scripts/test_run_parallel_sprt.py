@@ -41,6 +41,10 @@ class HelperTests(unittest.TestCase):
         merged = merge_options(["Hash=256", "EvalFile=/a"], ["FV_SCALE=24", "Hash=128"])
         self.assertEqual(merged, ["Threads=1", "FV_SCALE=24", "Hash=256", "EvalFile=/a"])
 
+    def test_merge_options_usi_hash_replaces_default_hash(self):
+        self.assertEqual(merge_options(["USI_Hash=64"], []), ["Threads=1", "USI_Hash=64"])
+        self.assertIn("Hash=32", merge_options(["USI_Hash=64", "Hash=32"], []))
+
     def test_merge_options_rejects_missing_value(self):
         with self.assertRaises(ValueError):
             merge_options(["Threads"], [])

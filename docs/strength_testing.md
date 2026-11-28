@@ -52,7 +52,7 @@ python3 scripts/run_parallel_sprt.py \
   --option1 EvalFile="$R6" --option1 FV_SCALE=24 \
   --engine2 /path/to/YaneuraOu \
   --option2 EvalDir=/path/to/r6-evaldir --option2 FV_SCALE=24 --option2 USI_Hash=64 \
-  --option2 NodesLimit=<固定値> --option2 USI_OwnBook=false --option2 BookFile=no_book \
+  --option2 NodesLimit=160000 --option2 USI_OwnBook=false --option2 BookFile=no_book \
   --option2 NetworkDelay=0 --option2 NetworkDelay2=0 --option2 MinimumThinkingTime=1 \
   --positions docs/yardstick/gauge.sfen --pairs 100 --byoyomi 1000 \
   --out-dir target/gauge/<版>
@@ -63,9 +63,18 @@ python3 scripts/run_parallel_sprt.py \
 - 結果（勝率、Elo差と95%区間、版、コミット）は版ごとに[ベンチマーク](benchmarks.md)へ1行追記します。
 - ゲージは進捗の記録用です。変更の採否には使いません。
 
+| 固定値 | 値 |
+|---|---|
+| YaneuraOu binary SHA-256 | `83ed10ca6708eda4dd7984096ebdd0adebcee115f4085eb0c003d169a4e5f26c` |
+| `NodesLimit` | 160000 |
+| `EvalDir` | r6を`nn.bin`という名前で置いたディレクトリ |
+
+`NodesLimit`は、gauge.sfenで各20組（1手1秒、Apple M4・3並列）を試して選びました。
+Sekireiの得点率は10000で97.5%、20000で95.0%、40000で97.5%、80000で70.0%、
+160000で60.0%でした。35〜65%に入った最初の値です。
+
 ## 未決定の項目
 
-- ゲージ用YaneuraOuのビルドと`NodesLimit`の値。候補値ごとに20組ずつ試し、勝率が35〜65%に入る値を選ぶ。
-  `EvalDir`には、r6を`nn.bin`という名前で置いたディレクトリを指定する。
+なし。ゲージの固定値は2026-11-28に下の表のとおり決めました。
 
 決まったらこの文書を更新し、[AGENTS.md](../AGENTS.md)は変えずに済むようにします。
