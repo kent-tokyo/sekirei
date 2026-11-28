@@ -80,7 +80,7 @@ Lower validation loss alone does not qualify a weight.
 |---|---|
 | New diagnostic positions | `generate_search_diagnostic.py` |
 | Whole-game dataset split | `split_gensfen_by_game.py` |
-| Frozen opening corpora | `freeze_material_gate_openings.py`, `freeze_balanced_gate_openings.py` |
+| Frozen opening corpora | `freeze_yardstick_openings.py` (standard test), `freeze_material_gate_openings.py`, `freeze_balanced_gate_openings.py` |
 | Reserved-root exclusions | `export_opening_identity_exclusions.py`, `stream_opening_exclusions.py` |
 | Training and bounded pilot | `train_halfkp.py`, `run_halfkp_pilot.py` |
 | Checkpoint lineage | `record_resume_run.py`, `attach_resume_manifest.py` |

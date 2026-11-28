@@ -11,11 +11,12 @@
 | 評価関数 | 両者ともr6（`sekirei-halfkp-r6-v0.5.0.bin`、`FV_SCALE=24`）。入手は[weights/README.md](../weights/README.md) |
 | スレッド | 各エンジン1（`--threads-a 1 --threads-b 1`） |
 | Hash | 64 MB（既定値） |
-| 開始局面 | Sekireiで生成した開始局面。当面は既定の`data/gate/openings_standard.sfen`（ローカル、Git管理外） |
+| 開始局面 | [固定の開始局面](yardstick/README.md)。SPRTは`docs/yardstick/sprt.sfen`（500局面）、ゲージは`docs/yardstick/gauge.sfen`（100局面） |
 | ビルド | `cargo build --release`。比較する2つのバイナリは同じビルド設定で作る |
 
-`--games-per-position`は偶数にし、「開始局面数 × N」が10,000局以下になるよう選びます
-（runnerはこの積が`--games`を超えると起動しません）。
+対局には`scripts/run_parallel_sprt.py`を使います。色を入れ替えた2局を1組として、
+複数の組を同時に指します。同時対局数の既定値は「性能コア数 − 1」です（`--concurrency`で変更可）。
+`run_ab_match.py`でも同じSPRTを実行できますが、1局ずつなので時間がかかります。
 
 ## 1. 変更の採否：SPRT（Sekirei同士）
 
@@ -23,20 +24,18 @@
 
 ```bash
 R6=/absolute/path/sekirei-halfkp-r6-v0.5.0.bin
-python3 scripts/run_ab_match.py selfplay \
-  --engine-a target/candidate/sekirei --engine-b target/baseline/sekirei \
-  --evalfile "$R6" --fv-scale 24 \
-  --byoyomi 200 --games 10000 --games-per-position N \
-  --sprt 0,5 --paired-sprt \
-  --name <変更名> --out-dir target/ab-match/<変更名>
+python3 scripts/run_parallel_sprt.py \
+  --engine1 target/candidate/sekirei --engine2 target/baseline/sekirei \
+  --option-both EvalFile="$R6" --option-both FV_SCALE=24 \
+  --positions docs/yardstick/sprt.sfen --byoyomi 200 \
+  --sprt 0,5 --pairs 5000 --out-dir target/sprt/<変更名>
 ```
 
 - **H1採択**：マージしてよい。
-- **H0採択、または10,000局で未決着**：不採用。同じ変更を再実行して合格を狙わない。修正した変更は新しいテストとして最初から実行する。
+- **H0採択、または5,000組（10,000局）で未決着**：不採用。同じ変更を再実行して合格を狙わない。修正した変更は新しいテストとして最初から実行する。
 - 結果（LLR、勝敗分、対局数、両バイナリのコミット）をPRの説明に貼る。
 
-並列対局（`--concurrency`）はmatch runnerへ追加中です。使えるようになったら
-同時対局数を「物理コア数 − 1」以下にして付けます。
+結果は`summary.json`（判定、LLR、勝敗、両バイナリのSHA-256）と`pairs.jsonl`に残ります。
 
 ### 強さを変えない変更（非退行テスト）
 
@@ -48,11 +47,15 @@ python3 scripts/run_ab_match.py selfplay \
 リリースや大きな変更のあとに、固定した相手との成績でEloを追跡します。
 
 ```bash
-python3 scripts/run_ab_match.py yaneuraou \
-  --engine-a target/release/sekirei --yaneuraou /path/to/YaneuraOu \
-  --evalfile "$R6" --fv-scale 24 --nodes-limit <固定値> \
-  --byoyomi 1000 --games 200 \
-  --name gauge-<版> --out-dir target/ab-match/gauge-<版>
+python3 scripts/run_parallel_sprt.py \
+  --engine1 target/release/sekirei \
+  --option1 EvalFile="$R6" --option1 FV_SCALE=24 \
+  --engine2 /path/to/YaneuraOu \
+  --option2 EvalDir=/path/to/r6-evaldir --option2 FV_SCALE=24 --option2 USI_Hash=64 \
+  --option2 NodesLimit=<固定値> --option2 USI_OwnBook=false --option2 BookFile=no_book \
+  --option2 NetworkDelay=0 --option2 NetworkDelay2=0 --option2 MinimumThinkingTime=1 \
+  --positions docs/yardstick/gauge.sfen --pairs 100 --byoyomi 1000 \
+  --out-dir target/gauge/<版>
 ```
 
 - YaneuraOuのバイナリと`--nodes-limit`は一度決めたら変えません（初回に勝率が50%前後になる値を選ぶ）。
@@ -62,8 +65,7 @@ python3 scripts/run_ab_match.py yaneuraou \
 
 ## 未決定の項目
 
-- 10,000局に十分な数の開始局面ファイルを固定すること。
-- ゲージ用YaneuraOuのビルドと`--nodes-limit`の値。
-- このMacの物理コア数（並列対局数の上限）。
+- ゲージ用YaneuraOuのビルドと`NodesLimit`の値。候補値ごとに20組ずつ試し、勝率が35〜65%に入る値を選ぶ。
+  `EvalDir`には、r6を`nn.bin`という名前で置いたディレクトリを指定する。
 
 決まったらこの文書を更新し、[AGENTS.md](../AGENTS.md)は変えずに済むようにします。
