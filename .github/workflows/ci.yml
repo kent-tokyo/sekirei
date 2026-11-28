@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to the same PR or branch makes the older run obsolete. Cancel it
+# so it stops holding hosted-runner slots; runs queue behind each other
+# otherwise (2026-11-28: PR runs waited up to an hour before starting).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -352,6 +359,29 @@ jobs:
             /tmp/release-manifest-with-mcts-comparison.json \
             --output /tmp/mcts-budget-summary.json
           python3 -m json.tool /tmp/mcts-budget-summary.json > /dev/null
+      - name: Verify SharedMcts diagnostic artifact contents
+        # Formerly a separate job that downloaded the artifact; folded in so it
+        # does not queue for a second runner after `test` (2026-11-28).
+        run: |
+          python3 scripts/validate_release_manifest.py \
+            /tmp/release-manifest-with-live-mcts.json
+          python3 scripts/verify_mcts_diagnostic.py \
+            --manifest /tmp/release-manifest-with-live-mcts.json \
+            --transcript /tmp/usi-shared-mcts-v0.3.29.txt
+          test "$(grep -c '^repeat=' /tmp/mcts-fixed-budget-1.txt)" -eq 18
+          test "$(grep -c 'mode=TreeMcts ' /tmp/mcts-fixed-budget-1.txt)" -eq 9
+          test "$(grep -c 'mode=SharedTreeMcts ' /tmp/mcts-fixed-budget-1.txt)" -eq 9
+          grep -q 'transposition_hits=[1-9][0-9]*' /tmp/mcts-fixed-budget-1.txt
+          python3 scripts/validate_release_manifest.py \
+            /tmp/release-manifest-with-mcts-comparison.json
+          python3 scripts/validate_release_manifest.py \
+            /tmp/release-manifest-with-mcts-comparison-small.json
+          python3 -m json.tool /tmp/mcts-comparison-summary.json > /dev/null
+          python3 -m json.tool /tmp/mcts-comparison-summary-small.json > /dev/null
+          grep -q '"strength_claim": false' /tmp/mcts-comparison-summary.json
+          grep -q '"strength_claim": false' /tmp/mcts-comparison-summary-small.json
+          python3 -m json.tool /tmp/mcts-budget-summary.json > /dev/null
+          grep -q '"strength_claim": false' /tmp/mcts-budget-summary.json
       - name: Upload SharedMcts diagnostic artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -380,37 +410,6 @@ jobs:
             --resume-manifest scripts/fixtures/resume_manifest_v1.json \
             --output /tmp/release-manifest-with-resume.json
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-resume.json
-
-  shared-mcts-artifact-audit:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: shared-mcts-diagnostic-v0.3.29
-          path: /tmp/shared-mcts-diagnostic
-      - name: Verify downloaded SharedMcts diagnostic artifact
-        run: |
-          python3 scripts/validate_release_manifest.py \
-            /tmp/shared-mcts-diagnostic/release-manifest-with-live-mcts.json
-          python3 scripts/verify_mcts_diagnostic.py \
-            --manifest /tmp/shared-mcts-diagnostic/release-manifest-with-live-mcts.json \
-            --transcript /tmp/shared-mcts-diagnostic/usi-shared-mcts-v0.3.29.txt
-          test "$(grep -c '^repeat=' /tmp/shared-mcts-diagnostic/mcts-fixed-budget-1.txt)" -eq 18
-          test "$(grep -c 'mode=TreeMcts ' /tmp/shared-mcts-diagnostic/mcts-fixed-budget-1.txt)" -eq 9
-          test "$(grep -c 'mode=SharedTreeMcts ' /tmp/shared-mcts-diagnostic/mcts-fixed-budget-1.txt)" -eq 9
-          grep -q 'transposition_hits=[1-9][0-9]*' /tmp/shared-mcts-diagnostic/mcts-fixed-budget-1.txt
-          python3 scripts/validate_release_manifest.py \
-            /tmp/shared-mcts-diagnostic/release-manifest-with-mcts-comparison.json
-          python3 scripts/validate_release_manifest.py \
-            /tmp/shared-mcts-diagnostic/release-manifest-with-mcts-comparison-small.json
-          python3 -m json.tool /tmp/shared-mcts-diagnostic/mcts-comparison-summary.json > /dev/null
-          python3 -m json.tool /tmp/shared-mcts-diagnostic/mcts-comparison-summary-small.json > /dev/null
-          grep -q '"strength_claim": false' /tmp/shared-mcts-diagnostic/mcts-comparison-summary.json
-          grep -q '"strength_claim": false' /tmp/shared-mcts-diagnostic/mcts-comparison-summary-small.json
-          python3 -m json.tool /tmp/shared-mcts-diagnostic/mcts-budget-summary.json > /dev/null
-          grep -q '"strength_claim": false' /tmp/shared-mcts-diagnostic/mcts-budget-summary.json
 
   smoke:
     runs-on: ubuntu-latest
